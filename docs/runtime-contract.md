@@ -88,3 +88,23 @@ Known explicit credential values are redacted. Commands and arbitrary argument
 contents are omitted, so callers must separately retain a safe reproduction
 command. Applications are responsible for keeping their own exported output safe.
 This is an application execution record, not provider qualification.
+
+SoftHSM builds split only debug sections before constructing the runtime image.
+The ordinary static symbols, dynamic symbols and linking metadata are retained.
+The runtime has GNU build IDs and debuglinks, without the separate debug files.
+To retain a matching optional **binary** debug companion separately, use:
+
+```sh
+p11lab build softhsm2 --channel release --output-dir build-release \
+  --debug-output-dir debug-release
+```
+
+The debug directory contains a compressed archive and its separate
+`artifact.json` receipt. The receipt binds exact runtime bytes to original,
+shipped and debug hashes, GNU build IDs and debuglink CRCs. A failed export never
+emits a matched companion receipt. The binary archive includes the upstream
+license and provenance referencing the exact source inputs; it requires the
+runtime's source/license companion and is not a source-only companion.
+All artifacts remain unreviewed until distribution admission. Runtime receipts
+call Docker's `.Size` value `docker_reported_size_bytes`; it is an engine storage
+observation, not a measured registry download or unpacked filesystem size.

@@ -51,7 +51,7 @@ def runtime_inputs(spec: dict) -> dict:
                 for a in lock['assets'] if a['role'] in {'adapter', 'adapter-common', 'notice'}]
     adapter = hashlib.sha256(json.dumps(adapters, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     return {key: lock[key] for key in ('sources', 'dependencies', 'patches', 'base_images', 'packages', 'toolchain', 'features')} | {
-        'recipe': next(a['sha256'] for a in lock['assets'] if a['role'] == 'recipe'),
+        'recipe': hashlib.sha256(json.dumps([a for a in lock['assets'] if a['role'] in {'recipe', 'build-helper'}], sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
         'adapter': adapter, 'metadata': hashlib.sha256(packaged_asset(spec['id'], 'provider.json').read_bytes()).hexdigest(),
         'platform': spec['runtime_platforms'][0],
         'features': lock['features'] | {'apt_snapshot': lock['apt_snapshot'], 'signed_index_inputs': lock['signed_index_inputs']},
@@ -174,7 +174,7 @@ def build_artifact(spec: dict, role: str, output_dir: Path):
     (output_dir / 'actual-signed-indexes.sha256').write_text(index_receipt)
     artifact = ArtifactRef('docker-local', image_id, image_id.removeprefix('sha256:'), spec['runtime_platforms'][0])
     receipt = {'schema_version': 1, 'artifact': asdict(artifact), 'build_key': key,
-               'image_size_bytes': inspected['Size'],
+               'docker_reported_size_bytes': inspected['Size'],
                'local_engine_descriptor': inspected.get('Descriptor'),
                'actual_config_digest': build_metadata.get('containerimage.config.digest'),
                'reported_config_digests': reported_config_digests,

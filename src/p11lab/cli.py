@@ -25,6 +25,7 @@ def main(argv=None) -> int:
         command.add_argument("--output-dir", required=True, type=Path)
         if name == "build":
             command.add_argument("--role", default="runtime")
+            command.add_argument("--debug-output-dir", type=Path, help="export a separate matched binary debug companion")
     command = commands.add_parser("run", help="run an application in an owned provider instance")
     command.add_argument("id")
     command.add_argument("--channel", required=True)
@@ -77,7 +78,11 @@ def main(argv=None) -> int:
                 result = resolve_sources(spec, output_dir=args.output_dir)
             else:
                 from .build import build_artifact
-                result = asdict(build_artifact(spec, args.role, args.output_dir))
+                artifact = build_artifact(spec, args.role, args.output_dir)
+                result = asdict(artifact)
+                if args.debug_output_dir is not None:
+                    from .debug import export_debug_companion
+                    export_debug_companion(spec, artifact, args.output_dir, args.debug_output_dir)
             print(json.dumps(result, indent=2, sort_keys=True))
         elif args.command == "describe":
             print(json.dumps(load_environment(args.id, args.channel), indent=2, sort_keys=True))

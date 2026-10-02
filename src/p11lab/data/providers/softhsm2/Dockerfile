@@ -31,7 +31,17 @@ RUN make DESTDIR=/install install \
  && ldd /runtime/usr/local/lib/p11lab/libsofthsm2.so /runtime/usr/local/bin/softhsm2-util > /runtime/usr/share/p11lab/build/linked-dependencies.txt \
  && gcc --version > /runtime/usr/share/p11lab/build/compiler.txt \
  && dpkg-query -W -f='${Package} ${Version} ${source:Package} ${source:Version}\n' libssl3t64 > /runtime/usr/share/p11lab/build/crypto.txt
-FROM ${BASE_IMAGE}
+COPY split-debug.sh /tmp/split-debug.sh
+RUN mkdir /debug-original \
+ && cp /runtime/usr/local/lib/p11lab/libsofthsm2.so /runtime/usr/local/bin/softhsm2-util /debug-original/ \
+ && sh /tmp/split-debug.sh /debug-original /debug-shipped /debug libsofthsm2.so softhsm2-util \
+ && cp /debug-shipped/libsofthsm2.so /runtime/usr/local/lib/p11lab/libsofthsm2.so \
+ && cp /debug-shipped/softhsm2-util /runtime/usr/local/bin/softhsm2-util \
+ && cp /debug/binaries.tsv /debug/binutils.txt /runtime/usr/share/p11lab/build/ \
+ && cp LICENSE /debug/LICENSE.softhsm2
+FROM scratch AS debug-companion
+COPY --from=builder /debug/ /
+FROM ${BASE_IMAGE} AS runtime
 COPY --from=builder /runtime/ /
 COPY entrypoint.sh /usr/local/bin/p11lab-provider
 COPY common.sh LICENSE provider.json runtime-id build-inputs.json /usr/share/p11lab/

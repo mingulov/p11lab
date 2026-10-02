@@ -2621,7 +2621,7 @@
     {
       "role": "recipe",
       "path": "Dockerfile",
-      "sha256": "f66c6262888b34095941911db1ccc3de737827e0c8ac519afca4c562d196a56b"
+      "sha256": "180950e96c5108670a7c99822fe114c2cdb228348e2631fb1034cf6a7e1a4f57"
     },
     {
       "role": "adapter",
@@ -2641,13 +2641,19 @@
       "path": "LICENSE",
       "context_path": "LICENSE",
       "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "role": "build-helper",
+      "path": "split-debug.sh",
+      "sha256": "2960f92c3af83a49cca3e87329af669f5151bd248eaafded56dda931bd9c2bcd"
     }
   ],
   "features": {
     "crypto_backend": "openssl",
     "gost": false,
     "objectstore_backend": "file",
-    "compile_jobs": 2
+    "compile_jobs": 2,
+    "debug_sections": "external-gnu-debuglink-strip-debug-static-symbols-retained"
   },
   "apt_snapshot": "20260918T000000Z",
   "builder_requested": [
