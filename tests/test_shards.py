@@ -91,6 +91,26 @@ def test_invalid_roster_never_calls_merge(prepared, tmp_path, monkeypatch):
     assert not merge_shards(plan, attempts[:1], tmp_path / 'missing')['complete']
 
 
+@pytest.mark.parametrize('location', ['state', 'raw'])
+def test_extra_unit_evidence_never_reaches_merge(prepared, tmp_path, monkeypatch, location):
+    plan, attempts = prepared
+    directory = Path(attempts[0]['directory'])
+    state = json.loads((directory / 'state.json').read_text())
+    extra = copy.deepcopy(state['process_observations'][0])
+    extra['target'] += '_unknown'
+    if location == 'state':
+        state['process_observations'].append(extra)
+        (directory / 'state.json').write_text(json.dumps(state))
+    else:
+        with (directory / 'report.jsonl').open('a') as stream:
+            stream.write(json.dumps({'$report_type': 'ProcessReport', 'target': extra['target'],
+                                     'observation': extra}) + '\n')
+    def forbidden(*args, **kwargs):
+        pytest.fail('extra unit evidence reached native merge')
+    monkeypatch.setattr('p11lab.shards.subprocess.run', forbidden)
+    assert not merge_shards(plan, attempts, tmp_path / 'extra-unit')['complete']
+
+
 @pytest.mark.parametrize('disposition', ['crashed', 'finalize'])
 def test_native_merge_preserves_completed_failure(prepared, tmp_path, disposition):
     plan, attempts = prepared
@@ -120,6 +140,38 @@ def test_merge_zero_with_missing_raw_evidence_is_rejected(prepared, tmp_path, mo
     assert result['returncode'] == 0
     assert not result['complete']
     assert 'merged raw evidence differs from selected attempts' in result['errors']
+
+
+@pytest.mark.parametrize('mutation', ['hidden-finalize', 'returncode', 'cleared-timeout'])
+def test_merge_reconciles_preserved_raw_classifications(prepared, tmp_path, monkeypatch, mutation):
+    plan, attempts = prepared
+    failed = tmp_path / 'finalize-failure'
+    write_evidence(failed, attempts[0]['nodes'], 'finalize')
+    attempts[0]['directory'] = str(failed)
+    (failed / 'checker-receipt.json').write_text(json.dumps(attempts[0]))
+    def fake_merge(argv, **kwargs):
+        output = Path(argv[-1])
+        output.mkdir()
+        payloads = [json.loads((Path(a['directory']) / 'results.json').read_text()) for a in attempts]
+        keys = payloads[0]['summary'].keys() - {'incomplete'}
+        payload = {'summary': {k: sum(p['summary'].get(k, 0) for p in payloads) for k in keys},
+                   'units': sum((p['units'] for p in payloads), [])}
+        payload['summary']['incomplete'] = False
+        if mutation == 'cleared-timeout':
+            payload['summary']['timeout'] = 1
+        elif mutation == 'returncode':
+            payload['units'][0]['returncode'] = 0
+        else:
+            payload['units'][0]['tests'] = []
+            payload['units'][0]['status'] = 'passed'
+            payload['units'][0]['counts']['error'] = 0
+        (output / 'results.json').write_text(json.dumps(payload))
+        (output / 'report.jsonl').write_text(''.join((Path(a['directory']) / 'report.jsonl').read_text() for a in attempts))
+        return subprocess.CompletedProcess(argv, 0, '', '')
+    monkeypatch.setattr('p11lab.shards.subprocess.run', fake_merge)
+    result = merge_shards(plan, attempts, tmp_path / 'contradictory-merge')
+    assert result['returncode'] == 0
+    assert not result['complete'], result
 
 
 

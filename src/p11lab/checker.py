@@ -97,11 +97,15 @@ def checker_environment(output: Path, pin: str, so_pin: str) -> dict:
     # not change selection. Keep only provider configuration and OS essentials.
     allowed = {'PATH', 'LD_LIBRARY_PATH', 'SYSTEMROOT', 'WINDIR', 'SOFTHSM2_CONF'}
     env = {k: v for k, v in os.environ.items() if k in allowed}
+    provenance_file = output.resolve() / 'build-provenance.json'
+    with os.fdopen(os.open(provenance_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
+        json.dump({'extra': {'checker': {'source_revision': SOURCE, 'wheel_sha256': WHEEL,
+                                         'runtime_lock_sha256': LOCK}}}, stream, indent=2)
     env.update(HOME=str(output), XDG_CONFIG_HOME=str(output), PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
                PYTEST_ADDOPTS='-v',
                P11TEST_PIN=pin, P11TEST_SO_PIN=so_pin,
                PKCS11_CHECK_FRAMEWORK_VERSION='0.2.2',
-               PKCS11_CHECK_BUILD_PROVENANCE=json.dumps({'source_revision': SOURCE, 'wheel_sha256': WHEEL, 'runtime_lock_sha256': LOCK}))
+               PKCS11_CHECK_BUILD_PROVENANCE=str(provenance_file))
     # The pin expects the source tree's -v default when parsing -qq collection.
     # Reproduce only output verbosity in the installed environment; no filters.
     # The checker explicitly loads required plugins in its child command.
@@ -191,6 +195,19 @@ def _lifecycle(entry: dict) -> bool:
     return entry.get('nodeid') == 'C_Finalize::teardown' and entry.get('lifecycle') == 'session-teardown'
 
 
+def _grouped_classifications(units: list[dict], root: Path):
+    from collections import Counter
+    from pkcs11_check.core.run_metrics import RESULT_OUTCOME_KEYS
+    def test_identity(test):
+        node = test['nodeid'] if _lifecycle(test) else canonical_node(test['nodeid'], root)
+        return (node, test.get('outcome'), test.get('lifecycle'))
+    return Counter((canonical_node(u['target'] + '::__owner__', root).split('::', 1)[0],
+                    u['status'], u['returncode'],
+                    tuple(u.get('counts', {}).get(k, 0) for k in RESULT_OUTCOME_KEYS),
+                    tuple(sorted(Counter(test_identity(t) for t in u.get('tests', [])).items())))
+                   for u in units)
+
+
 def validate_results(directory: Path, nodes: list[str], installed_root: Path) -> dict:
     """Reconcile native state, grouped JSON and raw isolated attempt evidence.
 
@@ -201,6 +218,10 @@ def validate_results(directory: Path, nodes: list[str], installed_root: Path) ->
     from collections import Counter
     from pkcs11_check.core.report_log import SessionCompletionTracker
     from pkcs11_check.core.file_runner import _completion_verified_for_attempt
+    from pkcs11_check.core._report_records import _build_detail_from_report_records
+    from pkcs11_check.core._report_writers import _build_isolated_json_payload
+    from pkcs11_check.core._run_units import FileRunResult, FileRunState
+    from pkcs11_check.core.run_metrics import RESULT_OUTCOME_KEYS, run_is_incomplete
     errors = []
     root = installed_root.resolve()
     expected = {str(root / n) for n in nodes}
@@ -217,16 +238,23 @@ def validate_results(directory: Path, nodes: list[str], installed_root: Path) ->
         if {r['target'] for r in results} != expected or len(results) != len(expected):
             errors.append('isolated result roster mismatch')
         units = payload['units']
-        if payload['summary'].get('incomplete') is not False or any(u.get('incomplete') or u.get('completion_verified') is False for u in units):
+        if payload['summary'].get('incomplete') is not False or run_is_incomplete(payload['summary'], units):
             errors.append('checker marked incomplete')
         grouped = {canonical_node(t['nodeid'], root) for u in units for t in u.get('tests', []) if not _lifecycle(t)}
         if not grouped <= expected:
             errors.append('unknown grouped test case')
         observations = state['process_observations']
+        raw_observations = [r['observation'] for r in raw if r.get('$report_type') == 'ProcessReport']
+        grouped_observations = [o for u in units for o in u.get('executions', [])]
+        for label, entries in (('state', observations), ('raw', raw_observations), ('grouped', grouped_observations)):
+            if Counter(o['target'] for o in entries if o.get('role') == 'unit') != Counter(expected):
+                errors.append(f'{label} supervisor roster mismatch')
         if state.get('process_observations_complete') is not True:
             errors.append('supervisor observations incomplete')
         cache_phases = Counter()
-        failed_finalize = False
+        expected_phases = Counter()
+        cache_finalize = Counter()
+        details = {}
         for result in results:
             target = result['target']
             cache = directory / '.state.json.report-records' / (hashlib.sha256(target.encode()).hexdigest() + '.jsonl')
@@ -242,7 +270,10 @@ def validate_results(directory: Path, nodes: list[str], installed_root: Path) ->
             tracker = SessionCompletionTracker()
             for entry in records:
                 tracker.observe(entry)
-            failed_finalize |= any(r.get('$report_type') == 'TeardownFinalize' and r.get('outcome') not in (None, 'ok') for r in records)
+            cache_finalize.update(json.dumps(r, sort_keys=True) for r in records if r.get('$report_type') == 'TeardownFinalize')
+            detail = _build_detail_from_report_records(records)
+            if detail is not None:
+                details[target] = detail
             if result.get('completion_verified') is not True:
                 errors.append('unverified isolated completion')
             if not _completion_verified_for_attempt(cache, status, rc, tracker.single_exitstatus):
@@ -274,14 +305,36 @@ def validate_results(directory: Path, nodes: list[str], installed_root: Path) ->
             seen = {phase(r)[0] for r in tests}
             if not seen <= {target} or (status not in {'crashed', 'timeout'} and seen != {target}):
                 errors.append('raw attempt membership mismatch')
+            # A selected node/attempt can emit each pytest phase only once,
+            # even when both retained copies contain the same extra report.
+            phases = [phase(r) for r in tests]
+            if (any(p[1] not in {'setup', 'call', 'teardown'} or p[2] not in {'passed', 'failed', 'skipped'} for p in phases)
+                    or len({p[:2] for p in phases}) != len(phases)):
+                errors.append('duplicate or invalid per-attempt test phase')
+            expected_phases.update(set(phases))
             cache_phases.update(phase(r) for r in tests)
         raw_phases = Counter(phase(r) for r in raw if r.get('$report_type') == 'TestReport' and not _lifecycle(r) and r.get('outcome') in {'passed', 'failed', 'skipped'})
-        if raw_phases != cache_phases:
+        if raw_phases != expected_phases or cache_phases != expected_phases:
             errors.append('aggregate raw attempt evidence mismatch')
         if not {phase(r)[0] for r in raw if r.get('$report_type') == 'TestReport' and not _lifecycle(r)} <= expected:
             errors.append('unknown raw test case')
-        if any(_lifecycle(t) for u in units for t in u.get('tests', [])) and not failed_finalize:
-            errors.append('unsupported lifecycle failure')
+        raw_finalize = Counter(json.dumps(r, sort_keys=True) for r in raw if r.get('$report_type') == 'TeardownFinalize')
+        if raw_finalize != cache_finalize:
+            errors.append('aggregate raw finalize evidence mismatch')
+        # Reconstruct classifications with the pin's own parser and assembler.
+        # This retains its finalize priority, synthetic deaths and grouped RCs.
+        native_results = [FileRunResult(**{k: r[k] for k in FileRunResult.__dataclass_fields__ if k in r}
+                                       | {'duration_s': r.get('duration_s', 0.0)}) for r in results]
+        reconstructed = _build_isolated_json_payload(FileRunState(
+            units=list(expected), fingerprint='', results=native_results,
+            process_observations=observations), per_unit_details=details)
+        if _grouped_classifications(units, root) != _grouped_classifications(reconstructed['units'], root):
+            errors.append('grouped classifications differ from raw attempts')
+        if any(payload['summary'].get(k, 0) != reconstructed['summary'].get(k, 0)
+               for k in (*RESULT_OUTCOME_KEYS, 'total')):
+            errors.append('aggregate counts differ from raw attempts')
+        if run_is_incomplete(reconstructed['summary'], reconstructed['units']):
+            errors.append('checker marked incomplete')
         executed = [o['target'] for u in units for o in u.get('executions', []) if o.get('role') == 'unit']
         if set(executed) != expected or len(executed) != len(expected):
             errors.append('grouped execution roster mismatch')

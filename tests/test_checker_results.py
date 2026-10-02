@@ -44,6 +44,7 @@ def write_evidence(directory, nodes, disposition='passed'):
         raw.extend(records)
         file = target.split('::', 1)[0]
         unit = groups.setdefault(file, {'target': file, 'status': status, 'executions': [], 'tests': [],
+                                       'returncode': abs(rc),
                                        'counts': {'passed': 0, 'error': 0, 'crashed': 0, 'timeout': 0}})
         unit['executions'].append(observation)
         unit['counts'][status if status in {'crashed', 'timeout'} else 'passed'] += 1
@@ -209,3 +210,92 @@ def test_empty_collection_is_not_a_successful_checker_run(tmp_path, monkeypatch)
             nodes=load_profile()['nodes'], output_dir=tmp_path / 'run', pin='1234', so_pin='12345678',
             identity={'source_revision': SOURCE, 'wheel_sha256': WHEEL, 'runtime_lock_sha256': LOCK})
     assert (tmp_path / 'run/collection.stdout.log').read_text() == ''
+
+
+@pytest.mark.parametrize('location', ['state', 'raw', 'grouped'])
+@pytest.mark.parametrize('extra_target', ['unknown', 'duplicate'])
+def test_exact_unit_observation_rosters(tmp_path, location, extra_target):
+    import copy
+    nodes = load_profile()['nodes'][:1]
+    directory = tmp_path / 'run'
+    root = write_evidence(directory, nodes)
+    state = json.loads((directory / 'state.json').read_text())
+    extra = copy.deepcopy(state['process_observations'][0])
+    if extra_target == 'unknown':
+        extra['target'] += '_unknown'
+    if location == 'state':
+        state['process_observations'].append(extra)
+        (directory / 'state.json').write_text(json.dumps(state))
+    elif location == 'raw':
+        with (directory / 'report.jsonl').open('a') as stream:
+            stream.write(json.dumps({'$report_type': 'ProcessReport', 'target': extra['target'],
+                                     'observation': extra}) + '\n')
+    else:
+        payload = json.loads((directory / 'results.json').read_text())
+        payload['units'][0]['executions'].append(extra)
+        (directory / 'results.json').write_text(json.dumps(payload))
+    assert not validate_results(directory, nodes, root)['observations_complete']
+
+
+@pytest.mark.parametrize('outcome', ['passed', 'failed'])
+def test_duplicate_attempt_phase_in_cache_and_aggregate(tmp_path, outcome):
+    nodes = load_profile()['nodes'][:1]
+    directory = tmp_path / 'run'
+    root = write_evidence(directory, nodes)
+    duplicate = {'$report_type': 'TestReport', 'nodeid': str(root / nodes[0]),
+                 'when': 'call', 'outcome': outcome}
+    cache = next((directory / '.state.json.report-records').glob('*.jsonl'))
+    for path in (cache, directory / 'report.jsonl'):
+        records = [json.loads(line) for line in path.read_text().splitlines()]
+        index = next(i for i, r in enumerate(records) if r.get('$report_type') == 'SessionFinish')
+        records.insert(index, duplicate)
+        path.write_text(''.join(json.dumps(r) + '\n' for r in records))
+    assert not validate_results(directory, nodes, root)['observations_complete']
+
+
+@pytest.mark.parametrize('mutation', ['cleared-timeout', 'hidden-finalize', 'missing-raw-finalize',
+                                      'forged-finalize', 'finalize-outcome', 'grouped-status', 'grouped-returncode'])
+def test_reconcile_aggregate_and_failure_classifications(tmp_path, mutation):
+    nodes = load_profile()['nodes'][:1]
+    directory = tmp_path / 'run'
+    disposition = 'timeout' if mutation == 'cleared-timeout' else 'passed' if mutation == 'forged-finalize' else 'finalize'
+    root = write_evidence(directory, nodes, disposition)
+    payload = json.loads((directory / 'results.json').read_text())
+    if mutation == 'cleared-timeout':
+        payload['summary']['incomplete'] = False
+    elif mutation == 'hidden-finalize':
+        payload['units'][0]['tests'] = []
+        payload['units'][0]['status'] = 'passed'
+        payload['units'][0]['returncode'] = 0
+        payload['units'][0]['counts']['error'] = 0
+    elif mutation == 'missing-raw-finalize':
+        records = [json.loads(line) for line in (directory / 'report.jsonl').read_text().splitlines()]
+        records = [r for r in records if r.get('$report_type') != 'TeardownFinalize']
+        (directory / 'report.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in records))
+    elif mutation == 'forged-finalize':
+        payload['units'][0]['tests'].append({'nodeid': 'C_Finalize::teardown',
+                                            'lifecycle': 'session-teardown', 'outcome': 'error'})
+    elif mutation == 'finalize-outcome':
+        payload['units'][0]['tests'][0]['outcome'] = 'crashed'
+    elif mutation == 'grouped-status':
+        payload['units'][0]['status'] = 'passed'
+    else:
+        payload['units'][0]['returncode'] = 0
+    (directory / 'results.json').write_text(json.dumps(payload))
+    result = validate_results(directory, nodes, root)
+    assert not result['complete'], result
+    assert result['observations_complete'] is (mutation == 'cleared-timeout'), result
+
+
+def test_build_provenance_file_reaches_native_assembler(tmp_path):
+    from p11lab.checker import LOCK, SOURCE, WHEEL, checker_environment
+    provenance = pytest.importorskip('pkcs11_check.provenance')
+    env = checker_environment(tmp_path, 'secret-pin', 'secret-so-pin')
+    path = Path(env['PKCS11_CHECK_BUILD_PROVENANCE'])
+    assert path.is_file() and path.parent == tmp_path
+    assert path.stat().st_mode & 0o777 == 0o600
+    native = provenance.assemble(env=env, repo_root=None, build_file=path,
+                                 data_manifest={}, data_dir=tmp_path, environment=None)
+    assert native['extra']['checker'] == {'source_revision': SOURCE, 'wheel_sha256': WHEEL,
+                                          'runtime_lock_sha256': LOCK}
+    assert 'secret' not in path.read_text()

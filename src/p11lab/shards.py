@@ -11,7 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from .checker import LOCK, SOURCE, WHEEL, _lifecycle, canonical_node, source_inventory, validate_results
+from .checker import LOCK, SOURCE, WHEEL, _grouped_classifications, _lifecycle, canonical_node, source_inventory, validate_results
 
 
 def plan_shards(installed_root: Path, roster: list[str], count: int, output_dir: Path) -> dict:
@@ -131,6 +131,7 @@ def validate_shard_roster(expected: dict, attempts: list[dict]) -> dict:
 
 
 def merge_shards(plan: dict, attempts: list[dict], output_dir: Path) -> dict:
+    from pkcs11_check.core.run_metrics import RESULT_OUTCOME_KEYS, run_is_incomplete
     validation = validate_shard_roster(plan, attempts)
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=False)
@@ -151,7 +152,7 @@ def merge_shards(plan: dict, attempts: list[dict], output_dir: Path) -> dict:
         executions = [o['target'] for u in payload['units'] for o in u.get('executions', []) if o.get('role') == 'unit']
         if not nodes <= expected or set(executions) != expected or len(executions) != len(expected):
             errors.append('merged membership mismatch')
-        if payload['summary'].get('incomplete') is not False or any(u.get('incomplete') or u.get('completion_verified') is False for u in payload['units']):
+        if payload['summary'].get('incomplete') is not False or run_is_incomplete(payload['summary'], payload['units']):
             errors.append('merged checker evidence incomplete')
         if not {canonical_node(r['nodeid'], Path(plan['installed_root'])) for r in raw if r.get('$report_type') == 'TestReport' and not _lifecycle(r)} <= expected:
             errors.append('merged raw membership mismatch')
@@ -162,10 +163,18 @@ def merge_shards(plan: dict, attempts: list[dict], output_dir: Path) -> dict:
             return Counter(json.dumps(r, sort_keys=True) for r in records
                            if r.get('$report_type') in {'TestReport', 'ProcessReport', 'TeardownFinalize'})
         selected_raw = []
+        selected_payloads = []
         for directory in dirs:
             selected_raw.extend(json.loads(line) for line in (Path(directory) / 'report.jsonl').read_text().splitlines() if line.strip())
+            selected_payloads.append(json.loads((Path(directory) / 'results.json').read_text()))
         if raw_evidence(raw) != raw_evidence(selected_raw):
             errors.append('merged raw evidence differs from selected attempts')
+        selected_units = [u for p in selected_payloads for u in p['units']]
+        if _grouped_classifications(payload['units'], Path(plan['installed_root'])) != _grouped_classifications(selected_units, Path(plan['installed_root'])):
+            errors.append('merged classifications differ from selected attempts')
+        if any(payload['summary'].get(k, 0) != sum(p['summary'].get(k, 0) for p in selected_payloads)
+               for k in (*RESULT_OUTCOME_KEYS, 'total')):
+            errors.append('merged counts differ from selected attempts')
         summary = payload['summary']
     except (OSError, ValueError, KeyError, TypeError):
         errors.append('missing or malformed merged evidence')

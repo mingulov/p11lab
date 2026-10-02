@@ -12,11 +12,17 @@ import subprocess
 
 import pytest
 
-from p11lab.checker import load_profile, run_checker
+from p11lab.checker import LOCK, SOURCE, WHEEL, load_profile, run_checker
 from p11lab.models import ArtifactRef, RunSpec
 
 IMAGES = json.loads(os.environ.get('P11LAB_TEST_CHECKER_IMAGES', '{}'))
 pytestmark = pytest.mark.skipif(not IMAGES, reason='explicit installed checker derivatives required')
+
+
+def assert_native_build_identity(directory):
+    payload = json.loads((directory / 'results.json').read_text())
+    assert payload['provenance']['extra']['checker'] == {
+        'source_revision': SOURCE, 'wheel_sha256': WHEEL, 'runtime_lock_sha256': LOCK}
 
 
 def in_derivative(image, root, script):
@@ -46,6 +52,7 @@ def test_installed_direct_and_two_shard_proof(channel, image, tmp_path):
     assert receipt['evidence']['complete']
     assert len(receipt['nodes']) == 23
     assert receipt['evidence']['summary']['passed'] >= 10
+    assert_native_build_identity(root / 'full/checker')
     # Keep a clean-room interpreter/distribution roster and same-version pure Tomli proof.
     in_derivative(image, root, '''
 import json,tomli
@@ -70,6 +77,7 @@ assert [len(s['nodes']) for s in plan['shards']] == [10,13]
         assert outcome.exit_code == 0, outcome
         receipt = json.loads((run.output_dir / 'checker/checker-receipt.json').read_text())
         assert receipt['evidence']['complete']
+        assert_native_build_identity(run.output_dir / 'checker')
         outer = json.loads(outcome.receipt_path.read_text())
         assert not outer['cleanup_errors']
         volumes.extend(r['identity'] for r in outer['owned_resources'] if r['kind'] == 'volume')
@@ -93,6 +101,7 @@ assert not merge_shards(p,[*a,r],Path('/evidence/merge-two-selected'))['complete
     retry_spec = replace(spec, output_dir=root / 'retry-shard-0')
     retry = run_checker(retry_spec, str(caller / 'shard-0.json'))
     assert retry.exit_code == 0, retry
+    assert_native_build_identity(retry_spec.output_dir / 'checker')
     receipt = json.loads((retry_spec.output_dir / 'checker/checker-receipt.json').read_text())
     attempts[0]['selected'] = False
     attempts.append(attempts[0] | {'attempt_id': receipt['attempt_id'], 'selected': True,
@@ -110,3 +119,4 @@ assert merge_shards(p,a,Path('/evidence/merge-retry-selected'))['complete']
         assert merged['complete'] and merged['returncode'] == 0
         assert merged['summary']['total'] == 23
         assert merged['summary']['incomplete'] is False
+        assert_native_build_identity(root / name / 'merged')
