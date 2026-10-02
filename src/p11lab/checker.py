@@ -151,7 +151,7 @@ def execute_checker(*, installed_root: Path, module: Path, slot: int,
             '--policy-file', str(output_dir / 'policy.json'), *targets]
     # Drain both streams while retaining a bounded prefix; a noisy provider must
     # not grow durable diagnostic logs without limit or deadlock a full pipe.
-    process = subprocess.Popen(argv, cwd=output_dir, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(argv, cwd=output_dir, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     logs = {}
     def drain(stream, name):
         retained = bytearray()
@@ -176,11 +176,32 @@ def execute_checker(*, installed_root: Path, module: Path, slot: int,
                ((process.stdout, 'checker.stdout.log'), (process.stderr, 'checker.stderr.log'))]
     for reader in readers:
         reader.start()
-    process.wait()
+    timed_out = False
+    # The host library boundary has no outer Docker runner deadline. Bound the
+    # entire selected run independently, including hung checker/provider children.
+    try:
+        process.wait(timeout=900)
+    except subprocess.TimeoutExpired:
+        import signal
+        timed_out = True
+        os.killpg(process.pid, signal.SIGTERM)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=5)
     for reader in readers:
-        reader.join()
+        reader.join(timeout=2)
+    if any(reader.is_alive() for reader in readers):
+        import signal
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        for reader in readers:
+            reader.join(timeout=5)
     record = {'schema_version': 1, 'attempt_id': uuid4().hex, 'nodes': nodes, 'sources': sources,
-              'checker': identity, 'slot_index': slot, 'returncode': process.returncode, 'logs_truncated': logs,
+              'checker': identity, 'slot_index': slot, 'returncode': 124 if timed_out else process.returncode, 'timeout': timed_out, 'logs_truncated': logs,
               'settings': {'interface': 'auto', 'isolation': 'file', 'timeout': 180,
                            'key_inject': 'off', 'recover_mode': 'off', 'ignore_disabled_tests': True,
                            'pytest_addopts': '-v'}}

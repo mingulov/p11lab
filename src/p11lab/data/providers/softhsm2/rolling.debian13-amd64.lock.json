@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "target": "debian13-amd64",
+  "channel": "rolling",
+  "platform": "linux/amd64",
+  "parent": {
+    "kind": "docker-local",
+    "platform": "linux/amd64",
+    "reference": "sha256:27619e96c5bef251e69216c00fb59b2472c74adbaadc8d9608c23feeb5beec16",
+    "sha256": "27619e96c5bef251e69216c00fb59b2472c74adbaadc8d9608c23feeb5beec16"
+  },
+  "source_companion": {
+    "kind": "bundle",
+    "platform": "linux/amd64",
+    "reference": "sha256:da60e8dd28649266dc10c6174fe5886cd13c8e2ef5661ac211d7999fb92333cc",
+    "sha256": "da60e8dd28649266dc10c6174fe5886cd13c8e2ef5661ac211d7999fb92333cc"
+  },
+  "sources": [
+    {
+      "archive_sha256": "58cc337446d861ecc96b0b1e8a4162aa63bf2d49614434cbd6eeacc9c9c1e6fe",
+      "kind": "git",
+      "license_evidence": [
+        {
+          "path": "LICENSE",
+          "sha256": "230cab7102816e99f7ce03ef476352fcad09d742fcbc6580d44393db6280b64c",
+          "url": "https://raw.githubusercontent.com/softhsm/SoftHSMv2/884cb38f3d2012a0447bd5f50dbd29c429987c41/LICENSE",
+          "variant": "rolling"
+        }
+      ],
+      "license_observation": "BSD-2-Clause",
+      "license_status": "unreviewed",
+      "revision": "884cb38f3d2012a0447bd5f50dbd29c429987c41",
+      "selector": {
+        "kind": "branch",
+        "value": "main"
+      },
+      "url": "https://github.com/softhsm/SoftHSMv2.git"
+    }
+  ],
+  "patches": [],
+  "toolchain": [
+    {
+      "name": "autoconf",
+      "sha256": "0de76b647b0afb6c7934999aaefeb463656c147672464a367df1019969e77af3",
+      "version": "2.72-3.1"
+    },
+    {
+      "name": "automake",
+      "sha256": "8d4b172d4ff8070789c54b48a95585b53e4c65faeb07a2ae52da16cb364df635",
+      "version": "1:1.17-4"
+    },
+    {
+      "name": "gcc-14",
+      "sha256": "21500408b5019d8d29f70ce58488e2eea469a1adb4b5fd7db45e819b5efcac4e",
+      "version": "14.2.0-19"
+    },
+    {
+      "name": "gcc",
+      "sha256": "eee65c41a441c57c05f754ced1b9d093956966a1c7da9938c3ec00d3dc2f905d",
+      "version": "4:14.2.0-1"
+    },
+    {
+      "name": "g++-14",
+      "sha256": "4706ab29eab3d81e93582b45b229fdedc71f1eec3071996a448cf2c8beb83f3a",
+      "version": "14.2.0-19"
+    },
+    {
+      "name": "g++",
+      "sha256": "f86661c021ab2acb39ceb87315e7c2d4d420fdadc19945d5d589f3953410445c",
+      "version": "4:14.2.0-1"
+    },
+    {
+      "name": "make",
+      "sha256": "70a9709e665383b06068ccd423d62ea191b65355f318a25565dbf324b254cec6",
+      "version": "4.4.1-2"
+    },
+    {
+      "name": "libtool",
+      "sha256": "be5361a8c1fce2758c3e19608bf97393d5f3afdb7e926aeb83e2818355bd885f",
+      "version": "2.5.4-4"
+    },
+    {
+      "name": "autoconf-archive",
+      "sha256": "9f13a50fa9038cb4381545b275f7440c0a40d43832046a7e7f515f47a4ecbac8",
+      "version": "20220903-3"
+    }
+  ],
+  "compilation": {
+    "build_key": "741ea7de974886ea20c740aef7f7e0a467865c601d7ed6b4070b4b9f717df2d1",
+    "recipe": "6d53c5df591d6872ffe48a3e9cbc1d40c8916183a59777d859e915a6fedfaa0a",
+    "configure": [
+      "--prefix=/usr/local",
+      "--libdir=/usr/local/lib",
+      "--sysconfdir=/etc",
+      "--with-crypto-backend=openssl",
+      "--disable-gost",
+      "--disable-dependency-tracking"
+    ],
+    "objectstore_backend": "file (upstream default)"
+  },
+  "binaries": [
+    {
+      "path": "lib/libsofthsm2.so",
+      "sha256": "d1ff9537826a4f6753e3ec39f8e1ae72a4c7ed7a28518510709eaf888a6da874"
+    },
+    {
+      "path": "bin/softhsm2-util",
+      "sha256": "3d00a006c99938a6282b0b4557ed37b4421884615b41f04b4c52a4cdb6a544a8"
+    }
+  ],
+  "assets": [
+    {
+      "path": "native.sh",
+      "sha256": "319a838bb2492bd1873d7618d5dc88ad132a70cdb15ef2bc0d0acc32ff516b61"
+    },
+    {
+      "path": "native.recipe.json",
+      "sha256": "1810972dc95083476f845337f4147a43d6b230069940b328a85ac9cd67a6931c"
+    },
+    {
+      "path": "rolling.native-notices.txt",
+      "sha256": "fe3bb95871e92fdf4b90d5e5018fbe0d11be4fb5db959f88ce6c245e4b560b17"
+    }
+  ],
+  "host_requirements": {
+    "os": "debian",
+    "major_version": "13",
+    "architecture": "x86_64",
+    "platform": "linux/amd64",
+    "loader": "/lib64/ld-linux-x86-64.so.2",
+    "packages": [
+      "libc6",
+      "libstdc++6",
+      "libgcc-s1",
+      "libssl3t64",
+      "zlib1g",
+      "libzstd1",
+      "dash",
+      "coreutils",
+      "findutils",
+      "mawk"
+    ],
+    "symbol_floors": {
+      "GLIBC": "2.38",
+      "GLIBCXX": "3.4.32",
+      "OPENSSL": "3.4.0",
+      "CXXABI": "1.3.15"
+    }
+  },
+  "tested_prerequisites": [
+    {
+      "name": "coreutils",
+      "version": "9.7-3",
+      "architecture": "amd64",
+      "source_package": "coreutils",
+      "source_version": "9.7-3"
+    },
+    {
+      "name": "dash",
+      "version": "0.5.12-12",
+      "architecture": "amd64",
+      "source_package": "dash",
+      "source_version": "0.5.12-12"
+    },
+    {
+      "name": "findutils",
+      "version": "4.10.0-3",
+      "architecture": "amd64",
+      "source_package": "findutils",
+      "source_version": "4.10.0-3"
+    },
+    {
+      "name": "libc6",
+      "version": "2.41-12+deb13u4",
+      "architecture": "amd64",
+      "source_package": "glibc",
+      "source_version": "2.41-12+deb13u4"
+    },
+    {
+      "name": "libgcc-s1",
+      "version": "14.2.0-19",
+      "architecture": "amd64",
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19"
+    },
+    {
+      "name": "libssl3t64",
+      "version": "3.5.7-1~deb13u2",
+      "architecture": "amd64",
+      "source_package": "openssl",
+      "source_version": "3.5.7-1~deb13u2"
+    },
+    {
+      "name": "libstdc++6",
+      "version": "14.2.0-19",
+      "architecture": "amd64",
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19"
+    },
+    {
+      "name": "libzstd1",
+      "version": "1.5.7+dfsg-1",
+      "architecture": "amd64",
+      "source_package": "libzstd",
+      "source_version": "1.5.7+dfsg-1"
+    },
+    {
+      "name": "mawk",
+      "version": "1.3.4.20250131-1",
+      "architecture": "amd64",
+      "source_package": "mawk",
+      "source_version": "1.3.4.20250131-1"
+    },
+    {
+      "name": "zlib1g",
+      "version": "1:1.3.dfsg+really1.3.1-1+b1",
+      "architecture": "amd64",
+      "source_package": "zlib",
+      "source_version": "1:1.3.dfsg+really1.3.1-1"
+    }
+  ],
+  "notice_provenance": {
+    "source_companion_sha256": "da60e8dd28649266dc10c6174fe5886cd13c8e2ef5661ac211d7999fb92333cc",
+    "source": "softhsm2=884cb38f3d2012a0447bd5f50dbd29c429987c41",
+    "license": "BSD-2-Clause AND LicenseRef-p11kit-header",
+    "obligations": [
+      "notice",
+      "preserve-original-file-grants"
+    ],
+    "upstream_review": "file grants and original holders retained; runtime uses system OpenSSL"
+  }
+}

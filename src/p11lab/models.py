@@ -26,6 +26,7 @@ class RunSpec:
     output_dir: Path
     cwd: Path
     timeout_seconds: int
+    installed_prefix: Path | None = None
 
 
 @dataclass(frozen=True)

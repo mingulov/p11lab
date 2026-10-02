@@ -26,12 +26,23 @@ def main(argv=None) -> int:
         if name == "build":
             command.add_argument("--role", default="runtime")
             command.add_argument("--debug-output-dir", type=Path, help="export a separate matched binary debug companion")
+    install = commands.add_parser("install", help="install a verified local native candidate")
+    install.add_argument("id")
+    install.add_argument("--channel", required=True)
+    install.add_argument("--artifact", required=True, type=Path)
+    install.add_argument("--sha256", required=True)
+    install.add_argument("--platform", required=True)
+    install.add_argument("--prefix", required=True, type=Path)
     command = commands.add_parser("run", help="run an application in an owned provider instance")
     command.add_argument("id")
     command.add_argument("--channel", required=True)
     command.add_argument("--mode", choices=("direct", "proxy", "native"), default="direct")
     command.add_argument("--where", choices=("provider", "container", "host"))
-    command.add_argument("--artifact", required=True, help="exact local engine sha256 image ID")
+    artifact_choice = command.add_mutually_exclusive_group(required=True)
+    artifact_choice.add_argument("--artifact", help="exact local engine image ID or native archive")
+    artifact_choice.add_argument("--installed-prefix", type=Path)
+    command.add_argument("--sha256", help="required SHA256 for native archive input")
+    command.add_argument("--control-dir", type=Path, help="native private control directory")
     command.add_argument("--consumer-image")
     command.add_argument("--client-artifact")
     command.add_argument("--platform", default="linux/amd64")
@@ -48,11 +59,34 @@ def main(argv=None) -> int:
         arguments = arguments[:boundary]
     args = parser.parse_args(arguments)
     try:
-        if args.command == "run":
+        if args.command == "install":
+            from .native import install_native_bundle, MODULE
+            from .models import ArtifactRef
+            artifact = ArtifactRef('bundle', str(args.artifact.resolve()), args.sha256, args.platform)
+            installed = install_native_bundle(artifact, args.prefix, environment=args.id, channel=args.channel)
+            print(json.dumps({'artifact': asdict(installed.artifact), 'prefix': str(installed.prefix),
+                              'module': str(installed.prefix / 'payload' / MODULE),
+                              'configuration': 'chosen control directory/softhsm2.conf at runtime',
+                              'receipt_path': str(installed.receipt_path)}, indent=2))
+        elif args.command == "run":
             from .models import ArtifactRef, RunSpec
             from .run import run_application
             def artifact(reference):
                 return ArtifactRef("docker-local", reference, reference.removeprefix("sha256:"), args.platform) if reference else None
+            if args.installed_prefix is not None:
+                if args.mode != 'native' or args.sha256:
+                    raise ValueError('installed-prefix requires native mode without archive SHA256')
+                from .bundle import read_installation
+                selected_artifact = read_installation(args.installed_prefix, environment=args.id,
+                    channel=args.channel, platform=args.platform).artifact
+            elif args.mode == 'native':
+                if not args.sha256:
+                    raise ValueError('native archive input requires --sha256')
+                selected_artifact = ArtifactRef('bundle', str(Path(args.artifact).resolve()), args.sha256, args.platform)
+            else:
+                if args.sha256 or args.control_dir:
+                    raise ValueError('native archive/control options require native mode')
+                selected_artifact = artifact(args.artifact)
             inputs = {}
             for item in args.input:
                 if "=" not in item:
@@ -65,11 +99,19 @@ def main(argv=None) -> int:
                 if "P11LAB_STATE_DIR" in inputs:
                     raise ValueError("duplicate state directory input")
                 inputs["P11LAB_STATE_DIR"] = str(args.state_dir)
-            result = run_application(RunSpec(args.id, args.channel, args.mode, artifact(args.artifact),
+            if args.control_dir is not None:
+                if 'P11LAB_CONTROL_DIR' in inputs:
+                    raise ValueError('duplicate control directory input')
+                inputs['P11LAB_CONTROL_DIR'] = str(args.control_dir)
+            result = run_application(RunSpec(args.id, args.channel, args.mode, selected_artifact,
                 args.where or {"direct": "provider", "proxy": "host", "native": "host"}[args.mode],
                 artifact(args.consumer_image), artifact(args.client_artifact), tuple(application_argv), inputs,
-                args.output_dir, args.cwd, args.timeout))
-            print(json.dumps(asdict(result), default=str, indent=2, sort_keys=True))
+                args.output_dir, args.cwd, args.timeout, args.installed_prefix))
+            record = asdict(result)
+            if args.mode == 'native':
+                execution = json.loads(result.receipt_path.read_text())['execution']
+                record.update(module=execution['module'], configuration=execution['configuration'])
+            print(json.dumps(record, default=str, indent=2, sort_keys=True))
             return result.exit_code
         elif args.command in {"resolve", "build"}:
             spec = load_environment(args.id, args.channel)
@@ -78,6 +120,8 @@ def main(argv=None) -> int:
                 result = resolve_sources(spec, output_dir=args.output_dir)
             else:
                 from .build import build_artifact
+                if args.role == 'native' and args.debug_output_dir is not None:
+                    raise ValueError('native build does not export container debug companions')
                 artifact = build_artifact(spec, args.role, args.output_dir)
                 result = asdict(artifact)
                 if args.debug_output_dir is not None:
@@ -85,7 +129,12 @@ def main(argv=None) -> int:
                     export_debug_companion(spec, artifact, args.output_dir, args.debug_output_dir)
             print(json.dumps(result, indent=2, sort_keys=True))
         elif args.command == "describe":
-            print(json.dumps(load_environment(args.id, args.channel), indent=2, sort_keys=True))
+            spec = load_environment(args.id, args.channel)
+            spec['delivery_formats'] = {
+                'container': spec['channel_spec']['status'],
+                'native': spec.get('native_targets', {'status': 'not-packaged', 'reason': 'No native packaging target is declared.'}),
+            }
+            print(json.dumps(spec, indent=2, sort_keys=True))
         else:
             environments = list_environments()
             if args.command == "validate":

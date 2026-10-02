@@ -130,6 +130,9 @@ def build_artifact(spec: dict, role: str, output_dir: Path):
     from .identity import artifact_key
     from .models import ArtifactRef
     from .sources import resolve_sources
+    if role == 'native':
+        from .native import build_native_bundle
+        return build_native_bundle(spec, output_dir)
     if role != 'runtime':
         raise BuildError('this recipe supports only the runtime role')
     validate_build_inputs(spec)

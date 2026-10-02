@@ -160,6 +160,23 @@ def validate_descriptor(spec: dict, *, asset_root=None) -> None:
     _require(isinstance(distribution, dict) and _enum(distribution.get("status"), {"unreviewed", "blocked"})
              and set(distribution) <= {"status", "reason"}, "distribution admission requires digest-bound evidence, not descriptor permission")
     _require(_text(distribution.get("reason")), "distribution requires explicit reason")
+    targets = spec.get('native_targets', {})
+    _require(isinstance(targets, dict), 'native_targets must be an object')
+    for target, native in targets.items():
+        _require(target in {'debian13-amd64', 'windows-amd64'} and isinstance(native, dict), 'invalid native target')
+        if native.get('status') == 'not-packaged':
+            _require(_text(native.get('reason')), 'not-packaged native target requires a reason')
+        else:
+            _require(native.get('status') == 'packaged' and native.get('platform') in {'linux/amd64', 'windows/amd64'}
+                     and isinstance(native.get('host_requirements'), dict) and native['host_requirements'], 'invalid packaged native target')
+            _relative(native.get('module_path'))
+            _require(isinstance(native.get('channels'), dict) and set(native['channels']) == {'release', 'rolling'}, 'native target requires channel dispositions')
+            for value in native['channels'].values():
+                _require(isinstance(value, dict) and value.get('status') in {'locked', 'not-packaged'}, 'invalid native channel')
+                if value['status'] == 'locked':
+                    _asset(asset_root if asset_root is not None else _provider_root(spec['id']), value.get('lock'))
+                else:
+                    _require(_text(value.get('reason')), 'native source channel requires not-packaged reason')
     channels = spec.get("channels")
     _require(isinstance(channels, dict) and set(channels) == {"release", "rolling"}, "descriptor requires release and rolling channels")
     for name, channel in channels.items():
@@ -229,3 +246,25 @@ def validate_tools(spec: dict) -> None:
         else:
             _source(tool.get("source"))
             _require("revision" in tool["source"] or "selector" in tool["source"], "tool source requires a revision or pending selector")
+
+
+def load_native_target(id: str, channel: str, target: str) -> dict:
+    """Load a separately locked native target; container locks are never substitutes."""
+    spec = load_environment(id, channel)
+    selected = spec.get('native_targets', {}).get(target)
+    _require(selected is not None, f'native target {target}: not-packaged (no packaging recipe)')
+    _require(selected.get('status') == 'packaged', f'native target {target}: not-packaged ({selected.get("reason", "unsupported")})')
+    choice = selected.get('channels', {}).get(channel, {})
+    _require(choice.get('status') == 'locked', 'native source channel is not packaged')
+    lock = _json(packaged_asset(id, choice['lock']))
+    _require(lock.get('schema_version') == 1 and lock.get('target') == target and lock.get('channel') == channel
+             and lock.get('platform') == selected.get('platform'), 'native target lock tuple mismatch')
+    _require(isinstance(lock.get('host_requirements'), dict) and lock['host_requirements']
+             and selected.get('module_path') == 'lib/libsofthsm2.so', 'invalid native target contract')
+    for source in lock.get('sources', []):
+        _source(source)
+    _require(lock.get('sources') and isinstance(lock.get('binaries'), list) and lock['binaries'], 'native lock requires source and binary identities')
+    for asset in lock.get('assets', []):
+        _require(hashlib.sha256(packaged_asset(id, asset['path']).read_bytes()).hexdigest() == asset.get('sha256'),
+                 'native asset sha256 mismatch')
+    return spec | {'native_target': target, 'native_target_spec': selected, 'native_lock': lock}

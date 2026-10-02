@@ -62,5 +62,49 @@
     "Runtime controls/config are recreated under writable /run/p11lab by every exec invocation. The adapter preserves argv and native/application exit status.",
     "Ordinary application consumers do not require checker, Python, tracing or a workspace mount. Reset is an explicit removal/replacement of disposable state; no automatic reset or retry.",
     "Whole-image licensing, source companion delivery and digest-bound admission remain separate requirements."
-  ]
+  ],
+  "native_targets": {
+    "debian13-amd64": {
+      "status": "packaged",
+      "platform": "linux/amd64",
+      "module_path": "lib/libsofthsm2.so",
+      "host_requirements": {
+        "os": "debian",
+        "major_version": "13",
+        "architecture": "x86_64",
+        "platform": "linux/amd64",
+        "loader": "/lib64/ld-linux-x86-64.so.2",
+        "packages": [
+          "libc6",
+          "libstdc++6",
+          "libgcc-s1",
+          "libssl3t64",
+          "zlib1g",
+          "libzstd1",
+          "dash",
+          "coreutils",
+          "findutils",
+          "mawk"
+        ],
+        "symbol_floors": {
+          "GLIBC": "2.38",
+          "GLIBCXX": "3.4.32"
+        }
+      },
+      "channels": {
+        "release": {
+          "status": "locked",
+          "lock": "release.debian13-amd64.lock.json"
+        },
+        "rolling": {
+          "status": "locked",
+          "lock": "rolling.debian13-amd64.lock.json"
+        }
+      }
+    },
+    "windows-amd64": {
+      "status": "not-packaged",
+      "reason": "SoftHSM Windows delivery is outside the Debian 13 amd64 native target."
+    }
+  }
 }

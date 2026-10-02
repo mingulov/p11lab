@@ -50,6 +50,22 @@ def _validate(spec):
 
 
 def run_application(spec: RunSpec) -> RunResult:
+    if spec.mode == 'native':
+        from .native import install_native_bundle, run_native_softhsm, staging_parent
+        from .bundle import read_installation
+        if spec.installed_prefix is not None:
+            installed = read_installation(spec.installed_prefix, environment=spec.environment,
+                                          channel=spec.channel, platform=spec.artifact.platform)
+            return run_native_softhsm(spec, installed)
+        # Validate routing before even temporary installation/resource creation.
+        if spec.execution_location != 'host' or spec.consumer_artifact or spec.client_artifact:
+            raise ValueError('native requires host without container options')
+        with tempfile.TemporaryDirectory(prefix='.p11lab-native-run-', dir=staging_parent(spec.output_dir)) as temporary:
+            installed = install_native_bundle(spec.artifact, Path(temporary) / 'prefix',
+                                              environment=spec.environment, channel=spec.channel)
+            return run_native_softhsm(spec, installed)
+    if spec.installed_prefix is not None:
+        raise ValueError('installed-prefix requires native mode')
     descriptor = _validate(spec)
     engine = Docker()
     observed = engine.image(spec.artifact)  # no resource created before preflight
