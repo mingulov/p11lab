@@ -127,3 +127,21 @@ def test_run_profile_requires_content_identity():
     inputs['profile'] = 'smoke-v1'
     with pytest.raises(IdentityError, match='profile'):
         artifact_key('run', inputs)
+
+
+@pytest.mark.parametrize('digest', [None, 'not-a-sha256', [], 17])
+def test_valid_revision_cannot_replace_required_profile_sha256(digest):
+    inputs = run('a' * 64)
+    inputs['profile'] = {'id': 'smoke-v1', 'revision': 'c' * 40}
+    if digest is not None:
+        inputs['profile']['sha256'] = digest
+    with pytest.raises(IdentityError, match='profile.*sha256'):
+        public_identity('run', inputs)
+
+
+@pytest.mark.parametrize('make_identity', [public_identity, artifact_key])
+def test_tuple_wrapped_credentials_cannot_enter_public_identity(make_identity):
+    inputs = run('a' * 64)
+    inputs['configuration']['nested'] = ({'password': 'synthetic-probe-secret'},)
+    with pytest.raises(IdentityError, match='JSON|secret'):
+        make_identity('run', inputs)

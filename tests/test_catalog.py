@@ -161,3 +161,36 @@ def test_tools_require_explicit_artifact_disposition():
     del tools['tools']['proxy']['status']
     with pytest.raises(CatalogError, match='status'):
         validate_tools(tools)
+
+
+@pytest.mark.parametrize('field', [
+    ('channels', 'release', 'source', 'license_status'),
+    ('channels', 'release', 'source', 'kind'),
+    ('channels', 'release', 'source', 'selector', 'kind'),
+    ('state_mode',),
+    ('distribution', 'status'),
+])
+@pytest.mark.parametrize('malformed', [[], {}])
+def test_malformed_descriptor_enums_raise_catalog_error(field, malformed):
+    spec = load_environment('softhsm2', 'release')
+    parent = spec
+    for key in field[:-1]:
+        parent = parent[key]
+    parent[field[-1]] = malformed
+    with pytest.raises(CatalogError):
+        validate_descriptor(spec)
+
+
+def test_malformed_consumer_license_status_raises_catalog_error():
+    tools = json.loads(package_data('tools.json').read_text())
+    tools['tools']['consumer']['license_status'] = []
+    with pytest.raises(CatalogError, match='license_status'):
+        validate_tools(tools)
+
+
+def test_malformed_patch_license_status_raises_catalog_error(locked_environment):
+    spec, root = locked_environment
+    spec['lock']['patches'] = [{'license_status': []}]
+    (root / 'release.lock.json').write_text(json.dumps(spec['lock']))
+    with pytest.raises(CatalogError, match='license_status'):
+        validate_descriptor(spec, asset_root=root)

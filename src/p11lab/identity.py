@@ -35,6 +35,7 @@ def _require(condition, message):
 
 
 def _credentials(value):
+    """Walk only JSON containers so encoding cannot bypass credential checks."""
     if isinstance(value, dict):
         for key, item in value.items():
             _require(isinstance(key, str), "identity object keys must be strings")
@@ -43,6 +44,9 @@ def _credentials(value):
     elif isinstance(value, list):
         for item in value:
             _credentials(item)
+    else:
+        _require(value is None or isinstance(value, (str, bool, int, float)),
+                 "identity requires JSON containers and scalar values")
 
 
 def _ref(value):
@@ -115,7 +119,9 @@ def public_identity(kind: str, inputs: dict) -> dict:
             _ref(artifact)
         profile = public["profile"]
         _require(isinstance(profile, dict) and isinstance(profile.get("id"), str) and bool(profile["id"]), "profile requires id and sha256")
-        _pin(profile, "profile")
+        _require(isinstance(profile.get("sha256"), str)
+                 and re.fullmatch(r"[0-9a-f]{64}", profile["sha256"]),
+                 "profile requires full sha256 content identity")
         try:
             UUID(public["attempt_id"])
         except ValueError as error:

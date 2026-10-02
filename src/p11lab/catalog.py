@@ -31,6 +31,10 @@ def _text(value):
     return isinstance(value, str) and bool(value.strip())
 
 
+def _enum(value, choices):
+    return isinstance(value, str) and value in choices
+
+
 def _relative(path):
     _require(_text(path), "asset path must be a nonempty relative path")
     parts = path.split("/")
@@ -76,12 +80,12 @@ def _json(asset):
 
 def _source(source):
     _require(isinstance(source, dict), "source must be an object")
-    _require(source.get("license_status") in _LICENSE_STATUSES, "source requires explicit license_status")
+    _require(_enum(source.get("license_status"), _LICENSE_STATUSES), "source requires explicit license_status")
     url = source.get("url")
     _require(_text(url) and urlsplit(url).scheme == "https" and bool(urlsplit(url).hostname)
              and urlsplit(url).username is None and urlsplit(url).password is None,
              "source requires a public HTTPS URL without credentials")
-    _require(source.get("kind") in {"git", "archive"}, "source kind must be git or archive")
+    _require(_enum(source.get("kind"), {"git", "archive"}), "source kind must be git or archive")
     if "revision" in source:
         _require(isinstance(source["revision"], str) and _SHA.fullmatch(source["revision"]),
                  "git source revision must be a full lowercase commit SHA")
@@ -90,7 +94,7 @@ def _source(source):
                  "archive source sha256 must be full lowercase SHA-256")
     if "selector" in source:
         selector = source["selector"]
-        _require(isinstance(selector, dict) and selector.get("kind") in {"branch", "tag", "default-branch", "latest-stable-tag"}
+        _require(isinstance(selector, dict) and _enum(selector.get("kind"), {"branch", "tag", "default-branch", "latest-stable-tag"})
                  and _text(selector.get("value")), "source selector must declare kind and value")
 
 
@@ -121,7 +125,7 @@ def _lock(lock, root):
         _require(hashlib.sha256(target.read_bytes()).hexdigest() == asset["sha256"], f"asset sha256 mismatch: {path}")
     _require({"recipe", "adapter"} <= roles, "locked entry requires recipe and adapter assets")
     for patch in lock["patches"]:
-        _require(isinstance(patch, dict) and patch.get("license_status") in _LICENSE_STATUSES, "patch requires license_status")
+        _require(isinstance(patch, dict) and _enum(patch.get("license_status"), _LICENSE_STATUSES), "patch requires license_status")
         _require(_text(patch.get("origin")) and _text(patch.get("license")), "patch requires provenance and license")
         target = _asset(root, patch.get("path"))
         _require(hashlib.sha256(target.read_bytes()).hexdigest() == patch.get("sha256"), "patch sha256 mismatch")
@@ -138,13 +142,13 @@ def validate_descriptor(spec: dict, *, asset_root=None) -> None:
     for key in ("runtime_platforms", "client_platforms"):
         value = spec.get(key)
         _require(isinstance(value, list) and value and all(isinstance(p, str) and re.fullmatch(r"[a-z0-9]+/[a-z0-9]+", p) for p in value), f"descriptor requires {key}")
-    _require(spec.get("state_mode") in {"persistent", "ephemeral", "process-local"}, "invalid state_mode")
+    _require(_enum(spec.get("state_mode"), {"persistent", "ephemeral", "process-local"}), "invalid state_mode")
     _require(_text(spec.get("module_path")), "descriptor requires module_path")
     _require(isinstance(spec.get("inputs"), dict), "descriptor requires inputs object")
     _require(isinstance(spec.get("services"), list), "descriptor requires services list")
     _require(_text(spec.get("application_profile")), "descriptor requires application_profile")
     distribution = spec.get("distribution")
-    _require(isinstance(distribution, dict) and distribution.get("status") in {"unreviewed", "blocked"}
+    _require(isinstance(distribution, dict) and _enum(distribution.get("status"), {"unreviewed", "blocked"})
              and set(distribution) <= {"status", "reason"}, "distribution admission requires digest-bound evidence, not descriptor permission")
     _require(_text(distribution.get("reason")), "distribution requires explicit reason")
     channels = spec.get("channels")
@@ -212,7 +216,7 @@ def validate_tools(spec: dict) -> None:
         _require(isinstance(tool, dict) and tool.get("status") == "planned", f"tool requires explicit planned status: {name}")
         _require(_text(tool.get("pending")) and tool.get("artifacts") == [], "planned tool cannot claim acquired artifacts")
         if name == "consumer":
-            _require(tool.get("license_status") in _LICENSE_STATUSES, "consumer requires license_status")
+            _require(_enum(tool.get("license_status"), _LICENSE_STATUSES), "consumer requires license_status")
         else:
             _source(tool.get("source"))
             _require("revision" in tool["source"] or "selector" in tool["source"], "tool source requires a revision or pending selector")
