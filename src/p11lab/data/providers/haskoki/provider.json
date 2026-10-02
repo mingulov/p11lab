@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "id": "haskoki",
+  "module_implementation": {
+    "name": "Haskoki"
+  },
+  "backend": {
+    "name": "Haskell software token",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libhaskoki.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/mingulov/haskoki.git",
+        "selector": {
+          "kind": "branch",
+          "value": "main"
+        },
+        "license_status": "unreviewed",
+        "revision": "086cc13d4b3f73d16c594ef6feb467baf64151f3",
+        "license_observation": "Apache-2.0",
+        "license_evidence": [
+          {
+            "variant": "rolling",
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/mingulov/haskoki/086cc13d4b3f73d16c594ef6feb467baf64151f3/LICENSE",
+            "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+          }
+        ]
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "unavailable",
+      "reason": "No upstream release tags in the 2026-10-02 source-resolution snapshot."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified.",
+    "Linux x86-64 glibc >=2.43; bundled Haskell libraries and GMP/libffi/libnuma required.",
+    "Configuration-based provisioning; InitToken/InitPIN are unsupported."
+  ]
+}

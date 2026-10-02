@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "id": "opensc-pico",
+  "module_implementation": {
+    "name": "OpenSC"
+  },
+  "backend": {
+    "name": "pico-hsm firmware emulator",
+    "simulated": true
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/opensc-pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [
+    "pico-hsm",
+    "pcscd",
+    "vpcd"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/OpenSC/OpenSC.git",
+        "selector": {
+          "kind": "branch",
+          "value": "master"
+        },
+        "license_status": "unreviewed",
+        "revision": "4f3ff5111314bde380c3d4e9e25bb1fa0169196d",
+        "license_observation": "LGPL-2.1 COPYING plus per-source terms"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/OpenSC/OpenSC.git",
+        "selector": {
+          "kind": "tag",
+          "value": "0.27.1"
+        },
+        "license_status": "unreviewed",
+        "revision": "19868984dc4dc697af6a86d65ab32a1f19a43ea4",
+        "license_observation": "LGPL-2.1 COPYING plus per-source terms"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+  ]
+}

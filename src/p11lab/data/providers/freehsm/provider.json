@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "id": "freehsm",
+  "module_implementation": {
+    "name": "FreeHSM"
+  },
+  "backend": {
+    "name": "C/OpenSSL software token",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libfreehsm.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/afchine1337/freehsm.git",
+        "selector": {
+          "kind": "branch",
+          "value": "main"
+        },
+        "license_status": "unreviewed",
+        "revision": "1b87a4ba0148792226e558adc3492561c4c70371",
+        "license_observation": "Apache-2.0",
+        "license_evidence": [
+          {
+            "variant": "rolling",
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/afchine1337/freehsm/1b87a4ba0148792226e558adc3492561c4c70371/LICENSE",
+            "sha256": "379273b78861b22f6de25c35a33f133bfd949aef1b8e4aefaba876cbd65f4a53"
+          }
+        ]
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/afchine1337/freehsm.git",
+        "selector": {
+          "kind": "tag",
+          "value": "v2.2.0"
+        },
+        "license_status": "unreviewed",
+        "revision": "363af144216a825aa42b4d264bc672847d3816c6",
+        "license_observation": "Apache-2.0",
+        "license_evidence": [
+          {
+            "variant": "stable",
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/afchine1337/freehsm/363af144216a825aa42b4d264bc672847d3816c6/LICENSE",
+            "sha256": "379273b78861b22f6de25c35a33f133bfd949aef1b8e4aefaba876cbd65f4a53"
+          }
+        ]
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified.",
+    "Development interop/integrity/PQ-KAT bypass settings require explicit per-variant review; no FIPS claim."
+  ]
+}

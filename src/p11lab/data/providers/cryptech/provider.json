@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "id": "cryptech",
+  "module_implementation": {
+    "name": "CrypTech PKCS#11"
+  },
+  "backend": {
+    "name": "libhal software keystore simulator",
+    "simulated": true
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libcryptech-pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [],
+  "channels": {
+    "release": {
+      "status": "unavailable",
+      "reason": "No refs/tags in any of three official simulator repository snapshots"
+    },
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://git.cryptech.is/sw/pkcs11",
+        "selector": {
+          "kind": "branch",
+          "value": "master"
+        },
+        "license_status": "unreviewed",
+        "revision": "a0a7d907c4ea47e3a3a963bb765a81b41294dd0d",
+        "license_observation": "BSD-3-Clause (module source header)"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+  ]
+}

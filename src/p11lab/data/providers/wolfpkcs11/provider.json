@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "id": "wolfpkcs11",
+  "module_implementation": {
+    "name": "wolfPKCS11"
+  },
+  "backend": {
+    "name": "wolfSSL software token",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libwolfpkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/wolfSSL/wolfPKCS11.git",
+        "selector": {
+          "kind": "branch",
+          "value": "master"
+        },
+        "license_status": "unreviewed",
+        "revision": "15691bd6accf45cad54b44eb07839e08c11b50fc",
+        "license_observation": "GPL-3.0 or separate commercial terms"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/wolfSSL/wolfPKCS11.git",
+        "selector": {
+          "kind": "tag",
+          "value": "v2.1.0-stable"
+        },
+        "license_status": "unreviewed",
+        "revision": "caeaaa5693ad7b4253d6bc585e642381033a6a87",
+        "license_observation": "GPL-3.0 or separate commercial terms"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+  ]
+}

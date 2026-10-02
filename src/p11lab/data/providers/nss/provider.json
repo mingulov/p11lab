@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "id": "nss",
+  "module_implementation": {
+    "name": "NSS softoken"
+  },
+  "backend": {
+    "name": "NSS/NSPR database",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libsoftokn3.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/mozilla/nss.git",
+        "selector": {
+          "kind": "branch",
+          "value": "master"
+        },
+        "license_status": "unreviewed",
+        "revision": "8571d2bf95b5003535a7ecf6b1e27ef0102aaeeb",
+        "license_observation": "MPL-2.0",
+        "license_evidence": [
+          {
+            "variant": "rolling",
+            "path": "COPYING",
+            "url": "https://raw.githubusercontent.com/mozilla/nss/8571d2bf95b5003535a7ecf6b1e27ef0102aaeeb/COPYING",
+            "sha256": "a20c1a32d1f8102432360b42e932869f7c11c7cdbacf9cac554c422132af47f4"
+          }
+        ]
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/mozilla/nss.git",
+        "selector": {
+          "kind": "tag",
+          "value": "NSS_3_130_RTM"
+        },
+        "license_status": "unreviewed",
+        "revision": "97045cee4390aa5c035f95e6db13f3cd7c940fc1",
+        "license_observation": "MPL-2.0",
+        "license_evidence": [
+          {
+            "variant": "stable",
+            "path": "COPYING",
+            "url": "https://raw.githubusercontent.com/mozilla/nss/97045cee4390aa5c035f95e6db13f3cd7c940fc1/COPYING",
+            "sha256": "a20c1a32d1f8102432360b42e932869f7c11c7cdbacf9cac554c422132af47f4"
+          }
+        ]
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified.",
+    "NSPR is independently pinned; actual NSS initialization parameters are required."
+  ]
+}

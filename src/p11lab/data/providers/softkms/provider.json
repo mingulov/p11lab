@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "id": "softkms",
+  "module_implementation": {
+    "name": "softKMS PKCS#11"
+  },
+  "backend": {
+    "name": "local authenticated softKMS daemon",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libsoftkms.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [
+    "softkms-daemon"
+  ],
+  "channels": {
+    "release": {
+      "status": "unavailable",
+      "reason": "No official refs/tags in snapshot"
+    },
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/ehanoc/softKMS.git",
+        "selector": {
+          "kind": "branch",
+          "value": "master"
+        },
+        "license_status": "unreviewed",
+        "revision": "f6235a4b8aee9394b1c03ce76cafb5b7652442e5",
+        "license_observation": "AGPL-3.0 (upstream declaration; retain exact text)"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified.",
+    "Reference function-table/finalization defect needs fresh verification.",
+    "Old reference artifact remains source-build-only-no-binary-publication; fresh P11Lab qualification requires separate AGPL source/policy admission."
+  ]
+}

@@ -1,2 +1,9 @@
 # Local plans, reviews, research, scratch work, and generated development output.
 /.local/
+
+# Python build and test output.
+/.venv/
+/.pytest_cache/
+/dist/
+__pycache__/
+*.py[cod]

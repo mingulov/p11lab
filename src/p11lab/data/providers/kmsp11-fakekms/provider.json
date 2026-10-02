@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "id": "kmsp11-fakekms",
+  "module_implementation": {
+    "name": "Google kmsp11"
+  },
+  "backend": {
+    "name": "explicitly fake local Cloud KMS backend",
+    "simulated": true
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libkmsp11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [
+    "fakekms"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/GoogleCloudPlatform/kms-integrations.git",
+        "selector": {
+          "kind": "branch",
+          "value": "master"
+        },
+        "license_status": "unreviewed",
+        "revision": "de849afa57f6e46c1268fbced15c161c532bff8b",
+        "license_observation": "Apache-2.0 source LICENSE; official binary Google Cloud Terms separate"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/GoogleCloudPlatform/kms-integrations.git",
+        "selector": {
+          "kind": "tag",
+          "value": "pkcs11-v1.9"
+        },
+        "license_status": "unreviewed",
+        "revision": "e01c9b66a4b1db63e42de956ae6b2cefde2fea67",
+        "license_observation": "Apache-2.0 source LICENSE; official binary Google Cloud Terms separate"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+  ]
+}

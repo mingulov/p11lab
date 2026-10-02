@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "id": "softhsm2",
+  "module_implementation": {
+    "name": "SoftHSMv2"
+  },
+  "backend": {
+    "name": "native software token",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libsofthsm2.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/softhsm/SoftHSMv2.git",
+        "selector": {
+          "kind": "branch",
+          "value": "main"
+        },
+        "license_status": "unreviewed",
+        "revision": "884cb38f3d2012a0447bd5f50dbd29c429987c41",
+        "license_observation": "BSD-2-Clause",
+        "license_evidence": [
+          {
+            "variant": "rolling",
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/softhsm/SoftHSMv2/884cb38f3d2012a0447bd5f50dbd29c429987c41/LICENSE",
+            "sha256": "230cab7102816e99f7ce03ef476352fcad09d742fcbc6580d44393db6280b64c"
+          }
+        ]
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/softhsm/SoftHSMv2.git",
+        "selector": {
+          "kind": "tag",
+          "value": "2.7.0"
+        },
+        "license_status": "unreviewed",
+        "revision": "13e6e86b83748fef74046dbf0c91f664b7acc1c3",
+        "license_observation": "BSD-2-Clause",
+        "license_evidence": [
+          {
+            "variant": "stable",
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/softhsm/SoftHSMv2/13e6e86b83748fef74046dbf0c91f664b7acc1c3/LICENSE",
+            "sha256": "230cab7102816e99f7ce03ef476352fcad09d742fcbc6580d44393db6280b64c"
+          }
+        ]
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+  ]
+}

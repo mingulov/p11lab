@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "id": "ykcs11",
+  "module_implementation": {
+    "name": "Yubico libykcs11"
+  },
+  "backend": {
+    "name": "CanoKey-core virtual card",
+    "simulated": true
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "ephemeral",
+  "module_path": "/usr/local/lib/p11lab/libykcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [
+    "pcscd"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/Yubico/yubico-piv-tool.git",
+        "selector": {
+          "kind": "branch",
+          "value": "master"
+        },
+        "license_status": "unreviewed",
+        "revision": "c987afb892a565d210d5d674fa2e3300e19e14da",
+        "license_observation": "BSD-2-Clause"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/Yubico/yubico-piv-tool.git",
+        "selector": {
+          "kind": "tag",
+          "value": "yubico-piv-tool-2.7.3"
+        },
+        "license_status": "unreviewed",
+        "revision": "ed1cd7862d39a92502c0476f53dfcf93f195007a",
+        "license_observation": "BSD-2-Clause"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified.",
+    "Opening the virtual card resets state; persistent-token requests are unsupported.",
+    "CanoKey-core backend pins are independent of the Yubico module channel; unrelated canokey-pkcs11 is excluded."
+  ]
+}

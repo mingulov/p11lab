@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "id": "tpm2",
+  "module_implementation": {
+    "name": "tpm2-pkcs11"
+  },
+  "backend": {
+    "name": "swtpm/libtpms software TPM",
+    "simulated": true
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libtpm2_pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [
+    "swtpm",
+    "tpm2-abrmd",
+    "dbus"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/tpm2-software/tpm2-pkcs11.git",
+        "selector": {
+          "kind": "branch",
+          "value": "master"
+        },
+        "license_status": "unreviewed",
+        "revision": "d8375fa68e4ce8a477f7f5953511711e500e4143",
+        "license_observation": "BSD-2-Clause text"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/tpm2-software/tpm2-pkcs11.git",
+        "selector": {
+          "kind": "tag",
+          "value": "1.10.1"
+        },
+        "license_status": "unreviewed",
+        "revision": "9a3bfbd6b9e20513cbf5413b395ba1fe8b23ef0c",
+        "license_observation": "BSD-2-Clause text"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+  ]
+}

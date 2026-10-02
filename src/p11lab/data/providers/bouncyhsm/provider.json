@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "id": "bouncyhsm",
+  "module_implementation": {
+    "name": "BouncyHSM native client"
+  },
+  "backend": {
+    "name": "BouncyHSM managed server",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64",
+    "windows/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64",
+    "windows/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libBouncyHsm.Pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [
+    "bouncyhsm-server"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/harrison314/BouncyHsm.git",
+        "selector": {
+          "kind": "branch",
+          "value": "main"
+        },
+        "license_status": "unreviewed",
+        "revision": "f09ab9a342741c56bb56621a707c1b94dfdeac4b",
+        "license_observation": "BSD-3-Clause"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/harrison314/BouncyHsm.git",
+        "selector": {
+          "kind": "tag",
+          "value": "v2.3.2"
+        },
+        "license_status": "unreviewed",
+        "revision": "f09ab9a342741c56bb56621a707c1b94dfdeac4b",
+        "license_observation": "BSD-3-Clause"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified.",
+    "Windows native x64 DLL/server bundle and .NET 10 prerequisites require independent artifact identity and acceptance."
+  ]
+}

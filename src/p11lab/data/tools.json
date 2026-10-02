@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "tools": {
+    "checker": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/mingulov/pkcs11-check.git",
+        "revision": "de4db3d2ee738a9f99d0654e4baf568cdbd4774a",
+        "license_status": "unreviewed"
+      },
+      "artifacts": [],
+      "pending": "Pinned source; built artifact and actual-content source/license evidence pending."
+    },
+    "proxy": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/mingulov/pkcs11-proxy-ng.git",
+        "revision": "a348a5f59b535b1ca309ea9f0a722e3bec692f72",
+        "license_status": "unreviewed"
+      },
+      "artifacts": [],
+      "pending": "Pinned source; built artifact and actual-content source/license evidence pending."
+    },
+    "p11scope": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/mingulov/p11scope.git",
+        "revision": "dcc1645a91ec6e0c1f66fbd3f014b6cece5e7845",
+        "license_status": "unreviewed"
+      },
+      "artifacts": [],
+      "pending": "Pinned source; built artifact and actual-content source/license evidence pending."
+    },
+    "oras": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/oras-project/oras.git",
+        "selector": {
+          "kind": "latest-stable-tag",
+          "value": "latest-stable-tag"
+        },
+        "license_status": "unreviewed"
+      },
+      "artifacts": [],
+      "pending": "Exact ORAS source and platform artifact checksums must be resolved before use."
+    },
+    "consumer": {
+      "status": "planned",
+      "license_status": "unreviewed",
+      "artifacts": [],
+      "pending": "Independent P11Lab-owned C/OpenSSL smoke application is not yet implemented."
+    }
+  }
+}

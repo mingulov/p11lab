@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "id": "corepkcs11",
+  "module_implementation": {
+    "name": "corePKCS11"
+  },
+  "backend": {
+    "name": "in-memory PAL with real Mbed TLS cryptography",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "process-local",
+  "module_path": "/usr/local/lib/p11lab/libcorepkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [],
+  "channels": {
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/FreeRTOS/corePKCS11.git",
+        "selector": {
+          "kind": "tag",
+          "value": "v3.6.4"
+        },
+        "license_status": "unreviewed",
+        "revision": "ccc78afee1716436cca832dd3d9388ead2ba05b0",
+        "license_observation": "MIT"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/FreeRTOS/corePKCS11.git",
+        "selector": {
+          "kind": "branch",
+          "value": "main"
+        },
+        "license_status": "unreviewed",
+        "revision": "2dca34ec803850aae02de5df158dcb259da7fddf",
+        "license_observation": "MIT"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified.",
+    "Process-local objects; no persistent-token qualification."
+  ]
+}

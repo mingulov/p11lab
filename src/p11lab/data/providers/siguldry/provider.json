@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "id": "siguldry",
+  "module_implementation": {
+    "name": "Siguldry PKCS#11"
+  },
+  "backend": {
+    "name": "local authenticated signing services",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libsiguldry_pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [
+    "siguldry-services"
+  ],
+  "channels": {
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/fedora-infra/siguldry.git",
+        "selector": {
+          "kind": "tag",
+          "value": "siguldry-pkcs11-2.2.0"
+        },
+        "license_status": "unreviewed",
+        "revision": "43a7acf3fa898e22ffd935c0a641bbae68e98363",
+        "license_observation": "MIT (workspace and crate manifests)"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/fedora-infra/siguldry.git",
+        "selector": {
+          "kind": "branch",
+          "value": "main"
+        },
+        "license_status": "unreviewed",
+        "revision": "8f22c77b26bf5bbdf81049fb100c05e2395d1c64",
+        "license_observation": "MIT (workspace and crate manifests)"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "signing",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+  ]
+}

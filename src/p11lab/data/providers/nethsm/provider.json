@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "id": "nethsm",
+  "module_implementation": {
+    "name": "NetHSM PKCS#11"
+  },
+  "backend": {
+    "name": "local NetHSM software server",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libnethsm_pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [
+    "nethsm-server"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/Nitrokey/nethsm-pkcs11.git",
+        "selector": {
+          "kind": "branch",
+          "value": "main"
+        },
+        "license_status": "unreviewed",
+        "revision": "49d0a21a83c031ad35f127f21db34de5116d5040",
+        "license_observation": "Apache-2.0 LICENSE"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/Nitrokey/nethsm-pkcs11.git",
+        "selector": {
+          "kind": "tag",
+          "value": "v3.0.0"
+        },
+        "license_status": "unreviewed",
+        "revision": "fb3f448df6033a6406c9dc034ea729e930fc5fdc",
+        "license_observation": "Apache-2.0 LICENSE"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+  ]
+}

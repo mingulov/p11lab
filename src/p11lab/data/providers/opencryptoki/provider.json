@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "id": "opencryptoki",
+  "module_implementation": {
+    "name": "OpenCryptoki"
+  },
+  "backend": {
+    "name": "SWToken",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libopencryptoki.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [
+    "pkcsslotd"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/opencryptoki/opencryptoki.git",
+        "selector": {
+          "kind": "branch",
+          "value": "master"
+        },
+        "license_status": "unreviewed",
+        "revision": "b0769d6332d4d82b33991b89f2d2dc9d64142cbe",
+        "license_observation": "CPL-1.0 plus per-source terms"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/opencryptoki/opencryptoki.git",
+        "selector": {
+          "kind": "tag",
+          "value": "v3.27.0"
+        },
+        "license_status": "unreviewed",
+        "revision": "583d0128bb5ebfac263496bc8fe32d4aef440178",
+        "license_observation": "CPL-1.0 plus per-source terms"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+  ]
+}

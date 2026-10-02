@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "rustssm",
+  "module_implementation": {
+    "name": "RustSSM"
+  },
+  "backend": {
+    "name": "Rust/SQLite software token with declared discovery patch",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/librustssm.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [],
+  "channels": {
+    "release": {
+      "status": "unavailable",
+      "reason": "No official refs/tags in snapshot"
+    },
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/jippeholwerda/rustssm.git",
+        "selector": {
+          "kind": "branch",
+          "value": "main"
+        },
+        "license_status": "unreviewed",
+        "revision": "d2781d13d5314893e1e6ba85fb309b9f850546bd",
+        "license_observation": "MIT"
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified.",
+    "Old reference artifact remains source-build-only-no-publication; fresh P11Lab qualification requires separate source/policy admission.",
+    "Mechanism-discovery patch keeps original MIT terms and requires provenance review."
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "id": "kryoptic",
+  "module_implementation": {
+    "name": "Kryoptic"
+  },
+  "backend": {
+    "name": "Rust/OpenSSL software token",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libkryoptic_pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [],
+  "channels": {
+    "rolling": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/latchset/kryoptic.git",
+        "selector": {
+          "kind": "branch",
+          "value": "main"
+        },
+        "license_status": "unreviewed",
+        "revision": "1b83bd10888929e6b6d97685a9ae4bfc21724884",
+        "license_observation": "Apache-2.0",
+        "license_evidence": [
+          {
+            "variant": "rolling",
+            "path": "LICENSE.txt",
+            "url": "https://raw.githubusercontent.com/latchset/kryoptic/1b83bd10888929e6b6d97685a9ae4bfc21724884/LICENSE.txt",
+            "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+          }
+        ]
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    },
+    "release": {
+      "status": "planned",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/latchset/kryoptic.git",
+        "selector": {
+          "kind": "tag",
+          "value": "v1.5.3"
+        },
+        "license_status": "unreviewed",
+        "revision": "3c650f9f98a626127897ef9858c3d6c0b795d459",
+        "license_observation": "Apache-2.0",
+        "license_evidence": [
+          {
+            "variant": "stable",
+            "path": "LICENSE.txt",
+            "url": "https://raw.githubusercontent.com/latchset/kryoptic/3c650f9f98a626127897ef9858c3d6c0b795d459/LICENSE.txt",
+            "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+          }
+        ]
+      },
+      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+  },
+  "constraints": [
+    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+  ]
+}
