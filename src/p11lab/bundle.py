@@ -269,11 +269,11 @@ def _sync_directory(path):
 
 
 def _create_parents(parent):
-    """Return a bottom-up durability roster through the first existing ancestor.
+    """Create missing parents and return their full resolved ancestor chain.
 
-    Keep observed missing entries in the roster even if another installer wins
-    their mkdir race, so our success does not depend on that process flushing
-    them. Ancestors are not cleanup-owned and are never removed on failure.
+    An existing ancestor may have just been created by another installer, so it
+    cannot mark a durability boundary. Flush through root before success.
+    Ancestors are not cleanup-owned and are never removed on failure.
     """
     missing = []
     ancestor = parent
@@ -285,7 +285,7 @@ def _create_parents(parent):
             directory.mkdir()
         except FileExistsError:
             _require(directory.is_dir(), "destination ancestor is not a directory")
-    return (parent, *(directory.parent for directory in missing))
+    return (parent, *parent.parents)
 
 
 def _place_no_replace(stage, destination):
@@ -320,18 +320,45 @@ def _cleanup_owned(path, identity):
         pass
 
 
+def _retained_error(prefix, phase, error):
+    guarantee = "durability uncertain" if phase == "durability" else "successful verification not confirmed"
+    return BundleError(f"published prefix retained at {prefix}; {guarantee}: {error}")
+
+
+def _reuse_installation(artifact, prefix, selection):
+    installed = read_installation(prefix, **selection)
+    _require(installed.artifact == artifact, "existing installation belongs to a different artifact")
+    # A visible prefix may have just been published by another process. Without
+    # a recorded completion boundary, flush the entire resolved ancestor chain
+    # ourselves; successful reuse must not depend on that publisher's outcome.
+    phase = "durability"
+    try:
+        for directory in (prefix.parent, *prefix.parent.parents):
+            _sync_directory(directory)
+        phase = "verification"
+        installed = read_installation(prefix, **selection)
+        _require(installed.artifact == artifact, "existing installation belongs to a different artifact")
+        return installed
+    except (BundleError, OSError, RuntimeError) as error:
+        raise _retained_error(prefix, phase, error) from error
+
+
 def install_bundle(artifact: ArtifactRef, prefix: Path, *, environment: str, channel: str, platform: str) -> InstalledBundle:
-    """Stage verified bytes and commit without replacing any existing object."""
+    """Publish a complete verified tree without replacing an existing object.
+
+    Failures before publication clean owned staging. After atomic publication,
+    retain the visible prefix because another caller may already have adopted
+    it; errors report which postpublication guarantee could not be confirmed.
+    """
     _require(sys.platform in {"linux", "win32"}, "native installation supports Linux and Windows only")
     selection = dict(environment=environment, channel=channel, platform=platform)
     _artifact(asdict(artifact))
     prefix = _prefix(prefix)
-    stage, owned, placed, completed = None, None, False, False
+    stage, owned, placed = None, None, False
+    postpublication_phase = "durability"
     try:
         if prefix.exists():
-            installed = read_installation(prefix, **selection)
-            _require(installed.artifact == artifact, "existing installation belongs to a different artifact")
-            return installed
+            return _reuse_installation(artifact, prefix, selection)
         parent_sync_paths = _create_parents(prefix.parent)
         with _archive(artifact) as (members, opener):
             manifest, manifest_bytes, files, names = _archive_layout(members, opener, artifact, selection)
@@ -351,6 +378,9 @@ def install_bundle(artifact: ArtifactRef, prefix: Path, *, environment: str, cha
                        "manifest_sha256": _digest(manifest_bytes), "prefix": str(prefix),
                        "platform": platform, "manifest": manifest}
             _write(stage / _RECEIPT, json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode() + b"\n", 0o600)
+            # Verify the actual staged tree, binding its receipt to the intended
+            # placement, before exposing it to other independent installers.
+            _read_installation_at(stage, receipt_prefix=prefix, **selection)
             for directory in sorted((p for p in stage.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
                 _sync_directory(directory)
             _sync_directory(stage)
@@ -358,26 +388,22 @@ def install_bundle(artifact: ArtifactRef, prefix: Path, *, environment: str, cha
                 _place_no_replace(stage, prefix)
             except OSError as error:
                 if error.errno in {errno.EEXIST, errno.ENOTEMPTY} or isinstance(error, FileExistsError):
-                    installed = read_installation(prefix, **selection)
-                    _require(installed.artifact == artifact, "concurrent installation conflict")
-                    for directory in parent_sync_paths:
-                        _sync_directory(directory)
-                    return installed
+                    return _reuse_installation(artifact, prefix, selection)
                 raise
             placed = True
             for directory in parent_sync_paths:
                 _sync_directory(directory)
-        installed = read_installation(prefix, **selection)
-        completed = True
-        return installed
-    except (OSError, tarfile.TarError, zipfile.BadZipFile, RuntimeError) as error:
+        postpublication_phase = "verification"
+        return read_installation(prefix, **selection)
+    except (BundleError, OSError, tarfile.TarError, zipfile.BadZipFile, RuntimeError) as error:
+        if placed:
+            raise _retained_error(prefix, postpublication_phase, error) from error
+        if isinstance(error, BundleError):
+            raise
         raise BundleError(f"cannot install bundle: {error}") from error
     finally:
-        if stage is not None:
-            if placed and not completed:
-                _cleanup_owned(prefix, owned)
-            elif not placed:
-                _cleanup_owned(stage, owned)
+        if stage is not None and not placed:
+            _cleanup_owned(stage, owned)
 
 
 def _regular(path):
@@ -389,9 +415,15 @@ def _regular(path):
 
 def read_installation(prefix: Path, *, environment: str, channel: str, platform: str) -> InstalledBundle:
     """Reverify placement, receipt, manifest and the exact installed file roster."""
+    return _read_installation_at(prefix, receipt_prefix=prefix, environment=environment, channel=channel, platform=platform)
+
+
+def _read_installation_at(prefix, *, receipt_prefix, environment, channel, platform):
+    """Verify an actual tree against its intended receipt placement."""
     selection = dict(environment=environment, channel=channel, platform=platform)
     try:
         prefix = _prefix(prefix)
+        receipt_prefix = _prefix(receipt_prefix)
         _require(prefix.is_dir(), "installation prefix is not a directory")
         _require({p.name for p in prefix.iterdir()} == {"manifest.json", "payload", _RECEIPT}, "installed root roster mismatch")
         receipt_path, manifest_path = prefix / _RECEIPT, prefix / "manifest.json"
@@ -403,7 +435,7 @@ def read_installation(prefix: Path, *, environment: str, channel: str, platform:
         _require(set(receipt) == {"schema_version", "artifact", "acquisition_source", "manifest_sha256", "prefix", "platform", "manifest"}, "invalid receipt fields")
         artifact = _artifact(receipt["artifact"])
         _require(receipt["acquisition_source"] == artifact.reference, "receipt acquisition source mismatch")
-        _require(receipt["prefix"] == str(prefix), "receipt placement mismatch; reinstall at the new prefix")
+        _require(receipt["prefix"] == str(receipt_prefix), "receipt placement mismatch; reinstall at the new prefix")
         _require(receipt["platform"] == platform == artifact.platform, "receipt platform mismatch")
         _require(receipt["manifest_sha256"] == _digest(manifest_bytes) and receipt["manifest"] == manifest, "receipt manifest identity mismatch")
         files = _manifest(manifest, **selection)

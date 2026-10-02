@@ -402,7 +402,7 @@ def test_destination_appearing_at_commit_is_preserved_even_if_empty(tmp_path, mo
     assert not list(tmp_path.glob(".p11lab-stage-*"))
 
 
-def test_post_placement_failure_removes_only_its_owned_prefix(tmp_path, monkeypatch):
+def test_post_publication_durability_failure_retains_complete_prefix(tmp_path, monkeypatch):
     artifact = archive(tmp_path)
     original = bundle._sync_directory
     sentinel = tmp_path / "sentinel"
@@ -414,9 +414,11 @@ def test_post_placement_failure_removes_only_its_owned_prefix(tmp_path, monkeypa
         original(directory)
 
     monkeypatch.setattr(bundle, "_sync_directory", fail_parent_flush)
-    with pytest.raises(bundle.BundleError):
+    with pytest.raises(bundle.BundleError, match="published prefix retained.*durability"):
         install(artifact, tmp_path / "prefix")
-    assert not (tmp_path / "prefix").exists()
+    # Atomic publication lets another caller adopt this complete tree. A later
+    # failure must report uncertainty without rolling back their installation.
+    assert read(tmp_path / "prefix").artifact == artifact
     assert not list(tmp_path.glob(".p11lab-stage-*"))
     assert sentinel.read_text() == "keep"
 
@@ -673,8 +675,10 @@ def test_new_destination_ancestor_entries_are_synced_through_existing_parent(tmp
     prefix = tmp_path / "new/parent/prefix"
     installed = install(artifact, prefix)
     assert installed.prefix == prefix
-    expected_chain = [tmp_path / "new/parent", tmp_path / "new", tmp_path]
-    assert synchronized[-3:] == expected_chain
+    # Existing ancestors can themselves have just been created by another
+    # installer. A successful creator independently flushes through root too.
+    expected_chain = [prefix.parent, *prefix.parent.parents]
+    assert synchronized[-len(expected_chain):] == expected_chain
     assert read(prefix).artifact == artifact
 
 
@@ -696,10 +700,188 @@ def test_existing_ancestor_fsync_failure_cannot_report_success_or_delete_unowned
             raise OSError("injected ancestor fsync failure")
 
     monkeypatch.setattr(bundle, "_sync_directory", fail_first_existing_ancestor)
-    with pytest.raises(bundle.BundleError, match="ancestor fsync failure"):
+    with pytest.raises(bundle.BundleError, match="published prefix retained.*ancestor fsync failure"):
         install(artifact, prefix)
     assert synchronized[-3:] == [tmp_path / "new/parent", tmp_path / "new", tmp_path]
-    assert not prefix.exists()
+    assert read(prefix).artifact == artifact
     assert not list(prefix.parent.glob(".p11lab-stage-*"))
     assert sentinel.read_text() == "keep"
     assert unrelated.stat().st_ino == unrelated_identity
+
+
+def _paused_publisher_with_durability_failure(artifact, prefix, connection):
+    prefix = Path(prefix)
+    original = bundle._sync_directory
+
+    def pause_after_publication(directory):
+        if directory == prefix.parent and prefix.exists():
+            connection.send(("published", str(prefix)))
+            if connection.recv() != "fail":
+                raise RuntimeError("unexpected publication control message")
+            raise OSError("injected publisher parent fsync failure")
+        original(directory)
+
+    bundle._sync_directory = pause_after_publication
+    try:
+        install(artifact, prefix)
+        connection.send(("unexpected-success", ""))
+    except bundle.BundleError as error:
+        connection.send(("failed", str(error)))
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("reuse_path", ["already-visible", "no-replace-conflict"])
+def test_matching_reuse_survives_publisher_durability_failure_in_another_process(tmp_path, monkeypatch, reuse_path):
+    import multiprocessing
+
+    artifact = archive(tmp_path)
+    prefix = tmp_path / "new/parent/prefix"
+    context = multiprocessing.get_context("spawn")
+    parent_connection, child_connection = context.Pipe()
+    publisher = context.Process(target=_paused_publisher_with_durability_failure,
+                                args=(artifact, str(prefix), child_connection))
+    synchronized = []
+    original_sync = bundle._sync_directory
+    original_place = bundle._place_no_replace
+    observed_conflicts = []
+
+    def trace_actual_sync(directory):
+        original_sync(directory)
+        synchronized.append(directory)
+
+    def start_publisher_and_wait_for_publication():
+        publisher.start()
+        child_connection.close()
+        assert parent_connection.poll(20), "publisher did not reach actual publication"
+        assert parent_connection.recv() == ("published", str(prefix))
+
+    def contender_commit_after_winner_publication(stage, destination):
+        # The contender has already staged while the destination was absent.
+        # Only now let the independent publisher win the real rename race.
+        start_publisher_and_wait_for_publication()
+        try:
+            original_place(stage, destination)
+        except FileExistsError:
+            observed_conflicts.append(destination)
+            raise
+
+    monkeypatch.setattr(bundle, "_sync_directory", trace_actual_sync)
+    if reuse_path == "already-visible":
+        start_publisher_and_wait_for_publication()
+    else:
+        monkeypatch.setattr(bundle, "_place_no_replace", contender_commit_after_winner_publication)
+    try:
+        reused = install(artifact, prefix)
+        identity = prefix.stat().st_ino
+        expected_ancestors = [prefix.parent, *prefix.parent.parents]
+        if reuse_path == "no-replace-conflict":
+            assert observed_conflicts == [prefix]
+        assert read(prefix) == reused
+        # The matching caller has returned with independent verification and
+        # real directory fsyncs before the original publisher fails.
+        parent_connection.send("fail")
+        assert parent_connection.poll(20), "publisher did not report injected failure"
+        status, error = parent_connection.recv()
+        assert status == "failed"
+        publisher.join(timeout=20)
+        assert publisher.exitcode == 0
+        assert prefix.is_dir(), "publisher removed a successfully reused installation"
+        assert prefix.stat().st_ino == identity
+        assert read(prefix) == reused
+        assert synchronized[-len(expected_ancestors):] == expected_ancestors
+        assert "published prefix retained" in error
+        assert "durability" in error
+        assert "injected publisher parent fsync failure" in error
+        assert not list(prefix.parent.glob(".p11lab-stage-*"))
+    finally:
+        parent_connection.close()
+        if publisher.pid is not None:
+            if publisher.is_alive():
+                publisher.kill()
+            publisher.join(timeout=20)
+        child_connection.close()
+
+
+def test_staged_content_is_reverified_before_publication(tmp_path, monkeypatch):
+    artifact = archive(tmp_path)
+    original_write = bundle._write
+    original_place = bundle._place_no_replace
+    publications = []
+
+    def corrupt_stage_after_receipt_write(path, data, mode):
+        original_write(path, data, mode)
+        if path.name == ".p11lab-install.json":
+            (path.parent / "payload/lib/module.so").write_bytes(b"changed after extraction")
+
+    def trace_actual_publication(stage, destination):
+        original_place(stage, destination)
+        publications.append(destination.stat().st_ino)
+
+    monkeypatch.setattr(bundle, "_write", corrupt_stage_after_receipt_write)
+    monkeypatch.setattr(bundle, "_place_no_replace", trace_actual_publication)
+    with pytest.raises(bundle.BundleError):
+        install(artifact, tmp_path / "prefix")
+    assert publications == []
+    assert not (tmp_path / "prefix").exists()
+    assert not list(tmp_path.glob(".p11lab-stage-*"))
+
+
+def test_post_publication_readback_failure_retains_tree_without_claiming_verified_contents(tmp_path, monkeypatch):
+    artifact = archive(tmp_path)
+    original_place = bundle._place_no_replace
+    identities = []
+
+    def alter_after_actual_publication(stage, destination):
+        original_place(stage, destination)
+        identities.append(destination.stat().st_ino)
+        (destination / "payload/lib/module.so").write_bytes(b"post-publication edit")
+
+    monkeypatch.setattr(bundle, "_place_no_replace", alter_after_actual_publication)
+    with pytest.raises(bundle.BundleError, match="published prefix retained.*verification") as failure:
+        install(artifact, tmp_path / "prefix")
+    assert "complete prefix" not in str(failure.value)
+    prefix = tmp_path / "prefix"
+    assert prefix.stat().st_ino == identities[0]
+    assert (prefix / "payload/lib/module.so").read_bytes() == b"post-publication edit"
+    with pytest.raises(bundle.BundleError):
+        read(prefix)
+
+
+def test_existing_verified_reuse_durability_failure_retains_tree_and_reports_uncertainty(tmp_path, monkeypatch):
+    artifact = archive(tmp_path)
+    prefix = tmp_path / "prefix"
+    installed = install(artifact, prefix)
+    identity = prefix.stat().st_ino
+    original = bundle._sync_directory
+
+    def fail_reuse_flush(directory):
+        original(directory)
+        if directory == prefix.parent:
+            raise OSError("injected reuser fsync failure")
+
+    monkeypatch.setattr(bundle, "_sync_directory", fail_reuse_flush)
+    with pytest.raises(bundle.BundleError, match="published prefix retained.*durability.*reuser fsync failure"):
+        install(artifact, prefix)
+    assert prefix.stat().st_ino == identity
+    assert read(prefix) == installed
+
+
+def test_existing_reuse_reverifies_after_sync_and_retains_external_edits_on_failure(tmp_path, monkeypatch):
+    artifact = archive(tmp_path)
+    prefix = tmp_path / "prefix"
+    install(artifact, prefix)
+    identity = prefix.stat().st_ino
+    original = bundle._sync_directory
+
+    def edit_during_actual_sync(directory):
+        original(directory)
+        if directory == prefix.parent:
+            (prefix / "payload/lib/module.so").write_bytes(b"edited during reuse sync")
+
+    monkeypatch.setattr(bundle, "_sync_directory", edit_during_actual_sync)
+    with pytest.raises(bundle.BundleError, match="published prefix retained.*verification"):
+        install(artifact, prefix)
+    assert prefix.stat().st_ino == identity
+    with pytest.raises(bundle.BundleError):
+        read(prefix)
