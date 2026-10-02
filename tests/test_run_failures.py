@@ -313,3 +313,85 @@ def test_unknown_creation_is_explicit_and_retains_backing_state(monkeypatch, spe
     # The fake engine created no actual Docker resource; remove only its known
     # empty test directory after checking the production retention contract.
     Path(receipt['state']['owned_directory']).rmdir()
+
+
+@pytest.mark.parametrize('app,expected', [(7, 7), (0, 124)])
+def test_completed_application_status_survives_post_health_timeout(monkeypatch, spec, app, expected):
+    class PostTimeoutEngine(Engine):
+        def execute(self, identity, timeout, interrupted):
+            result = super().execute(identity, timeout, interrupted)
+            if len(self.operations) == 4:
+                return replace(result, returncode=124, timed_out=True)
+            return result
+    result = execute(monkeypatch, spec, PostTimeoutEngine(app=app))
+    receipt = json.loads(result.receipt_path.read_text())
+    assert result.app_returncode == app
+    assert result.exit_code == expected
+    assert receipt['timeout'] and receipt['interrupted_signal'] is None
+    assert result.lifecycle_errors == ('post-health failed',)
+    assert not result.cleanup_errors
+
+
+@pytest.mark.parametrize('app,expected', [(7, 7), (0, 143)])
+@pytest.mark.parametrize('phase', ['post-health', 'cleanup'])
+def test_completed_application_status_survives_later_signal(monkeypatch, spec, app, expected, phase):
+    class PostSignalEngine(Engine):
+        def execute(self, identity, timeout, interrupted):
+            result = super().execute(identity, timeout, interrupted)
+            if phase == 'post-health' and len(self.operations) == 4:
+                # Invoke the installed handler at the lifecycle boundary;
+                # the completed application status must stay primary.
+                signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+                return replace(result, returncode=143)
+            return result
+
+        def remove(self, kind, identity, labels):
+            if phase == 'cleanup':
+                signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+            return super().remove(kind, identity, labels)
+    result = execute(monkeypatch, spec, PostSignalEngine(app=app))
+    receipt = json.loads(result.receipt_path.read_text())
+    assert result.app_returncode == app
+    assert result.exit_code == expected
+    assert receipt['interrupted_signal'] == signal.SIGTERM and not receipt['timeout']
+    assert not result.cleanup_errors
+
+
+@pytest.mark.parametrize('timed_out,signum,expected', [(True, None, 124), (False, signal.SIGTERM, 143)])
+def test_known_attach_outcome_survives_unavailable_status(monkeypatch, spec, timed_out, signum, expected):
+    from p11lab.docker import Docker
+    class UnavailableStatusEngine(Engine):
+        def command(self, args, *a, **kwargs):
+            if args[0] == 'start':
+                if signum:
+                    signal.getsignal(signum)(signum, None)
+                return CommandResult(-15, 'drained application output', '', timed_out)
+            raise DockerError('status inspect unavailable')
+
+        def execute(self, identity, timeout, interrupted):
+            argv = self.created[int(identity.split('-')[1])][1]
+            if argv[0] == 'exec':
+                self.operations.append(argv)
+                return Docker.execute(self, identity, timeout, interrupted)
+            return super().execute(identity, timeout, interrupted)
+    result = execute(monkeypatch, spec, UnavailableStatusEngine())
+    receipt = json.loads(result.receipt_path.read_text())
+    assert result.app_returncode == result.exit_code == expected
+    assert receipt['timeout'] == timed_out
+    assert receipt['interrupted_signal'] == signum
+    assert not result.cleanup_errors
+    assert (spec.output_dir / 'application.stdout.log').read_text() == 'drained application output'
+
+
+@pytest.mark.parametrize('app,expected', [(7, 7), (0, 143)])
+def test_completed_application_status_survives_signal_while_saving_output(monkeypatch, spec, app, expected):
+    original = Path.write_text
+    def write(path, *args, **kwargs):
+        if path.name == 'application.stdout.log':
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'write_text', write)
+    result = execute(monkeypatch, spec, Engine(app=app))
+    receipt = json.loads(result.receipt_path.read_text())
+    assert result.app_returncode == app and result.exit_code == expected
+    assert receipt['app_completed'] and receipt['interrupted_signal'] == signal.SIGTERM

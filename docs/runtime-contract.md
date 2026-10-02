@@ -74,13 +74,16 @@ retained for recovery. Unrelated resources are preserved. Unexpected host
 destruction can leave owned
 resources behind without a completed receipt.
 
-The application nonzero exit is primary even if post-health or cleanup also
-fails. Application zero plus lifecycle/cleanup failure returns 1; timeout returns
-124; interruption returns 128 plus the signal number. Failure before application
+A completed application nonzero exit is primary even if post-health or cleanup
+fails, times out, or is interrupted. Secondary timeout/signal facts remain in the
+receipt. Otherwise application zero plus lifecycle/cleanup failure returns 1;
+timeout returns 124; interruption returns 128 plus the signal number. Known attach
+timeout/interruption outcomes do not require another successful status inspection;
+ownership inspection remains required for cleanup. Failure before application
 execution records null `app_returncode`. Atomic `receipt.json` records stages,
 artifact roles, inspected descriptor, ownership IDs, execution controls, timeout,
-interruption and cleanup errors. Each stage's stdout/stderr retains a bounded
-64 KiB raw-byte prefix while draining all output; the receipt declares truncation.
+interruption, application completion and cleanup errors. Each stage's stdout/stderr
+retains a bounded 64 KiB raw-byte prefix while draining all output; the receipt declares truncation.
 Known explicit credential values are redacted. Commands and arbitrary argument
 contents are omitted, so callers must separately retain a safe reproduction
 command. Applications are responsible for keeping their own exported output safe.

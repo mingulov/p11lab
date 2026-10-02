@@ -156,11 +156,12 @@ class Docker:
             self.command(['kill', '--signal', signal.Signals(signum).name, identity], 5, check=False)
         attached = self.command(['start', '--attach', identity], timeout, check=False,
                                 interrupted=interrupted, on_stop=stop)
-        state = json.loads(self.command(['inspect', '--format', '{{json .State}}', identity]).stdout)
-        if attached.timed_out or interrupted():
-            return CommandResult(124 if attached.timed_out else 128 + interrupted(), attached.stdout,
+        requested_signal = interrupted()
+        if attached.timed_out or requested_signal:
+            return CommandResult(124 if attached.timed_out else 128 + requested_signal, attached.stdout,
                                  attached.stderr, attached.timed_out,
                                  attached.stdout_truncated, attached.stderr_truncated)
+        state = json.loads(self.command(['inspect', '--format', '{{json .State}}', identity]).stdout)
         if state['Running'] or state.get('Error') or attached.returncode and state['ExitCode'] == 0:
             raise DockerError('container status unavailable or still running')
         return CommandResult(state['ExitCode'], attached.stdout, attached.stderr, False,

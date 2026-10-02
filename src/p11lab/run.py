@@ -64,6 +64,7 @@ def run_application(spec: RunSpec) -> RunResult:
     uncertain = []
     lifecycle, cleanup, stages = [], [], []
     app_returncode = None
+    app_completed = False
     timed_out = False
     interrupted_signal = None
     deadline = time.monotonic() + spec.timeout_seconds
@@ -142,6 +143,9 @@ def run_application(spec: RunSpec) -> RunResult:
                 identity = engine.create(spec.artifact.reference, argv, stage_options, labels, 'p11lab-' + run_id + '-' + str(index))
                 owned.append(('container', identity))
                 result = engine.execute(identity, max(.01, deadline - time.monotonic()), lambda: interrupted_signal)
+                if phase == 'application':
+                    app_returncode = result.returncode
+                    app_completed = not result.timed_out and not interrupted_signal
                 timed_out = timed_out or result.timed_out
                 def redact(text, truncated):
                     if truncated and secrets:
@@ -158,9 +162,7 @@ def run_application(spec: RunSpec) -> RunResult:
                 stages.append({'phase': phase, 'container_id': identity, 'returncode': result.returncode,
                                'timed_out': result.timed_out, 'stdout_truncated': result.stdout_truncated,
                                'stderr_truncated': result.stderr_truncated})
-                if phase == 'application':
-                    app_returncode = result.returncode
-                elif result.returncode:
+                if phase != 'application' and result.returncode:
                     lifecycle.append(phase + ' failed')
                     break
                 if result.timed_out or interrupted_signal:
@@ -187,7 +189,8 @@ def run_application(spec: RunSpec) -> RunResult:
                 cleanup.append('private state directory cleanup failed')
         for sig, handler in old_handlers.items():
             signal.signal(sig, handler)
-    exit_code = (128 + interrupted_signal if interrupted_signal else 124 if timed_out else
+    exit_code = (app_returncode if app_completed and app_returncode else
+                 128 + interrupted_signal if interrupted_signal else 124 if timed_out else
                  app_returncode if app_returncode else 1 if lifecycle or cleanup else 0)
     receipt_path = output / 'receipt.json'
     record = {'schema_version': 1, 'run_id': run_id, 'attempt_id': attempt_id,
@@ -210,7 +213,8 @@ def run_application(spec: RunSpec) -> RunResult:
                         'owned_directory_retained': state_directory.exists() if state_directory else False},
               'stages': stages, 'owned_resources': [{'kind': k, 'identity': i} for k, i in owned],
               'uncertain_resources': [{'kind': k, 'name': n} for k, n in uncertain],
-              'app_returncode': app_returncode, 'lifecycle_errors': lifecycle, 'cleanup_errors': cleanup,
+              'app_returncode': app_returncode, 'app_completed': app_completed,
+              'lifecycle_errors': lifecycle, 'cleanup_errors': cleanup,
               'exit_code': exit_code, 'timeout': timed_out, 'interrupted_signal': interrupted_signal}
     write_receipt(receipt_path, record)
     return RunResult(app_returncode, tuple(lifecycle), tuple(cleanup), exit_code, receipt_path)
