@@ -270,6 +270,46 @@ def test_renamed_dynamic_section_cannot_hide_loader_dependencies():
         _needed(elf_fixture(renamed=True))
 
 
+def redirected_dynamic_offset():
+    import struct
+    binary = bytearray(elf_fixture())
+    offset = len(binary)
+    binary.extend(b'\0' * 64)
+    struct.pack_into('<Q', binary, 120 + 8, offset)
+    struct.pack_into('<Q', binary, 0x300 + 2 * 64 + 24, offset)
+    return bytes(binary)
+
+
+def test_dynamic_file_offset_must_match_loader_address_mapping():
+    from p11lab.licenses import _needed
+    with pytest.raises(ValueError, match='dynamic.*mapping'):
+        _needed(redirected_dynamic_offset())
+
+
+def test_file_backed_dynamic_segment_cannot_use_split_debug_exemption():
+    import struct
+    from p11lab.licenses import _needed
+    binary = bytearray(elf_fixture())
+    struct.pack_into('<Q', binary, 120 + 32, 0)
+    struct.pack_into('<I', binary, 0x300 + 2 * 64 + 4, 8)
+    with pytest.raises(ValueError, match='dynamic'):
+        _needed(bytes(binary))
+
+
+def test_collection_rejects_redirected_dynamic_offset(tmp_path, monkeypatch):
+    from p11lab.licenses import inspect_artifact
+    artifact, _ = mock_docker(monkeypatch, {'usr/bin/demo': redirected_dynamic_offset()})
+    _, inventory = fixture_inventory(tmp_path)
+    # On the vulnerable parser inspection succeeds and collection admits this
+    # executable despite the missing libc used by its unchanged loader mapping.
+    with pytest.raises(ValueError, match='dynamic.*mapping'):
+        inventory.update(artifact=asdict(artifact), observation=inspect_artifact(artifact))
+        inventory['components'] = [{'id': '/usr/bin/demo', 'source': 'demo=1'}]
+        inventory['content_reviews'] = [{'path': f['path'], 'sha256': f['sha256'],
+            'source': 'demo=1', 'status': 'reviewed'} for f in inventory['observation']['files']]
+        sources.collect_source_bundle(artifact, inventory, tmp_path / 'evidence')
+
+
 def tar_bytes(entries):
     import io
     stream = io.BytesIO()
@@ -335,13 +375,152 @@ def test_installed_file_checksums_require_review_for_changed_bytes(tmp_path, mon
     inventory['content_reviews'] = [{'path': f['path'], 'sha256': f['sha256'], 'source': 'demo=1', 'status': 'reviewed'}
                                    for f in observation['files'] if f['path'] != '/usr/bin/demo']
     reasons = validate_inventory(artifact, inventory)
-    assert any('/usr/bin/demo' in r for r in reasons) == (state != 'verified')
-    if state != 'verified':
-        inventory['content_reviews'].append({'path': file['path'], 'sha256': hashlib.sha256(original).hexdigest(), 'source': 'demo=1', 'status': 'reviewed'})
-        assert any('/usr/bin/demo' in r for r in validate_inventory(artifact, inventory)) == (state == 'modified')
-        inventory['content_reviews'][-1]['sha256'] = file['sha256']
-        assert validate_inventory(artifact, inventory) == []
+    assert any('/usr/bin/demo' in r for r in reasons)
+    inventory['content_reviews'].append({'path': file['path'], 'sha256': hashlib.sha256(original).hexdigest(), 'source': 'demo=1', 'status': 'reviewed'})
+    assert any('/usr/bin/demo' in r for r in validate_inventory(artifact, inventory)) == (state == 'modified')
+    inventory['content_reviews'][-1]['sha256'] = file['sha256']
+    assert validate_inventory(artifact, inventory) == []
     assert all(c[1] != 'run' for c in calls)
+
+
+def collision_pair():
+    original = bytes.fromhex(
+        'd131dd02c5e6eec4693d9a0698aff95c2fcab58712467eab4004583eb8fb7f8955'
+        'ad340609f4b30283e488832571415a085125e8f7cdc99fd91dbdf280373c5bd88'
+        '23e3156348f5bae6dacd436c919c6dd53e2b487da03fd02396306d248cda0e99'
+        'f33420f577ee8ce54b67080a80d1ec69821bcb6a8839396f9652b6ff72a70')
+    changed = bytearray(original)
+    for offset in [19, 45, 59, 83, 109, 123]:
+        changed[offset] ^= 128
+    assert hashlib.md5(original).digest() == hashlib.md5(changed).digest()
+    assert hashlib.sha256(original).digest() != hashlib.sha256(changed).digest()
+    return original, bytes(changed)
+
+
+def deb_bytes(control, files):
+    result = b'!<arch>\n'
+    for name, data in [('debian-binary', b'2.0\n'), ('control.tar', tar_bytes({'./control': control})),
+                       ('data.tar', tar_bytes(files))]:
+        header = f'{name + "/":<16}{0:<12}{0:<6}{0:<6}{"100644":<8}{len(data):<10}`\n'.encode()
+        result += header + data + (b'\n' if len(data) % 2 else b'')
+    return result
+
+
+def package_inventory(tmp_path, monkeypatch, *, substituted=False):
+    from p11lab.licenses import inspect_artifact
+    original, changed = collision_pair()
+    control = b'Package: demo\nVersion: 1\nArchitecture: amd64\n'
+    entries = {'usr/share/demo/file': changed if substituted else original,
+        'var/lib/dpkg/status': control + b'Status: install ok installed\n',
+        'var/lib/dpkg/info/demo.list': b'/usr/share/demo/file\n',
+        'var/lib/dpkg/info/demo.md5sums': (hashlib.md5(original).hexdigest() + '  usr/share/demo/file\n').encode()}
+    artifact, _ = mock_docker(monkeypatch, entries)
+    _, inventory = fixture_inventory(tmp_path)
+    inventory.update(artifact=asdict(artifact), observation=inspect_artifact(artifact))
+    inventory['content_reviews'] = [{'path': f['path'], 'sha256': f['sha256'],
+        'source': 'demo=1', 'status': 'reviewed'} for f in inventory['observation']['files'] if f['path'] != '/usr/share/demo/file']
+    source = tmp_path / 'demo.tar'
+    source.write_bytes(tar_bytes({'demo-1/file': original}))
+    inventory['payloads'][0].update(sha256=sources.checksum(source), size=source.stat().st_size)
+    dsc = tmp_path / 'demo.dsc'
+    dsc.write_text('Source: demo\nVersion: 1\nChecksums-Sha256:\n ' + sources.checksum(source) + ' ' + str(source.stat().st_size) + ' demo.tar\n')
+    inventory['sources'][0]['payloads'].append('sources/demo.dsc')
+    inventory['payloads'].append({'path': 'sources/demo.dsc', 'role': 'source', 'local_path': str(dsc),
+        'sha256': sources.checksum(dsc), 'size': dsc.stat().st_size})
+    deb = tmp_path / 'demo.deb'
+    deb.write_bytes(deb_bytes(control, {'./usr/share/demo/file': original, './usr/share/demo/decoy': changed}))
+    record = {'package': 'demo', 'version': '1', 'architecture': 'amd64', 'source': 'demo=1',
+        'sha256': sources.checksum(deb), 'size': deb.stat().st_size, 'url': 'https://example.org/demo.deb'}
+    evidence = tmp_path / 'package-selector.json'
+    evidence.write_text(json.dumps(record))
+    inventory['payloads'].append({'path': 'metadata/package-selector.json', 'role': 'metadata',
+        'local_path': str(evidence), 'sha256': sources.checksum(evidence), 'size': evidence.stat().st_size})
+    inventory['package_archives'] = [record | {'local_path': str(deb),
+        'authentication': {'status': 'reviewed', 'evidence_path': 'metadata/package-selector.json'}}]
+    inventory['package_files'] = [{'path': '/usr/share/demo/file', 'sha256': hashlib.sha256(original).hexdigest(),
+        'package': 'demo', 'archive_sha256': record['sha256'], 'member': 'usr/share/demo/file'}]
+    return artifact, inventory
+
+
+@pytest.mark.parametrize('evidence', ['manifest-only', 'original-sha256', 'forged-sha256', 'wrong-member'])
+def test_md5_collision_requires_authenticated_file_sha256(tmp_path, monkeypatch, evidence):
+    artifact, inventory = package_inventory(tmp_path, monkeypatch, substituted=True)
+    if evidence == 'manifest-only':
+        inventory.pop('package_files')
+        inventory.pop('package_archives')
+    elif evidence in {'forged-sha256', 'wrong-member'}:
+        inventory['package_files'][0]['sha256'] = hashlib.sha256(collision_pair()[1]).hexdigest()
+        if evidence == 'wrong-member':
+            inventory['package_files'][0]['member'] = 'usr/share/demo/decoy'
+    with pytest.raises(ValueError, match='content|package'):
+        sources.collect_source_bundle(artifact, inventory, tmp_path / 'evidence')
+
+
+@pytest.mark.parametrize('damage', ['none', 'cache-bytes', 'selector', 'control-identity'])
+def test_package_archive_is_reverified_by_collection_and_assessment(tmp_path, monkeypatch, damage):
+    from p11lab.licenses import assess_distribution
+    artifact, inventory = package_inventory(tmp_path, monkeypatch)
+    if damage == 'selector':
+        inventory['package_archives'][0]['version'] = '2'
+    elif damage == 'control-identity':
+        deb = Path(inventory['package_archives'][0]['local_path'])
+        deb.write_bytes(deb_bytes(b'Package: another\nVersion: 1\nArchitecture: amd64\n',
+            {'usr/share/demo/file': collision_pair()[0]}))
+        record = inventory['package_archives'][0]
+        record.update(sha256=sources.checksum(deb), size=deb.stat().st_size)
+        inventory['package_files'][0]['archive_sha256'] = record['sha256']
+        evidence = Path(inventory['payloads'][-1]['local_path'])
+        evidence.write_text(json.dumps({k: record[k] for k in ['package', 'version', 'architecture', 'source', 'sha256', 'size', 'url']}))
+        inventory['payloads'][-1].update(sha256=sources.checksum(evidence), size=evidence.stat().st_size)
+    output = tmp_path / 'evidence'
+    if damage in {'selector', 'control-identity'}:
+        with pytest.raises(ValueError, match='package'):
+            sources.collect_source_bundle(artifact, inventory, output)
+        return
+    archive = sources.collect_source_bundle(artifact, inventory, output)
+    with tarfile.open(archive) as contents:
+        assert not any(name.endswith('.deb') for name in contents.getnames())
+        assert str(tmp_path) not in contents.extractfile('inventory.json').read().decode()
+    if damage == 'cache-bytes':
+        cache = output / 'package-cache' / (inventory['package_archives'][0]['sha256'] + '.deb')
+        assert cache.is_file()
+        cache.write_bytes(b'changed authenticated archive')
+    result = assess_distribution(artifact, output)
+    assert result['status'] == ('blocked' if damage == 'cache-bytes' else 'eligible'), result
+
+
+def test_assessment_rejects_resealed_collision_with_forged_file_binding(tmp_path, monkeypatch):
+    from p11lab import licenses
+    artifact, inventory = package_inventory(tmp_path, monkeypatch)
+    output = tmp_path / 'evidence'
+    archive = sources.collect_source_bundle(artifact, inventory, output)
+    changed = collision_pair()[1]
+    entries = {'usr/share/demo/file': changed,
+        'var/lib/dpkg/status': b'Package: demo\nVersion: 1\nArchitecture: amd64\nStatus: install ok installed\n',
+        'var/lib/dpkg/info/demo.list': b'/usr/share/demo/file\n',
+        'var/lib/dpkg/info/demo.md5sums': (hashlib.md5(changed).hexdigest() + '  usr/share/demo/file\n').encode()}
+    substituted, _ = mock_docker(monkeypatch, entries)
+    with tarfile.open(archive) as contents:
+        retained = {m.name: contents.extractfile(m).read() for m in contents}
+    public = json.loads(retained['inventory.json'])
+    public.update(artifact=asdict(substituted), observation=licenses.inspect_artifact(substituted))
+    public['package_files'][0]['sha256'] = hashlib.sha256(changed).hexdigest()
+    retained['inventory.json'] = json.dumps(public).encode()
+    retained['sbom.spdx.json'] = json.dumps(licenses.spdx_inventory(substituted, public)).encode()
+    retained['SHA256SUMS'] = ''.join(hashlib.sha256(data).hexdigest() + '  ' + name + '\n'
+        for name, data in sorted(retained.items()) if name != 'SHA256SUMS').encode()
+    archive.write_bytes(tar_bytes(retained))
+    (output / 'sbom.spdx.json').write_bytes(retained['sbom.spdx.json'])
+    receipt_path = output / 'source-companion.json'
+    receipt = json.loads(receipt_path.read_text())
+    receipt.update(matched_artifact=public['artifact'], size_bytes=archive.stat().st_size,
+        inventory_sha256=hashlib.sha256(retained['inventory.json']).hexdigest(),
+        sbom_sha256=hashlib.sha256(retained['sbom.spdx.json']).hexdigest())
+    receipt['artifact'].update(sha256=sources.checksum(archive), reference='sha256:' + sources.checksum(archive))
+    receipt_path.write_text(json.dumps(receipt))
+    result = licenses.assess_distribution(substituted, output)
+    assert result['status'] == 'blocked'
+    assert any('package file/member SHA256 mismatch' in r for r in result['blockers']), result
 
 
 def test_package_ownership_alone_does_not_authorize_changed_content(tmp_path):
@@ -699,6 +878,52 @@ def test_local_engine_descriptor_binds_saved_graph(monkeypatch, damage):
     monkeypatch.setattr(licenses.subprocess, 'check_output', output)
     with pytest.raises(ValueError, match='descriptor'):
         licenses.inspect_artifact(artifact)
+
+
+@pytest.mark.parametrize('connected', [False, True])
+@pytest.mark.parametrize('depth', [0, 1])
+def test_engine_root_must_reach_selected_image_graph(tmp_path, monkeypatch, connected, depth):
+    from p11lab import licenses
+    selected, _ = mock_docker(monkeypatch, {'file': b'content'})
+    get, run = licenses.subprocess.check_output, licenses.subprocess.run
+    descriptor = json.loads(get(['docker', 'image', 'inspect', selected.reference]))[0]['Descriptor']
+    child = json.dumps({'schemaVersion': 2, 'manifests': [descriptor] if connected else []}).encode()
+    child_ref = {'digest': 'sha256:' + hashlib.sha256(child).hexdigest(), 'size': len(child)}
+    root = child if depth == 0 else json.dumps({'schemaVersion': 2, 'manifests': [child_ref]}).encode()
+    digest = hashlib.sha256(root).hexdigest()
+    artifact = ArtifactRef('docker-local', 'sha256:' + digest, digest, 'linux/amd64')
+    def output(command, **kwargs):
+        answer = get(command, **kwargs)
+        if command[1:3] == ['image', 'inspect']:
+            observed = json.loads(answer)
+            observed[0].update(Id=artifact.reference, Descriptor={'digest': artifact.reference, 'size': len(root)})
+            return json.dumps(observed)
+        return answer
+    def transport(command, **kwargs):
+        answer = run(command, **kwargs)
+        if command[1:3] == ['image', 'save']:
+            destination = Path(command[command.index('--output') + 1])
+            with tarfile.open(destination) as saved:
+                entries = {m.name: saved.extractfile(m).read() for m in saved}
+            entries.update({'blobs/sha256/' + digest: root,
+                'blobs/sha256/' + child_ref['digest'].removeprefix('sha256:'): child,
+                'index.json': json.dumps({'schemaVersion': 2, 'manifests': [{'digest': artifact.reference, 'size': len(root)}]}).encode()})
+            destination.write_bytes(tar_bytes(entries))
+        return answer
+    monkeypatch.setattr(licenses.subprocess, 'check_output', output)
+    monkeypatch.setattr(licenses.subprocess, 'run', transport)
+    def collect_and_assess():
+        observation = licenses.inspect_artifact(artifact)
+        _, inventory = fixture_inventory(tmp_path)
+        inventory.update(artifact=asdict(artifact), observation=observation)
+        inventory['content_reviews'] = [{'path': f['path'], 'sha256': f['sha256'], 'source': 'demo=1', 'status': 'reviewed'} for f in observation['files']]
+        sources.collect_source_bundle(artifact, inventory, tmp_path / 'evidence')
+        return licenses.assess_distribution(artifact, tmp_path / 'evidence')
+    if connected:
+        assert collect_and_assess()['status'] == 'eligible'
+    else:
+        with pytest.raises(ValueError, match='root.*reach'):
+            collect_and_assess()
 
 
 def test_debug_parent_reexport_must_equal_inspected_hashes(tmp_path, monkeypatch, debug_bundle):

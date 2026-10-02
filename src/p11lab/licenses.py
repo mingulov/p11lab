@@ -99,10 +99,15 @@ def _needed(binary: bytes) -> list[str]:
         dynamic = dynamics[0]
         start, size = dynamic[2], dynamic[5]
         # objcopy's separate debug files retain headers but no dynamic payload.
-        if size == 0 and any(h[1] == 8 and label(h) == b'.dynamic' for h in sections):
+        if (size == 0 and any(h[1] == 8 and label(h) == b'.dynamic' for h in sections)
+                and not any(h[0] == 1 and h[3] <= dynamic[3] < h[3] + h[5] for h in programs)):
             return []
         if not size or size % 16 or start + size > len(binary):
             raise ValueError('invalid dynamic segment bounds')
+        loads = [h for h in programs if h[0] == 1 and h[3] <= dynamic[3]
+                 and dynamic[3] + size <= h[3] + h[5]]
+        if len(loads) != 1 or loads[0][2] + dynamic[3] - loads[0][3] != start:
+            raise ValueError('dynamic segment file offset/address mapping disagreement')
         if sections and (len(dynamic_sections) != 1 or dynamic_sections[0][4:6] != (start, size)
                 or dynamic_sections[0][1] != 6 or (labels and label(dynamic_sections[0]) != b'.dynamic')):
             raise ValueError('inconsistent section/program dynamic metadata')
@@ -391,6 +396,20 @@ def inspect_artifact(artifact: ArtifactRef) -> dict:
                     if (descriptor.get('digest') != artifact.reference or descriptor['digest'] not in records
                             or descriptor.get('size') != records[descriptor['digest']]['size_bytes']):
                         raise SourceError('local engine descriptor/export graph mismatch')
+                    pending, visited, reached = [descriptor['digest']], set(), False
+                    while pending:
+                        digest = pending.pop()
+                        if digest in visited:
+                            continue
+                        visited.add(digest)
+                        document = records.get(digest, {}).get('document', {})
+                        if (document.get('config', {}).get('digest') == 'sha256:' + distribution['config_sha256']
+                                and [r['digest'] for r in document.get('layers', [])]
+                                == ['sha256:' + layer['sha256'] for layer in distribution['layers']]):
+                            reached = True
+                        pending.extend(r['digest'] for r in document.get('manifests', []))
+                    if not reached:
+                        raise SourceError('local engine root does not reach selected config/layers')
                 elif artifact.reference != 'sha256:' + distribution['config_sha256']:
                     raise SourceError('local engine config/export graph mismatch')
                 # Docker creates these virtual mount files per container; inventory
@@ -503,17 +522,45 @@ def validate_inventory(artifact: ArtifactRef, inventory: dict) -> list[str]:
         relationship = observation.get('debug_relationship', {})
         if not relationship.get('matched_runtime') or relationship['matched_runtime'] != inventory.get('parent_artifact'):
             reasons.append('debug companion lacks exact verified parent relationship')
+    packages = {p['name']: p for p in observation.get('packages', [])}
+    archives = {}
+    for archive in inventory.get('package_archives', []):
+        digest = archive.get('sha256', '')
+        package = packages.get(archive.get('package'), {})
+        authentication = archive.get('authentication', {})
+        if (not re.fullmatch('[0-9a-f]{64}', digest) or digest in archives
+                or type(archive.get('size')) is not int or not 0 < archive['size'] <= 1024**3
+                or not package or archive.get('version') != package.get('version')
+                or archive.get('architecture') != package.get('architecture')
+                or archive.get('source') != package.get('source_package', '') + '=' + package.get('source_version', '')
+                or authentication.get('status') != 'reviewed'
+                or payloads.get(authentication.get('evidence_path'), {}).get('role') != 'metadata'):
+            reasons.append('invalid authenticated package archive: ' + digest)
+        archives[digest] = archive
+    package_files = {}
+    observed_files = {f['path']: f for f in observation.get('files', [])}
+    for record in inventory.get('package_files', []):
+        path = record.get('path', '')
+        file = observed_files.get(path, {})
+        archive = archives.get(record.get('archive_sha256'), {})
+        try:
+            relative_path(record.get('member', ''))
+            if (path in package_files or not file.get('package') or 'sha256' not in file
+                    or record.get('package') != file['package'] or archive.get('package') != file['package']
+                    or not re.fullmatch('[0-9a-f]{64}', record.get('sha256', ''))):
+                raise SourceError('invalid package file binding')
+        except SourceError:
+            reasons.append('invalid authenticated package file: ' + path)
+        package_files[path] = record
     content_reviews = {(r.get('path'), r.get('sha256')): r for r in inventory.get('content_reviews', [])}
     for file in observation.get('files', []):
         if 'sha256' not in file:
             continue
-        verification = file.get('package_verification', {})
-        if file.get('package') and verification.get('status') == 'verified':
-            manifest_review = content_reviews.get((verification.get('manifest_path'), verification.get('manifest_sha256')), {})
-            if (verification.get('expected_md5') == verification.get('actual_md5')
-                    and re.fullmatch('[0-9a-f]{32}', verification.get('actual_md5', ''))
-                    and manifest_review.get('status') == 'reviewed' and manifest_review.get('source') in sources):
-                continue
+        # MD5 is only a package comparison. Admission needs a SHA256-bound
+        # archive member (re-read by collection/assessment) or explicit review.
+        binding = package_files.get(file['path'], {})
+        if file.get('package') and binding.get('sha256') == file['sha256']:
+            continue
         review = content_reviews.get((file['path'], file['sha256']), {})
         if review.get('status') != 'reviewed' or review.get('source') not in sources:
             reasons.append('unreviewed copied/generated content: ' + file['path'])
@@ -586,7 +633,7 @@ def spdx_inventory(artifact: ArtifactRef, inventory: dict) -> dict:
 
 
 def assess_distribution(artifact: ArtifactRef, evidence_dir: Path) -> dict:
-    from .sources import verify_source_bundle
+    from .sources import verify_source_bundle, _verify_package_files
     evidence_dir = Path(evidence_dir)
     evidence_dir.mkdir(parents=True, exist_ok=True)
     blockers = []
@@ -601,6 +648,7 @@ def assess_distribution(artifact: ArtifactRef, evidence_dir: Path) -> dict:
         with tempfile.TemporaryDirectory(prefix='p11lab-admission-') as temporary:
             extracted = Path(temporary) / 'extract'
             inventory = verify_source_bundle(archive, extracted)
+            _verify_package_files(inventory, extracted, evidence_dir / 'package-cache')
             expected_receipt = {'schema_version': 1, 'role': 'source-companion', 'archive': archive.name,
                 'artifact': {'kind': 'bundle', 'reference': 'sha256:' + checksum(archive),
                     'sha256': checksum(archive), 'platform': artifact.platform},

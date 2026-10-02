@@ -100,6 +100,8 @@ def _portable_inventory(inventory: dict) -> dict:
     result = copy.deepcopy(inventory)
     for payload in result['payloads']:
         payload.pop('local_path', None)
+    for archive in result.get('package_archives', []):
+        archive.pop('local_path', None)
     # A local reference is an acquisition handle, not a public identity.
     for ref in (result['artifact'], result['observation']['artifact']):
         if ref['kind'] == 'bundle':
@@ -167,6 +169,124 @@ def _verify_debian_source_sets(files: Path, inventory: dict) -> None:
                 raise SourceError('Debian corresponding-source payload missing/mismatched: ' + relative)
 
 
+def _deb_members(path: Path) -> dict[str, bytes]:
+    """Read bounded Debian ar members without executing package tools/hooks."""
+    members = {}
+    with path.open('rb') as stream:
+        if stream.read(8) != b'!<arch>\n':
+            raise SourceError('invalid package archive header')
+        while header := stream.read(60):
+            if len(header) != 60 or header[58:] != b'`\n':
+                raise SourceError('invalid package archive member header')
+            name = header[:16].decode('ascii').strip().removesuffix('/')
+            size = int(header[48:58])
+            if not name or name in members or not 0 <= size <= 1024**3 or len(members) >= 16:
+                raise SourceError('duplicate/oversized package archive member')
+            data = stream.read(size)
+            if len(data) != size or (size % 2 and stream.read(1) != b'\n'):
+                raise SourceError('truncated package archive member')
+            members[name] = data
+    if members.get('debian-binary') != b'2.0\n':
+        raise SourceError('unsupported package archive version')
+    return members
+
+
+def _package_tar_files(data: bytes) -> dict[str, tuple[str, bytes | None]]:
+    import io
+    from .licenses import relative_path
+    result, seen, total = {}, set(), 0
+    with tarfile.open(fileobj=io.BytesIO(data), mode='r:*') as contents:
+        for member in contents:
+            name = member.name.removeprefix('./').rstrip('/')
+            if member.isdir() and name in {'', '.'}:
+                continue
+            relative_path(name)
+            total += member.size
+            if name in seen or len(seen) >= 50000 or member.size > 512 * 1024**2 or total > 2 * 1024**3:
+                raise SourceError('duplicate/oversized package tar member')
+            seen.add(name)
+            if member.isfile():
+                with contents.extractfile(member) as stream:
+                    if name == 'control':
+                        if member.size > 1024**2:
+                            raise SourceError('oversized package control')
+                        control = stream.read()
+                        result[name] = (hashlib.sha256(control).hexdigest(), control)
+                    else:
+                        result[name] = (hashlib.file_digest(stream, 'sha256').hexdigest(), None)
+    return result
+
+
+def _verify_package_files(inventory: dict, files: Path, cache: Path) -> None:
+    """Recheck authenticated archive selectors and every declared member SHA256.
+
+    Authentication is an explicit reviewed selector supplied with evidence, just
+    as source/grant review is. Binary archives stay outside the source companion.
+    A retained cache is always rehashed; absent bytes may be acquired over HTTPS.
+    """
+    from .licenses import relative_path, parse_dpkg_status
+    import posixpath
+    observation = inventory.get('observation', {})
+    packages = {p['name']: p for p in observation.get('packages', [])}
+    observed = {f['path']: f for f in observation.get('files', [])}
+    def installed_path(member):
+        path, seen = '/' + relative_path(member), set()
+        for _ in range(40):
+            parts = path.strip('/').split('/')
+            for i in range(1, len(parts) + 1):
+                prefix = '/' + '/'.join(parts[:i])
+                link = observed.get(prefix, {}).get('link')
+                if link is not None:
+                    if path in seen:
+                        raise SourceError('cyclic package file alias')
+                    seen.add(path)
+                    target = link if link.startswith('/') else posixpath.join(posixpath.dirname(prefix), link)
+                    path = posixpath.normpath(posixpath.join(target, *parts[i:]))
+                    break
+            else:
+                return path
+        raise SourceError('package file alias depth exceeded')
+    checked = set()
+    for record in inventory.get('package_archives', []):
+        digest = record['sha256']
+        if not isinstance(digest, str) or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest) or digest in checked:
+            raise SourceError('invalid/duplicate package archive digest')
+        checked.add(digest)
+        authentication = record.get('authentication', {})
+        if authentication.get('status') != 'reviewed':
+            raise SourceError('unreviewed package archive authentication')
+        selector = json.loads((files / relative_path(authentication['evidence_path'])).read_text())
+        fields = ('package', 'version', 'architecture', 'source', 'sha256', 'size', 'url')
+        if any(selector.get(field) != record.get(field) for field in fields):
+            raise SourceError('authenticated package selector mismatch')
+        cached = cache / (digest + '.deb')
+        if cached.exists() or cached.is_symlink():
+            if cached.is_symlink() or not cached.is_file() or cached.stat().st_size != record['size'] or checksum(cached) != digest:
+                raise SourceError('package archive cache checksum/size mismatch')
+        else:
+            _payload_copy(record | {'path': digest + '.deb'}, cached)
+        members = _deb_members(cached)
+        def tar_member(prefix):
+            names = [n for n in members if n in {prefix + suffix for suffix in ('.tar', '.tar.gz', '.tar.xz', '.tar.bz2')}]
+            if len(names) != 1:
+                raise SourceError('missing/unsupported package ' + prefix + ' archive')
+            return _package_tar_files(members[names[0]])
+        controls = tar_member('control')
+        control = controls.get('control', (None, None))[1]
+        if control is None or parse_dpkg_status(control.decode().rstrip('\n') + '\nStatus: install ok installed\n') != [packages.get(record['package'])]:
+            raise SourceError('package control/installed identity mismatch')
+        payload = tar_member('data')
+        for file in inventory.get('package_files', []):
+            if file.get('archive_sha256') != digest:
+                continue
+            member = relative_path(file['member'])
+            if (file.get('package') != record['package'] or installed_path(member) != file.get('path')
+                    or payload.get(member, (None,))[0] != file.get('sha256')):
+                raise SourceError('authenticated package file/member SHA256 mismatch: ' + file['path'])
+    if any(f.get('archive_sha256') not in checked for f in inventory.get('package_files', [])):
+        raise SourceError('package file lacks authenticated archive')
+
+
 def collect_source_bundle(artifact, inventory: dict, output_dir: Path) -> Path:
     """Collect exact retained sources/notices/recipes from reviewed declarations.
 
@@ -194,6 +314,7 @@ def collect_source_bundle(artifact, inventory: dict, output_dir: Path) -> Path:
             raise SourceError('payload conflicts with generated metadata')
         _payload_copy(payload, files / relative_path(payload['path']))
     _verify_debian_source_sets(files, inventory)
+    _verify_package_files(inventory, files, output_dir / 'package-cache')
     public = _portable_inventory(inventory)
     (files / 'inventory.json').write_text(json.dumps(public, sort_keys=True, indent=2) + '\n')
     sbom = spdx_inventory(artifact, public)

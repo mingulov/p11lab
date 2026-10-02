@@ -29,10 +29,13 @@ subsequently generated OCI object automatically.
 Image inspection creates a stopped container, exports its inert filesystem and
 removes that exact container. It inventories installed dpkg Source, Built-Using
 and Static-Built-Using fields, per-file dpkg md5sums verification, every
-regular-file hash and ELF DT_NEEDED relationship from PT_DYNAMIC program headers for the supported Linux amd64 ELF ABI. It also inspects distributed
+regular-file hash and ELF DT_NEEDED relationship from PT_DYNAMIC program headers
+for the supported Linux amd64 ELF ABI. The dynamic segment's file offset must
+agree with its virtual address mapping through PT_LOAD. It also inspects distributed
 OCI layers: config diff_ids must match the complete ordered layer roster and
 uncompressed hashes, and OCI descriptor digests/sizes must match the exported
-graph. Measured distribution archive bytes accompany blob and file/layer metrics.
+graph, and the claimed engine root must reach the selected config and layers.
+Measured distribution archive bytes accompany blob and file/layer metrics.
 Deleted/overwritten lower-layer content needs explicit source review.
 Engine-injected hosts/hostname/resolver files are replaced with their actual
 underlying distributed bytes. Library candidates are recorded from the rootfs;
@@ -52,7 +55,9 @@ An inventory has schema version 1 and these required fields:
 | `reviews` | One explicit reviewer assertion per source: status, known grant, source redistribution rights, original license expression, chosen route, concluded expression, retained grant/notice paths, obligations and modifications. |
 | `patches` | Ordered `path`/`sha256`/`license`/`provenance`/`changed_behavior` and reviewed `status`; an empty list means no P11Lab patches. |
 | `build_instructions` | Retained payload path with role `build`. |
-| `content_reviews` | Exact path/hash/source/reviewed mapping for copied/generated regular files, checksum manifests, and modified or unverifiable package-owned files. Ownership alone is insufficient; `package_verification` records status, actual/expected MD5, and manifest path/SHA256. MD5 is an installed-package comparison, with the manifest separately bound to an explicit SHA256 review. |
+| `content_reviews` | Exact path/SHA256/source/reviewed mapping for copied/generated files and explicit modified/unverifiable package-file reviews. `package_verification` records the installed MD5 comparison only; neither matching MD5 nor a reviewed checksum manifest authorizes an installed file. |
+| `package_archives` | Authenticated Debian binary selectors: `package`, `version`, `architecture`, `source: name=version`, `sha256`, `size`, public HTTPS `url`, optional acquisition `local_path`, and `authentication: {status: reviewed, evidence_path: ...}`. The evidence path names a retained metadata JSON payload with the same selector fields. |
+| `package_files` | Per-file `path`, `sha256`, `package`, `archive_sha256`, and canonical relative `member`. Collection and assessment rehash the binary archive, check its control identity, and verify the SHA256 of the named regular payload member. Member paths must resolve to the installed path through observed aliases. An unmatched file requires an explicit SHA256 content/source review. |
 | `parent_artifact` | Required exact parent for debug companions; inspection reads inert parent exports and verifies exact runtime hashes, build IDs and GNU debuglink CRCs, without running parent code. |
 | `layer_reviews` | Explicit path/hash/source/reviewed records for any distributed lower-layer bytes absent from the final rootfs. |
 | `limitations` | Unresolved attribution precision and other evidence limits. |
@@ -68,6 +73,21 @@ Debian patches. Source URLs without actual retained payloads never satisfy this
 operation. Source archives are retained inertly; collection does not execute their
 build hooks. Companion extraction permits regular files only, validates canonical
 contained paths, rejects duplicates and verifies the complete SHA256SUMS roster.
+
+Package selector authentication is an explicit review conclusion grounded in
+retained authenticated repository metadata. The gate checks the selector, archive
+bytes, control identity and individual member hashes; it does not infer repository
+authentication from a URL or from an image's dpkg checksum files. MD5 collisions
+cannot substitute for the SHA256 evidence. Debian archive inspection reads inert
+ar/tar members and executes no package scripts. Supported tar compression is gzip,
+xz or bzip2, plus uncompressed tar; unsupported formats fail closed.
+
+The `package-cache/` directory beside a collected source archive contains only
+binary verification inputs and is excluded from the source archive and `files/`
+OCI wrapper context. Assessment rehashes cached archives every time; an absent
+archive can be acquired using its public HTTPS selector. A corrupt retained cache
+blocks assessment. Local acquisition paths are removed from the portable
+inventory. Keep verification caches separate from source-only publication.
 
 The archive drops private acquisition paths. It includes inventory.json,
 SHA256SUMS, SPDX 2.3 JSON, notices, complete source families and usable build/install
