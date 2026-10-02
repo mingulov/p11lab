@@ -196,7 +196,7 @@ def inspect_artifact(artifact: ArtifactRef) -> dict:
             raise SourceError('binary artifact identity/platform mismatch')
         with tempfile.TemporaryDirectory(prefix='p11lab-inventory-') as temporary:
             archive = Path(temporary) / 'rootfs.tar'
-            container = subprocess.check_output(['docker', 'create', '--network', 'none', artifact.reference], text=True).strip()
+            container = subprocess.check_output(['docker', 'create', '--network', 'none', artifact.reference, '/p11lab-inspection-not-executed'], text=True).strip()
             try:
                 subprocess.run(['docker', 'export', '--output', str(archive), container], check=True, capture_output=True)
             finally:

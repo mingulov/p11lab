@@ -1,0 +1,2 @@
+# Preserve verbatim upstream copyright/license evidence, including its whitespace.
+src/p11lab/data/runtime/THIRD-PARTY-NOTICES.txt -whitespace
