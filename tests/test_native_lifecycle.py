@@ -453,3 +453,438 @@ def test_install_host_preflight_failure_does_not_place_prefix_or_ancestors(
         )
     assert not destination.parent.exists()
     assert not list(tmp_path.glob(".p11lab-native-preflight-*"))
+
+
+# ---------------------------------------------------------------------------
+# BouncyHSM native lifecycle (M5). SoftHSM tests above are unchanged.
+# ---------------------------------------------------------------------------
+
+
+def bouncy_spec(tmp_path):
+    import sys
+
+    return RunSpec(
+        "bouncyhsm",
+        "release",
+        "native",
+        ArtifactRef("bundle", "/candidate", "a" * 64, "linux/amd64"),
+        "host",
+        None,
+        None,
+        (sys.executable, "-c", "pass"),
+        {},
+        tmp_path / "output",
+        tmp_path,
+        30,
+    )
+
+
+@pytest.fixture
+def bouncy_installed(tmp_path, monkeypatch):
+    import io
+    import json
+    import hashlib
+    import tarfile
+    from p11lab.bundle import install_bundle
+    from p11lab.native import load_bouncyhsm_target
+    from p11lab import native
+
+    lock = load_bouncyhsm_target("bouncyhsm", "release", "debian13-amd64")[
+        "native_lock"
+    ]
+    # Real N1 verification with a tiny payload; the manifest mirrors the
+    # locked contract fields so validation runs against real locks.
+    files = {
+        lock["module"]: b"fixture module",
+        lock["lifecycle"]["probe"]: b"fixture probe",
+        lock["lifecycle"]["server"]: b"fixture server",
+    }
+    manifest = {
+        "schema_version": 1,
+        "environment": "bouncyhsm",
+        "channel": "release",
+        "platform": "linux/amd64",
+        "target": "debian13-amd64",
+        "role": "native-runtime",
+        "module": lock["module"],
+        "lifecycle": lock["lifecycle"],
+        "source": {"revision": lock["source"]["revision"]},
+        "toolchain": lock["toolchain"],
+        "build": {"key": "fixture"},
+        "host_requirements": lock["host_requirements"],
+        "tested_prerequisites": lock["tested_prerequisites"],
+        "licenses": [],
+        "source_references": [],
+        "files": [
+            {
+                "path": p,
+                "sha256": hashlib.sha256(d).hexdigest(),
+                "size": len(d),
+                "mode": 0o755 if p.startswith("bin/") else 0o644,
+                "role": "fixture",
+            }
+            for p, d in files.items()
+        ],
+    }
+    archive = tmp_path / "bundle.tar.gz"
+    with tarfile.open(archive, "w:gz") as out:
+        for name, data, mode in [
+            ("manifest.json", json.dumps(manifest).encode(), 0o644),
+            *[
+                ("payload/" + r["path"], files[r["path"]], r["mode"])
+                for r in manifest["files"]
+            ],
+        ]:
+            member = tarfile.TarInfo(name)
+            member.size = len(data)
+            member.mode = mode
+            out.addfile(member, io.BytesIO(data))
+    artifact = ArtifactRef(
+        "bundle",
+        str(archive),
+        hashlib.sha256(archive.read_bytes()).hexdigest(),
+        "linux/amd64",
+    )
+    result = install_bundle(
+        artifact,
+        tmp_path / "prefix with spaces",
+        environment="bouncyhsm",
+        channel="release",
+        platform="linux/amd64",
+    )
+    monkeypatch.setattr(
+        native, "preflight_bouncyhsm", lambda *args: {"dotnet": "dotnet-fixture"}
+    )
+    return result
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"mode": "direct"},
+        {"execution_location": "container"},
+        {
+            "consumer_artifact": ArtifactRef(
+                "docker-local", "x", "b" * 64, "linux/amd64"
+            )
+        },
+        {"client_artifact": ArtifactRef("bundle", "x", "b" * 64, "linux/amd64")},
+        {"argv": ()},
+        {"timeout_seconds": 0},
+    ],
+)
+def test_bouncy_reject_routing_before_side_effects(tmp_path, changes):
+    from p11lab.native import run_native_bouncyhsm
+
+    run = replace(bouncy_spec(tmp_path), **changes)
+    with pytest.raises(ValueError):
+        run_native_bouncyhsm(
+            run,
+            InstalledBundle(
+                run.artifact,
+                tmp_path / "prefix",
+                {},
+                "a" * 64,
+                tmp_path / "receipt",
+                "b" * 64,
+            ),
+        )
+    assert not run.output_dir.exists()
+
+
+def test_bouncy_reject_artifact_mismatch_before_readback(tmp_path):
+    from p11lab.native import run_native_bouncyhsm
+
+    run = bouncy_spec(tmp_path)
+    other = replace(run.artifact, sha256="b" * 64)
+    with pytest.raises(ValueError, match="artifact"):
+        run_native_bouncyhsm(
+            run,
+            InstalledBundle(
+                other, tmp_path / "prefix", {}, "a" * 64, tmp_path / "receipt", "b" * 64
+            ),
+        )
+    assert not run.output_dir.exists()
+
+
+@pytest.mark.parametrize(
+    "inputs",
+    [
+        {"UNKNOWN": "x"},
+        {"P11LAB_LABEL": "has\nnewline"},
+        {"P11LAB_PIN": "1", "P11LAB_PIN_FILE": "/pin"},
+        {"P11LAB_HTTP_PORT": "http"},
+        {"P11LAB_HTTP_PORT": "0"},
+        {"P11LAB_TCP_PORT": "65536"},
+        {"P11LAB_HTTP_PORT": "8080", "P11LAB_TCP_PORT": "8080"},
+        {"P11LAB_LABEL": ""},
+        {"P11LAB_LABEL": "x" * 33},
+        {"P11LAB_LABEL": "bad;label"},
+    ],
+)
+def test_bouncy_reject_inputs_ports_labels(tmp_path, bouncy_installed, inputs):
+    from p11lab.native import run_native_bouncyhsm
+
+    run = replace(
+        bouncy_spec(tmp_path), artifact=bouncy_installed.artifact, inputs=inputs
+    )
+    with pytest.raises(ValueError):
+        run_native_bouncyhsm(run, bouncy_installed)
+    assert not run.output_dir.exists()
+
+
+def test_bouncy_occupied_port_refuses_before_output(tmp_path, bouncy_installed):
+    import socket
+    from p11lab.native import run_native_bouncyhsm
+
+    holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    holder.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    holder.bind(("127.0.0.1", 0))
+    holder.listen(1)
+    try:
+        run = replace(
+            bouncy_spec(tmp_path),
+            artifact=bouncy_installed.artifact,
+            inputs={"P11LAB_TCP_PORT": str(holder.getsockname()[1])},
+        )
+        with pytest.raises(ValueError, match="occupied"):
+            run_native_bouncyhsm(run, bouncy_installed)
+    finally:
+        holder.close()
+    assert not run.output_dir.exists()
+
+
+@pytest.mark.parametrize("damage", ["modified", "missing", "extra", "receipt-tuple"])
+def test_bouncy_reject_installed_damage_before_provisioning(
+    tmp_path, bouncy_installed, damage
+):
+    import json
+    from p11lab.native import run_native_bouncyhsm
+
+    if damage == "modified":
+        (
+            bouncy_installed.prefix / "payload" / "lib/libBouncyHsm.Pkcs11.so"
+        ).write_bytes(b"damage")
+    elif damage == "missing":
+        (bouncy_installed.prefix / "payload" / "lib/libBouncyHsm.Pkcs11.so").unlink()
+    elif damage == "extra":
+        (bouncy_installed.prefix / "payload" / "extra").touch()
+    else:
+        data = json.loads(bouncy_installed.receipt_path.read_text())
+        data["platform"] = "windows/amd64"
+        bouncy_installed.receipt_path.write_text(json.dumps(data))
+    run = replace(
+        bouncy_spec(tmp_path),
+        artifact=bouncy_installed.artifact,
+        inputs={"P11LAB_PIN": "1234", "P11LAB_SO_PIN": "12345678"},
+    )
+    with pytest.raises(ValueError):
+        run_native_bouncyhsm(run, bouncy_installed)
+    assert not run.output_dir.exists()
+
+
+def _bouncy_fakes(monkeypatch, tmp_path, slots=(), probe=(0, 0)):
+    import subprocess
+    from p11lab import native
+
+    calls = {"posts": []}
+    state = {"slots": list(slots)}
+
+    def fake_http(method, url, payload, timeout, **kwargs):
+        if url.endswith("/health"):
+            assert kwargs.get("expect_json", True) is False
+            return "Healthy"
+        if method == "GET" and url.endswith("/Slot"):
+            return [
+                {"SlotId": slot, "Token": {"Label": "P11Lab"}}
+                for slot in state["slots"]
+            ]
+        if method == "POST" and url.endswith("/Slot"):
+            calls["posts"].append(payload)
+            state["slots"] = [1]
+            return {"SlotId": 1}
+        raise AssertionError(url)
+
+    monkeypatch.setattr(native, "_bouncy_http", fake_http)
+    monkeypatch.setattr(native, "_bouncy_probe_slots", lambda *a, **k: probe)
+
+    class FakeServer:
+        def __init__(self):
+            self.pid = 4242
+            self.stopped = []
+
+        def poll(self):
+            return None if "kill" not in self.stopped else 0
+
+        def terminate(self):
+            self.stopped.append("terminate")
+
+        def kill(self):
+            self.stopped.append("kill")
+
+        def wait(self, timeout=None):
+            if "kill" not in self.stopped and "terminate" not in self.stopped:
+                raise subprocess.TimeoutExpired("server", timeout)
+            self.stopped.append("kill")
+
+    servers = []
+    real_popen = native.subprocess.Popen
+
+    def launch(argv, **kwargs):
+        if argv and argv[0] == "dotnet-fixture":
+            proc = FakeServer()
+            servers.append(proc)
+            return proc
+        return real_popen(argv, **kwargs)
+
+    monkeypatch.setattr(native.subprocess, "Popen", launch)
+    monkeypatch.setattr(native, "_bouncy_port_occupied", lambda port: False)
+    return calls, servers, state
+
+
+def test_bouncy_provision_then_reuse_without_credentials(
+    tmp_path, bouncy_installed, monkeypatch
+):
+    import json
+    import sys
+    from p11lab.native import run_native_bouncyhsm
+
+    calls, servers, _ = _bouncy_fakes(monkeypatch, tmp_path, probe=(1, 1))
+    state = tmp_path / "token state"
+    state.mkdir()
+    common = {
+        "P11LAB_STATE_DIR": str(state),
+        "P11LAB_PIN": "1234",
+        "P11LAB_SO_PIN": "12345678",
+    }
+    first = replace(
+        bouncy_spec(tmp_path),
+        artifact=bouncy_installed.artifact,
+        argv=(sys.executable, "-c", "pass"),
+        output_dir=tmp_path / "out 1",
+        inputs=dict(common),
+    )
+    result = run_native_bouncyhsm(first, bouncy_installed)
+    assert result.exit_code == 0, (result.lifecycle_errors, result.cleanup_errors)
+    assert len(calls["posts"]) == 1
+    assert calls["posts"][0]["Token"]["Label"] == "P11Lab"
+    receipt = json.loads(Path(result.receipt_path).read_text())
+    assert [s["phase"] for s in receipt["stages"]] == [
+        "server-start",
+        "init",
+        "ready",
+        "application",
+        "post-health",
+        "server-stop",
+    ]
+    assert receipt["state"]["slot"] == 1
+    assert (state / "bouncyhsm" / "complete").exists()
+    assert servers and all(s.poll() is not None for s in servers)
+    # Second run reuses the provisioned token with no credentials at all.
+    calls2, servers2, _ = _bouncy_fakes(monkeypatch, tmp_path, slots=(1,), probe=(1, 1))
+    second = replace(
+        bouncy_spec(tmp_path),
+        artifact=bouncy_installed.artifact,
+        argv=(sys.executable, "-c", "pass"),
+        output_dir=tmp_path / "out 2",
+        inputs={"P11LAB_STATE_DIR": str(state)},
+    )
+    result = run_native_bouncyhsm(second, bouncy_installed)
+    assert result.exit_code == 0, (result.lifecycle_errors, result.cleanup_errors)
+    assert calls2["posts"] == []
+
+
+def test_bouncy_completed_failure_keeps_status_after_post_health_failure(
+    tmp_path, bouncy_installed, monkeypatch
+):
+    import sys
+    from p11lab import native
+    from p11lab.native import run_native_bouncyhsm
+
+    _bouncy_fakes(monkeypatch, tmp_path, slots=(1,), probe=(1, 1))
+    real_probe = native._bouncy_probe_slots
+    seen = []
+
+    def flapping(*args, **kwargs):
+        seen.append(1)
+        if len(seen) > 2:
+            raise ValueError("native slot probe failed: gone")
+        return real_probe(*args, **kwargs)
+
+    monkeypatch.setattr(native, "_bouncy_probe_slots", flapping)
+    state = tmp_path / "state"
+    state.mkdir()
+    run = replace(
+        bouncy_spec(tmp_path),
+        artifact=bouncy_installed.artifact,
+        argv=(sys.executable, "-c", "import sys; sys.exit(9)"),
+        inputs={"P11LAB_STATE_DIR": str(state)},
+    )
+    (state / "bouncyhsm").mkdir()
+    marker = (
+        "schema=1\nprovider=bouncyhsm\nartifact="
+        + bouncy_installed.manifest_sha256
+        + "\nlabel=P11Lab\nslot=1\nbackend=litedb\n"
+    )
+    (state / "bouncyhsm" / "complete").write_text(marker)
+    (state / "bouncyhsm" / "BouncyHsm.db").write_bytes(b"db")
+    result = run_native_bouncyhsm(run, bouncy_installed)
+    assert result.exit_code == 9
+    assert len(result.lifecycle_errors) == 1
+
+
+def test_bouncy_preflight_dispatch_rejects_platform_and_shape(tmp_path):
+    import sys
+    from p11lab import native
+
+    other = "windows/amd64" if sys.platform != "win32" else "linux/amd64"
+    with pytest.raises(ValueError, match="requires"):
+        native.preflight_bouncyhsm(
+            tmp_path,
+            {
+                "platform": other,
+                "module": "x",
+                "lifecycle": {"server": "y", "probe": "z"},
+            },
+        )
+    mine = "windows/amd64" if sys.platform == "win32" else "linux/amd64"
+    with pytest.raises(ValueError, match="regular file"):
+        native.preflight_bouncyhsm(
+            tmp_path,
+            {
+                "platform": mine,
+                "module": "missing-module",
+                "lifecycle": {"server": "missing-server", "probe": "missing-probe"},
+            },
+        )
+
+
+def test_bouncy_manifest_must_match_locked_contract(tmp_path, bouncy_installed):
+    import copy
+    import json
+    from p11lab.native import _validate_bouncyhsm_manifest
+
+    manifest = json.loads((bouncy_installed.prefix / "manifest.json").read_text())
+    _validate_bouncyhsm_manifest(manifest, "bouncyhsm", "release")
+    for mutate in (
+        lambda m: m.update(module="bin/other.dll"),
+        lambda m: m.update(toolchain=[{"name": "other"}]),
+        lambda m: m.update(target="windows-amd64"),
+    ):
+        broken = copy.deepcopy(manifest)
+        mutate(broken)
+        with pytest.raises(ValueError):
+            _validate_bouncyhsm_manifest(broken, "bouncyhsm", "release")
+
+
+def test_bouncy_dotnet_floor_parsing():
+    from p11lab.native import _dotnet_runtime_versions
+
+    versions = _dotnet_runtime_versions(
+        "Microsoft.NETCore.App 10.0.12 [/x]\n"
+        "Microsoft.AspNetCore.App 10.0.13 [/x]\n"
+        "Microsoft.NETCore.App 9.0.0 [/x]\n"
+        "garbage line\n"
+    )
+    assert versions["Microsoft.NETCore.App"] == [(9, 0, 0), (10, 0, 12)]
+    assert versions["Microsoft.AspNetCore.App"] == [(10, 0, 13)]

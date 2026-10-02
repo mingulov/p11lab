@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "target": "windows-amd64",
+  "channel": "rolling",
+  "platform": "windows/amd64",
+  "parent": {
+    "kind": "source-build",
+    "source_revision": "f09ab9a342741c56bb56621a707c1b94dfdeac4b"
+  },
+  "acquisition": {
+    "method": "dotnet-publish-plus-msbuild",
+    "source_revision": "f09ab9a342741c56bb56621a707c1b94dfdeac4b"
+  },
+  "source": {
+    "kind": "git",
+    "url": "https://github.com/harrison314/BouncyHsm.git",
+    "revision": "f09ab9a342741c56bb56621a707c1b94dfdeac4b",
+    "license_status": "unreviewed",
+    "license_observation": "BSD-3-Clause",
+    "archive_sha256": "531dbdbc2ba3c245592e89079ca6d52f035314981858d3e5862f745b58cdf6fd"
+  },
+  "module": "bin/BouncyHsm.Pkcs11Lib.dll",
+  "lifecycle": {
+    "server": "server/BouncyHsm.exe",
+    "probe": "bin/bouncyhsm-probe.exe"
+  },
+  "host_requirements": {
+    "os": {
+      "id": "windows",
+      "architecture": "x64"
+    },
+    "architecture": "x64",
+    "dotnet": {
+      "frameworks": [
+        "Microsoft.NETCore.App",
+        "Microsoft.AspNetCore.App"
+      ],
+      "minimum": "10.0.12",
+      "roll_forward": "LatestPatch"
+    },
+    "vc_runtime": {
+      "architecture": "x64",
+      "dll": "vcruntime140.dll"
+    }
+  },
+  "tested_prerequisites": [
+    "Windows x64 with the x64 VC runtime/UCRT closure the DLL imports",
+    ".NET 10 host (SDK or runtime) with Microsoft.NETCore.App/Microsoft.AspNetCore.App 10.0.12+"
+  ],
+  "binaries": [],
+  "assets": [
+    {
+      "path": "native.recipe.json",
+      "sha256": "82073d94595a65c893027fefe0092292b9ae6377d5af117b0ad6700117d40220"
+    },
+    {
+      "path": "probe.c",
+      "sha256": "5ef3db1627ee2ea98bfe9d0fafb41b3039cd0951cf4387b568bc56f563f944e8"
+    },
+    {
+      "path": "FILE-NOTICES.txt",
+      "sha256": "2bcbb8007ff145df93d8c12b520a6697e016aaa9b87a133b17a7dfd3d219f552"
+    }
+  ],
+  "toolchain": [
+    {
+      "name": "dotnet-sdk",
+      "version": "10.0.401",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-win-x64.exe",
+      "note": "exact-version host prerequisite installed on the runner; version asserted before build"
+    },
+    {
+      "name": "msvc",
+      "toolset": "v145",
+      "purpose": "dll-and-probe-build"
+    }
+  ],
+  "notice_provenance": "share/licenses/bouncyhsm/{LICENSE,FILE-NOTICES.txt}; acceptance use only, no distribution"
+}

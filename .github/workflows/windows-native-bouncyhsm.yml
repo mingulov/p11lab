@@ -1,0 +1,225 @@
+# SPDX-License-Identifier: Apache-2.0
+# Native BouncyHSM smoke on Windows x64 (developer-release Task 7).
+#
+# One job, no publication: it assembles both Windows native bundles from
+# pinned inputs on the verified VS2026 hosted image, installs them, and runs
+# the native crypto/persistence, ports/cleanup, install/readback, and checker
+# lanes plus the lifecycle unit tests. Pins: BouncyHSM source f09ab9a, .NET
+# SDK 10.0.401, MSVC v145, checker source de4db3d, release archive
+# 61a1cf42. The run log records every resolved tool version and bundle hash.
+name: windows-native-bouncyhsm
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/p11lab/native.py"
+      - "src/p11lab/data/providers/bouncyhsm/**"
+      - "src/p11lab/data/consumer/**"
+      - "tests/integration/test_bouncyhsm.py"
+      - "tests/integration/provision.c"
+      - "tests/test_native_lifecycle.py"
+      - "examples/windows/**"
+      - ".github/workflows/windows-native-bouncyhsm.yml"
+  pull_request:
+    paths:
+      - "src/p11lab/native.py"
+      - "src/p11lab/data/providers/bouncyhsm/**"
+      - "src/p11lab/data/consumer/**"
+      - "tests/integration/test_bouncyhsm.py"
+      - "tests/integration/provision.c"
+      - "tests/test_native_lifecycle.py"
+      - "examples/windows/**"
+      - ".github/workflows/windows-native-bouncyhsm.yml"
+
+concurrency:
+  group: windows-native-bouncyhsm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # Pinned build SDK plus the current 10.0 patch band that satisfies
+          # the bundle runtime floor; the rolling build is fenced to the pin
+          # with global.json and asserts it.
+          dotnet-version: |
+            10.0.401
+            10.0.x
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Record host tool versions
+        run: |
+          python --version
+          dotnet --list-sdks
+          dotnet --list-runtimes
+          cl 2>&1 | Select-Object -First 2
+          msbuild -version -nologo
+          openssl version
+          vswhere -latest -property displayName
+          "VCToolsVersion=$env:VCToolsVersion"
+          "ImageVersion=$env:ImageVersion"
+
+      - name: Install P11Lab test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[test]"
+          python -c "import p11lab; print(p11lab.__file__)"
+
+      - name: Build native tools
+        run: |
+          New-Item -ItemType Directory -Force tools | Out-Null
+          $bouncy = "src/p11lab/data/providers/bouncyhsm"
+          $consumer = "src/p11lab/data/consumer"
+          cl /std:clatest /O2 /W4 /WX "$bouncy/probe.c" /Fo:tools\ /link /OUT:tools/bouncyhsm-probe.exe
+          if ($LASTEXITCODE) { throw "probe build failed" }
+          cl /std:clatest /O2 /W4 /WX tests/integration/provision.c /Fo:tools\ /link /OUT:tools/provision.exe
+          if ($LASTEXITCODE) { throw "provision build failed" }
+          cl /std:clatest /O2 /W4 /WX "$consumer/smoke.c" "$consumer/p256.c" /Fo:tools\ /link /OUT:tools/p11lab-smoke.exe
+          if ($LASTEXITCODE) { throw "consumer build failed" }
+          Get-FileHash tools/*.exe -Algorithm SHA256
+
+      - name: Build release bundle
+        run: |
+          $url = "https://github.com/harrison314/BouncyHsm/releases/download/v2.3.2/BouncyHsm.zip"
+          $want = "61a1cf42bddc3bf585ce43f6eaf0a130d13ba2bf1c4a1ed4d158624abd36f238"
+          curl.exe -sSL -o BouncyHsm.zip $url
+          $got = (Get-FileHash BouncyHsm.zip -Algorithm SHA256).Hash.ToLower()
+          if ($got -ne $want) { throw "archive hash mismatch: $got" }
+          @'
+          import json
+          from pathlib import Path
+          from p11lab.native import build_bouncyhsm_bundle
+          ws = Path(r"${{ github.workspace }}")
+          artifact = build_bouncyhsm_bundle(
+              environment="bouncyhsm", channel="release", target="windows-amd64",
+              output_dir=ws / "build" / "release-bundle",
+              archive=ws / "BouncyHsm.zip",
+              probe_exe=ws / "tools" / "bouncyhsm-probe.exe")
+          print(json.dumps({"reference": artifact.reference, "digest": artifact.sha256}))
+          '@ | Set-Content -Path build-release-bundle.py -Encoding utf8
+          python build-release-bundle.py
+
+      - name: Build rolling bundle
+        run: |
+          git clone https://github.com/harrison314/BouncyHsm.git upstream
+          git -C upstream checkout f09ab9a342741c56bb56621a707c1b94dfdeac4b
+          git -C upstream rev-parse HEAD
+          '{"sdk":{"version":"10.0.401","rollForward":"disable"}}' | Set-Content upstream/global.json -Encoding utf8
+          New-Item -ItemType Directory -Force payload | Out-Null
+          Push-Location upstream
+          try {
+            $sdk = dotnet --version
+            if ($sdk -ne "10.0.401") { throw "SDK pin not honored: $sdk" }
+            foreach ($p in "BouncyHsm", "BouncyHsm.Client", "BouncyHsm.Core", "BouncyHsm.Infrastructure", "BouncyHsm.Spa") {
+              Copy-Item "../src/p11lab/data/providers/bouncyhsm/dotnet-locks/$p.packages.lock.json" "src/Src/$p/packages.lock.json"
+            }
+            $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+            $env:DOTNET_NOLOGO = "1"
+            $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
+            dotnet publish src/Src/BouncyHsm/BouncyHsm.csproj -c Release -m:2 -o ../payload/server /p:RestoreLockedMode=true /p:Deterministic=true /p:DebugSymbols=false /p:DebugType=None
+            if ($LASTEXITCODE) { throw "dotnet publish failed" }
+          } finally { Pop-Location }
+          msbuild upstream/src/Src/BouncyHsm.Pkcs11Lib/BouncyHsm.Pkcs11Lib.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v145 /p:OutDir="$PWD\payload\dll\"
+          if ($LASTEXITCODE) { throw "msbuild failed" }
+          Copy-Item payload/dll/BouncyHsm.Pkcs11Lib.dll payload/BouncyHsm.Pkcs11Lib.dll
+          Copy-Item tools/bouncyhsm-probe.exe payload/bouncyhsm-probe.exe
+          Copy-Item upstream/LICENSE payload/LICENSE
+          $clLine = ((cl 2>&1 | Select-Object -First 1).ToString()).Trim()
+          @'
+          import json
+          import sys
+          from pathlib import Path
+          from p11lab.native import build_bouncyhsm_bundle
+          ws = Path(r"${{ github.workspace }}")
+          artifact = build_bouncyhsm_bundle(
+              environment="bouncyhsm", channel="rolling", target="windows-amd64",
+              output_dir=ws / "build" / "rolling-bundle", payload_dir=ws / "payload",
+              build_meta={"source_revision": "f09ab9a342741c56bb56621a707c1b94dfdeac4b",
+                          "sdk_version": "10.0.401", "toolset": "v145",
+                          "compiler": sys.argv[1], "publish": sys.argv[2]})
+          print(json.dumps({"reference": artifact.reference, "digest": artifact.sha256}))
+          '@ | Set-Content -Path build-rolling-bundle.py -Encoding utf8
+          python build-rolling-bundle.py $clLine "dotnet 10.0.401 publish Release RestoreLockedMode Deterministic"
+
+      - name: Install checker at pin
+        run: |
+          git init checker-src
+          git -C checker-src fetch --depth 1 https://github.com/mingulov/pkcs11-check.git de4db3d2ee738a9f99d0654e4baf568cdbd4774a
+          git -C checker-src checkout FETCH_HEAD
+          git -C checker-src rev-parse HEAD
+          python -m pip install ./checker-src
+          python -c "import importlib.metadata; v = importlib.metadata.version('pkcs11-check'); assert v == '0.2.2', v; print('pkcs11-check', v)"
+          python -m pip freeze | Sort-Object | Tee-Object -FilePath checker-pip-freeze.txt
+
+      - name: Export native lane inputs
+        run: |
+          @'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          ws = Path(r"${{ github.workspace }}")
+          native = {}
+          for channel in ("release", "rolling"):
+              archive = ws / "build" / f"{channel}-bundle" / f"bouncyhsm-native-{channel}-windows-amd64.tar.gz"
+              native[channel] = {"archive": archive.as_posix(),
+                                 "sha256": hashlib.sha256(archive.read_bytes()).hexdigest()}
+          with open(os.environ["GITHUB_ENV"], "a") as stream:
+              stream.write("P11LAB_TEST_BOUNCYHSM_NATIVE=" + json.dumps(native) + "\n")
+              stream.write("P11LAB_TEST_BOUNCYHSM_TOOLS=" + (ws / "tools").as_posix() + "\n")
+              stream.write("P11LAB_TEST_CHECKER_SRC=" + (ws / "checker-src").as_posix() + "\n")
+          print(json.dumps(native, indent=2))
+          '@ | Set-Content -Path export-native-inputs.py -Encoding utf8
+          python export-native-inputs.py
+
+      - name: Run Windows native lanes
+        timeout-minutes: 200
+        run: |
+          python -m pytest tests/integration/test_bouncyhsm.py -q -k "test_native_install_readback or test_native_crypto_persistence or test_native_ports_and_cleanup or test_native_checker_smoke"
+          python -m pytest tests/test_native_lifecycle.py -q -k bouncy
+
+      - name: Prove the published example
+        run: |
+          @'
+          import hashlib
+          from pathlib import Path
+          from p11lab.models import ArtifactRef
+          from p11lab.native import install_bouncyhsm_bundle
+          ws = Path(r"${{ github.workspace }}")
+          archive = ws / "build" / "release-bundle" / "bouncyhsm-native-release-windows-amd64.tar.gz"
+          artifact = ArtifactRef("bundle", archive.as_posix(),
+                                 hashlib.sha256(archive.read_bytes()).hexdigest(),
+                                 "windows/amd64")
+          installed = install_bouncyhsm_bundle(artifact, ws / "example-prefix",
+                                               environment="bouncyhsm", channel="release")
+          print("example prefix:", installed.prefix, installed.manifest_sha256)
+          '@ | Set-Content -Path install-example-prefix.py -Encoding utf8
+          python install-example-prefix.py
+          New-Item -ItemType Directory -Force example-run | Out-Null
+          Push-Location example-run
+          try {
+            python ../examples/windows/run.py --prefix ../example-prefix --channel release --tools ../tools
+            if ($LASTEXITCODE) { throw "example run failed" }
+            python ../src/p11lab/data/consumer/verify.py out/smoke
+            if ($LASTEXITCODE) { throw "example oracle failed" }
+          } finally { Pop-Location }
