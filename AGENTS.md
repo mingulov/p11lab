@@ -7,6 +7,12 @@ reusable provider environments. Its first product is a small set of lightweight
 provider container images that work without `pkcs11-check`. The checker is an
 optional consumer, alongside other applications.
 
+Public reuse includes another developer's GitHub repository running its own
+application tests and optionally checker profiles against these environments.
+Keep the provider catalogue extensible through recipes and metadata with shared
+validation and orchestration. Public CI integrations must use the same supported
+operations as local users and work without development-workspace mounts.
+
 The project is in requirements and architecture review. `prd.md` is an initial
 draft, not an approved implementation specification. Current user decisions and
 verified component behavior take precedence over assumptions in that draft.
