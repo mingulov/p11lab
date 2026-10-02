@@ -33,6 +33,22 @@ MODULE = "lib/libsofthsm2.so"
 UTILITY = "bin/softhsm2-util"
 ADAPTER = "bin/p11lab-provider"
 
+# Native-client role (proxy shim/CLI bundle). Provider N2 behavior above is
+# unchanged. Client bundles are proxy-versioned, not provider-versioned; the
+# environment/channel select and namespace the bundle for run verification.
+CLIENT_TARGET = "debian13-amd64"
+CLIENT_MODULE = "lib/libpkcs11_proxy_ng_shim.so"
+CLIENT_CLI = "bin/pkcs11-proxy-ng-cli"
+CLIENT_HOST_REQUIREMENTS = {
+    "os": "debian",
+    "major_version": "13",
+    "architecture": "x86_64",
+    "platform": "linux/amd64",
+    "loader": "/lib64/ld-linux-x86-64.so.2",
+    "packages": ["libc6", "libgcc-s1"],
+    "symbol_floors": {"GLIBC": "2.34"},
+}
+
 
 def _selection(environment, channel, platform):
     return dict(environment=environment, channel=channel, platform=platform)
@@ -666,3 +682,299 @@ def run_native_softhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult:
         },
     )
     return RunResult(app, tuple(lifecycle), tuple(cleanup), code, receipt)
+
+
+def _validate_client_manifest(manifest, environment, channel):
+    """Client bundles carry proxy component identities; no catalog target lock."""
+    from .tls import PROXY_CARGO_LOCK_SHA256, PROXY_SOURCE_REVISION
+
+    if (
+        manifest.get("role") != "native-client"
+        or manifest.get("target") != CLIENT_TARGET
+        or manifest.get("module") != CLIENT_MODULE
+        or manifest.get("host_requirements") != CLIENT_HOST_REQUIREMENTS
+    ):
+        raise ValueError(
+            "native manifest does not match the client target/host requirements"
+        )
+    proxy = manifest.get("source", {}).get("proxy", {})
+    if (
+        proxy.get("source_revision") != PROXY_SOURCE_REVISION
+        or proxy.get("cargo_lock_sha256") != PROXY_CARGO_LOCK_SHA256
+    ):
+        raise ValueError("native client proxy component identity mismatch")
+    roster = {entry["path"]: entry for entry in manifest.get("files", [])}
+    if (
+        roster.get(CLIENT_MODULE, {}).get("sha256") != proxy.get("shim_sha256")
+        or roster.get(CLIENT_CLI, {}).get("sha256") != proxy.get("cli_sha256")
+    ):
+        raise ValueError("native client component bytes differ from declared proxy")
+    return manifest
+
+
+def build_native_client_bundle(
+    *,
+    proxy: dict,
+    shim: Path,
+    cli: Path,
+    licenses: dict,
+    output_dir: Path,
+    environment: str,
+    channel: str,
+) -> ArtifactRef:
+    """Package verified pinned-proxy client bytes as a native-client bundle.
+
+    No compilation occurs here. The shim/CLI bytes were built from the pinned
+    proxy source and are hash-verified against the declared component
+    identities, which enter the build key: a proxy component change
+    invalidates the client identity.
+    """
+    from .tls import PROXY_CARGO_LOCK_SHA256, PROXY_SOURCE_REVISION
+
+    for key in (
+        "source_revision",
+        "cargo_lock_sha256",
+        "source_archive_sha256",
+        "shim_sha256",
+        "cli_sha256",
+        "toolchain",
+    ):
+        if not proxy.get(key):
+            raise ValueError("client build requires proxy " + key)
+    if (
+        proxy["source_revision"] != PROXY_SOURCE_REVISION
+        or proxy["cargo_lock_sha256"] != PROXY_CARGO_LOCK_SHA256
+    ):
+        raise ValueError("client build proxy component identity mismatch")
+    shim_bytes = Path(shim).read_bytes()
+    cli_bytes = Path(cli).read_bytes()
+    if hashlib.sha256(shim_bytes).hexdigest() != proxy["shim_sha256"]:
+        raise ValueError("client shim bytes differ from declared proxy component")
+    if hashlib.sha256(cli_bytes).hexdigest() != proxy["cli_sha256"]:
+        raise ValueError("client CLI bytes differ from declared proxy component")
+    if set(licenses) != {
+        "share/licenses/proxy-ng/LICENSE-APACHE",
+        "share/licenses/proxy-ng/LICENSE-MIT",
+    }:
+        raise ValueError("client build requires pinned proxy license texts")
+    output_dir = Path(output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=False)
+    inputs = {
+        "sources": [{"revision": proxy["source_revision"]}],
+        "binaries": [
+            {"path": CLIENT_MODULE, "sha256": proxy["shim_sha256"]},
+            {"path": CLIENT_CLI, "sha256": proxy["cli_sha256"]},
+        ],
+        "dependencies": [],
+        "toolchain": [],
+        "recipe": hashlib.sha256(
+            json.dumps(
+                {"implementation": checksum(Path(__file__))}, sort_keys=True
+            ).encode()
+        ).hexdigest(),
+        "platform": "linux/amd64",
+        "features": {
+            "target": CLIENT_TARGET,
+            "host_requirements": CLIENT_HOST_REQUIREMENTS,
+            "proxy": {
+                key: proxy[key]
+                for key in (
+                    "source_revision",
+                    "cargo_lock_sha256",
+                    "source_archive_sha256",
+                    "shim_sha256",
+                    "cli_sha256",
+                )
+            },
+            "toolchain": proxy["toolchain"],
+            "licenses": {
+                name: hashlib.sha256(Path(path).read_bytes()).hexdigest()
+                for name, path in sorted(licenses.items())
+            },
+        },
+    }
+    key = artifact_key("client", inputs)
+    contents = {
+        CLIENT_MODULE: shim_bytes,
+        CLIENT_CLI: cli_bytes,
+        "share/p11lab/native-id": (key + "\n").encode(),
+        "share/licenses/p11lab/LICENSE": package_data("runtime/LICENSE").read_bytes(),
+        "share/p11lab/THIRD-PARTY-NOTICES.txt": (
+            "P11Lab native client packaging: Apache-2.0. "
+            "pkcs11-proxy-ng shim/CLI: Apache-2.0 OR MIT; see "
+            "share/licenses/proxy-ng/. Host runtime packages are "
+            "prerequisites, not redistributed. Proxy source and component "
+            "identities are recorded in manifest.json. Public admission is a "
+            "separate artifact-bound gate.\n"
+        ).encode(),
+    }
+    for name, path in licenses.items():
+        contents[name] = Path(path).read_bytes()
+    roster = [
+        {
+            "path": name,
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "size": len(data),
+            "mode": 0o755 if name.startswith("bin/") else 0o644,
+            "role": "module"
+            if name == CLIENT_MODULE
+            else "cli"
+            if name == CLIENT_CLI
+            else "notice",
+        }
+        for name, data in sorted(contents.items())
+    ]
+    manifest = {
+        "schema_version": 1,
+        "role": "native-client",
+        "environment": environment,
+        "channel": channel,
+        "platform": "linux/amd64",
+        "target": CLIENT_TARGET,
+        "module": CLIENT_MODULE,
+        "source": {
+            "proxy": {
+                "repository": "https://github.com/mingulov/pkcs11-proxy-ng",
+                "source_revision": proxy["source_revision"],
+                "source_archive_sha256": proxy["source_archive_sha256"],
+                "cargo_lock_sha256": proxy["cargo_lock_sha256"],
+                "shim_sha256": proxy["shim_sha256"],
+                "cli_sha256": proxy["cli_sha256"],
+            }
+        },
+        "build": {"key": key, "identity": public_identity("client", inputs)},
+        "host_requirements": CLIENT_HOST_REQUIREMENTS,
+        "tested_prerequisites": ["debian13-amd64 system loader resolution"],
+        "licenses": [
+            "share/licenses/proxy-ng/LICENSE-APACHE",
+            "share/licenses/proxy-ng/LICENSE-MIT",
+            "share/licenses/p11lab/LICENSE",
+        ],
+        "source_references": [
+            {
+                "repository": "https://github.com/mingulov/pkcs11-proxy-ng",
+                "revision": proxy["source_revision"],
+            }
+        ],
+        "files": roster,
+        "admission": "unreviewed; native actual-content admission is separate from container admission",
+    }
+    manifest_bytes = (json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode()
+    archive_path = output_dir / "proxy-client-native.tar.gz"
+    import gzip
+
+    with (
+        archive_path.open("wb") as raw,
+        gzip.GzipFile(fileobj=raw, mode="wb", mtime=0, filename="") as zipped,
+        tarfile.open(fileobj=zipped, mode="w") as archive,
+    ):
+        for name, data, mode in [
+            ("manifest.json", manifest_bytes, 0o644),
+            *[("payload/" + r["path"], contents[r["path"]], r["mode"]) for r in roster],
+        ]:
+            entry = tarfile.TarInfo(name)
+            entry.size = len(data)
+            entry.mode = mode
+            entry.mtime = 0
+            archive.addfile(entry, io.BytesIO(data))
+    artifact = ArtifactRef(
+        "bundle", str(archive_path), checksum(archive_path), "linux/amd64"
+    )
+    inspect_bundle(
+        artifact, **_selection(environment, channel, "linux/amd64")
+    )
+    write_receipt(
+        output_dir / "artifact.json",
+        {
+            "schema_version": 1,
+            "artifact": asdict(artifact),
+            "build_key": key,
+            "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+            "proxy": manifest["source"]["proxy"],
+            "payload_bytes": sum(r["size"] for r in roster),
+            "archive_bytes": archive_path.stat().st_size,
+            "files": roster,
+            "admission": "unreviewed",
+        },
+    )
+    (output_dir / "manifest.json").write_bytes(manifest_bytes)
+    return artifact
+
+
+def preflight_native_client(prefix: Path, manifest: dict) -> dict:
+    """Resolve the shim closure with the host system loader; no provider needed."""
+    _validate_client_manifest(
+        manifest, manifest.get("environment"), manifest.get("channel")
+    )
+    if platform.system() != "Linux" or platform.machine() != "x86_64":
+        raise ValueError("native proxy client requires Linux x86_64")
+    loader = manifest["host_requirements"]["loader"]
+    shim = prefix / "payload" / CLIENT_MODULE
+    result = subprocess.run(
+        [loader, "--list", str(shim)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if result.returncode or "not found" in result.stdout + result.stderr:
+        raise ValueError(
+            "missing or incompatible native client runtime prerequisite: "
+            + CLIENT_MODULE
+            + "; "
+            + result.stderr.strip()
+        )
+    resolved = []
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        name = (
+            fields[2]
+            if len(fields) > 2 and fields[1] == "=>"
+            else fields[0]
+            if fields
+            else ""
+        )
+        if name.startswith("/"):
+            path = Path(name).resolve()
+            resolved.append({"path": str(path), "sha256": checksum(path)})
+    launch = subprocess.run(
+        [str(prefix / "payload" / CLIENT_CLI), "--version"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if launch.returncode:
+        raise ValueError("native client CLI launch failed")
+    return {
+        "loader": loader,
+        "architecture": platform.machine(),
+        "closure": {CLIENT_MODULE: {"loader_output": result.stdout, "resolved": resolved}},
+        "cli_version": launch.stdout.strip(),
+    }
+
+
+def install_native_client_bundle(
+    artifact: ArtifactRef, prefix: Path, *, environment: str, channel: str
+) -> InstalledBundle:
+    selection = _selection(environment, channel, artifact.platform)
+    manifest = inspect_bundle(artifact, **selection)
+    _validate_client_manifest(manifest, environment, channel)
+    # Inert N1 extraction into private temporary placement. Host preflight
+    # precedes creation of the requested prefix or ancestors.
+    with tempfile.TemporaryDirectory(
+        prefix=".p11lab-client-preflight-", dir=staging_parent(prefix)
+    ) as temporary:
+        staged = install_bundle(artifact, Path(temporary) / "prefix", **selection)
+        preflight_native_client(staged.prefix, manifest)
+    return install_bundle(artifact, prefix, **selection)
+
+
+def load_client_installation(
+    prefix: Path, *, environment: str, channel: str, platform: str = "linux/amd64"
+) -> InstalledBundle:
+    """Reverify an installed client bundle and its host/ABI preflight."""
+    installed = read_installation(
+        prefix, environment=environment, channel=channel, platform=platform
+    )
+    _validate_client_manifest(installed.manifest, environment, channel)
+    preflight_native_client(installed.prefix, installed.manifest)
+    return installed
