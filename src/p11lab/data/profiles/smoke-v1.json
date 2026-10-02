@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "name": "p11lab-smoke-v1",
+  "checker_version": "0.2.2",
+  "source_revision": "de4db3d2ee738a9f99d0654e4baf568cdbd4774a",
+  "wheel_sha256": "812c57e94fb967bc5ba939f0519bba67c58d5e755705b84c8442bbc2774d96f9",
+  "runtime_lock_sha256": "fe8bce22bb409a005977449cadb64f70ea19dd0a0ce9d685d78ac11447926372",
+  "nodes": [
+    "test_interface.py::TestLibraryInfo::test_module_loads",
+    "test_interface.py::TestLibraryInfo::test_interface_version_reported",
+    "test_interface.py::TestLibraryInfo::test_library_has_slots",
+    "test_interface.py::TestSlotEnumeration::test_get_slots_with_token",
+    "test_interface.py::TestSlotEnumeration::test_slot_has_token_info",
+    "test_interface.py::TestInterfaceV30::test_v30_interface_negotiated",
+    "test_interface.py::TestInterfaceV30::test_v30_session_opens",
+    "test_interface.py::TestInterfaceV30::test_v30_get_interface_list",
+    "test_interface.py::TestInterfaceV30::test_v30_encrypt_decrypt_aes",
+    "test_interface.py::TestInterfaceV32::test_v32_interface_negotiated",
+    "test_interface.py::TestInterfaceV32::test_v32_session_opens",
+    "test_session_info.py::TestSessionInfo::test_rw_session_is_rw",
+    "test_session_info.py::TestSessionInfo::test_ro_session_is_not_rw",
+    "test_object.py::TestSessionObjects::test_create_secret_key_with_label",
+    "test_object.py::TestSessionObjects::test_find_objects_by_label",
+    "test_object.py::TestSessionObjects::test_key_attributes_readable",
+    "test_object.py::TestSessionObjects::test_destroy_session_object",
+    "test_object.py::TestSessionObjects::test_empty_search_returns_empty",
+    "test_digest.py::TestDigestLengths::test_digest_length[SHA-256]",
+    "test_digest.py::TestDigestProperties::test_sha256_empty_data",
+    "test_digest.py::TestDigestCrossVerify::test_cross_verify[SHA-256]",
+    "test_sign.py::TestECDSASignature::test_ecdsa_sign_verify",
+    "test_sign.py::TestECDSASignature::test_ecdsa_wrong_data_fails"
+  ],
+  "sources": {
+    "test_digest.py": "5987eb6a1404c268bb869e9a44baea339e62893700d5c2825c04580cc092bc3d",
+    "test_interface.py": "879de8b7223b2e63bb00c369d1a305bcc372be5accbcc2bdbb12c01834b19d01",
+    "test_object.py": "89081c50039d85169e6c30bc4e22bfa76c08fa50a4f376474aa306d0d5958981",
+    "test_session_info.py": "a307c7762f4fc0911e74243719ebf66764c8c6bab2cd65249664449246612c13",
+    "test_sign.py": "431ad325a45938638b5d12474c02d8cae680c80cc4211accdb089145d10f6fca"
+  }
+}
