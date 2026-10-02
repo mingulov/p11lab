@@ -204,3 +204,9 @@ def test_unreviewed_copied_script_blocks_known_package_inventory(tmp_path):
     artifact, inventory = fixture_inventory(tmp_path)
     inventory['observation']['files'].append({'path': '/new-script', 'sha256': 'f'*64, 'package': None})
     assert any('/new-script' in reason for reason in validate_inventory(artifact, inventory))
+
+
+def test_empty_deb822_field_does_not_append_conffiles_to_source_version():
+    from p11lab.licenses import parse_dpkg_status
+    packages = parse_dpkg_status('Package: libaudit-common\nStatus: install ok installed\nArchitecture: all\nSource: audit\nVersion: 1:4.0.2-2+deb13u1\nConffiles:\n /etc/libaudit.conf cdc703f9d27f0d980271a9e95d0f18b2\nDescription: library metadata\n')
+    assert packages[0]['source_version'] == '1:4.0.2-2+deb13u1'

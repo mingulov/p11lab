@@ -33,9 +33,9 @@ def parse_dpkg_status(text: str) -> list[dict]:
         for line in paragraph.splitlines():
             if line.startswith((' ', '\t')) and key:
                 fields[key] += ' ' + line.strip()
-            elif ': ' in line:
-                key, value = line.split(': ', 1)
-                fields[key] = value
+            elif ':' in line:
+                key, value = line.split(':', 1)
+                fields[key] = value.lstrip()
         if fields.get('Status') != 'install ok installed':
             continue
         source = fields.get('Source', fields['Package'])
