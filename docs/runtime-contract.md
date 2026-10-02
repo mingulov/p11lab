@@ -1,0 +1,87 @@
+# Provider application execution
+
+Direct/provider requires a same-host Docker daemon on a local Unix socket; SSH
+and TCP endpoints are rejected before resources are created. Host bind mounts and
+bind-backed owned volumes depend on that host filesystem.
+
+Install P11Lab and use `p11lab describe softhsm2 --channel release` to inspect the
+installed provider contract. Build receipts identify local artifacts by their
+exact Docker engine image ID. A local engine ID is distinct from an OCI registry
+manifest digest, a config digest, and a native bundle archive hash; it may change
+when transferred to another engine. Run requires the inspected local ID and
+platform, never a mutable tag. Registry and native execution are unavailable in
+this initial runner.
+
+`p11lab run ID --channel release|rolling --mode direct --where provider
+--artifact sha256:IMAGE_ID --output-dir NEW_DIR -- ARGV...` executes the selected
+image's `/usr/local/bin/p11lab-provider` adapter: `init`, `health`,
+`exec -- ARGV...`, then `health`. The selected image may be a compatible caller
+owned derivative with application tools. Its artifact occupies the provider role;
+separate consumer and client identities remain null. `--consumer-image` and
+`--client-artifact` reject in direct/provider mode. Proxy, native, host and
+separate-container execution reject before resources are created.
+
+The application receives literal arguments, its explicit `--cwd` mounted read/write
+at `/workspace`, and the new output directory at `/p11lab-output`.
+`P11LAB_OUTPUT_DIR` points to that directory. The application working directory is
+`/workspace`; lifecycle stages keep the image's working directory. Host variables
+are not forwarded to the application. Only declared `--input NAME=VALUE` entries
+reach the adapter; absent and empty inputs remain distinct. For SoftHSM prefer
+`P11LAB_PIN_FILE` and `P11LAB_SO_PIN_FILE`, pointing to private host files with
+single-line credentials. Credentials are bounded to 4096 bytes, copied into a
+private temporary directory, and individually mounted read-only at
+`/run/p11lab-input/NAME`. The temporary directory is removed after the run.
+The original credential files and permissions are preserved. PIN values, file
+paths and credential hashes are omitted from the receipt. Scalar PIN inputs are
+explicit disposable-test alternatives and remain secret inputs.
+
+Each invocation has independent opaque run and attempt IDs, exact container IDs,
+and ownership labels. The default token store is a new owned Docker volume
+backed by a private caller-owned temporary directory, removed at cleanup.
+Volume copy-up is disabled to preserve its caller ownership. `--state-dir EXISTING_DIR` binds a caller-owned persistent
+store, which is retained even on failure. Init never resets existing tokens;
+incompatible, partial or unknown state fails. Use a separate store for independent
+clients and shards. Remove a persistent store only as an explicit user operation.
+A persisted key must be provisioned as a token object; the smoke application's
+generated keys are session objects and do not persist.
+
+SoftHSM exposes `/usr/local/lib/p11lab/libsofthsm2.so` for Linux amd64 with
+Debian 13 glibc 2.41 and its recorded OpenSSL dependency closure. The adapter
+creates `/run/p11lab/softhsm2.conf` on each invocation, selects the exact token
+label (`P11Lab` by default), and verifies initialization before reaching the
+application. Native slot IDs and consumer slot indices are different values.
+No module becomes remotely loadable by placing containers on a shared network.
+
+Containers explicitly use the invoking caller's UID/GID, no Linux capabilities,
+no network, a read-only root filesystem and
+`no-new-privileges`. Writes are limited to token state, `/run/p11lab`, `/tmp`, the
+caller working directory and output directory. A non-root caller UID/GID is
+exercised on a local rootful Linux engine. Rootless Docker and unrestricted
+arbitrary UID compatibility are not promised. Docker bind paths
+containing commas are rejected; paths with spaces and shell metacharacters work.
+Public image distribution requires separate source and license admission.
+
+`--timeout SECONDS` bounds the lifecycle attempt. Docker control operations and
+cleanup have separate bounded waits; cleanup can extend elapsed time beyond the
+application deadline. SIGINT, SIGTERM and SIGHUP are forwarded to the running
+container and owned attached processes are reaped. Cleanup targets only recorded
+IDs whose ownership labels still match, never broad name prefixes. Containers
+that do not terminate gracefully are forcibly removed during bounded cleanup.
+A failed creation command gets one label-checked readback of its nonce name;
+verified exact IDs enter cleanup. Unverified creation outcomes are retained as
+explicit uncertainty and cleanup failure, with their private state directory
+retained for recovery. Unrelated resources are preserved. Unexpected host
+destruction can leave owned
+resources behind without a completed receipt.
+
+The application nonzero exit is primary even if post-health or cleanup also
+fails. Application zero plus lifecycle/cleanup failure returns 1; timeout returns
+124; interruption returns 128 plus the signal number. Failure before application
+execution records null `app_returncode`. Atomic `receipt.json` records stages,
+artifact roles, inspected descriptor, ownership IDs, execution controls, timeout,
+interruption and cleanup errors. Each stage's stdout/stderr retains a bounded
+64 KiB raw-byte prefix while draining all output; the receipt declares truncation.
+Known explicit credential values are redacted. Commands and arbitrary argument
+contents are omitted, so callers must separately retain a safe reproduction
+command. Applications are responsible for keeping their own exported output safe.
+This is an application execution record, not provider qualification.

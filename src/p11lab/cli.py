@@ -25,9 +25,52 @@ def main(argv=None) -> int:
         command.add_argument("--output-dir", required=True, type=Path)
         if name == "build":
             command.add_argument("--role", default="runtime")
-    args = parser.parse_args(argv)
+    command = commands.add_parser("run", help="run an application in an owned provider instance")
+    command.add_argument("id")
+    command.add_argument("--channel", required=True)
+    command.add_argument("--mode", choices=("direct", "proxy", "native"), default="direct")
+    command.add_argument("--where", choices=("provider", "container", "host"))
+    command.add_argument("--artifact", required=True, help="exact local engine sha256 image ID")
+    command.add_argument("--consumer-image")
+    command.add_argument("--client-artifact")
+    command.add_argument("--platform", default="linux/amd64")
+    command.add_argument("--input", action="append", default=[], metavar="NAME=VALUE")
+    command.add_argument("--state-dir", type=Path, help="existing caller-owned persistent state directory")
+    command.add_argument("--output-dir", required=True, type=Path)
+    command.add_argument("--cwd", type=Path, default=Path.cwd())
+    command.add_argument("--timeout", type=int, default=300)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    application_argv = []
+    if arguments and arguments[0] == "run" and "--" in arguments:
+        boundary = arguments.index("--")
+        application_argv = arguments[boundary + 1:]
+        arguments = arguments[:boundary]
+    args = parser.parse_args(arguments)
     try:
-        if args.command in {"resolve", "build"}:
+        if args.command == "run":
+            from .models import ArtifactRef, RunSpec
+            from .run import run_application
+            def artifact(reference):
+                return ArtifactRef("docker-local", reference, reference.removeprefix("sha256:"), args.platform) if reference else None
+            inputs = {}
+            for item in args.input:
+                if "=" not in item:
+                    raise ValueError("input requires NAME=VALUE")
+                key, value = item.split("=", 1)
+                if key in inputs:
+                    raise ValueError("duplicate input name")
+                inputs[key] = value
+            if args.state_dir is not None:
+                if "P11LAB_STATE_DIR" in inputs:
+                    raise ValueError("duplicate state directory input")
+                inputs["P11LAB_STATE_DIR"] = str(args.state_dir)
+            result = run_application(RunSpec(args.id, args.channel, args.mode, artifact(args.artifact),
+                args.where or {"direct": "provider", "proxy": "host", "native": "host"}[args.mode],
+                artifact(args.consumer_image), artifact(args.client_artifact), tuple(application_argv), inputs,
+                args.output_dir, args.cwd, args.timeout))
+            print(json.dumps(asdict(result), default=str, indent=2, sort_keys=True))
+            return result.exit_code
+        elif args.command in {"resolve", "build"}:
             spec = load_environment(args.id, args.channel)
             if args.command == "resolve":
                 from .sources import resolve_sources
