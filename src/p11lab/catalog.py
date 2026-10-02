@@ -69,6 +69,14 @@ def packaged_asset(environment: str, path: str):
     return _asset(_provider_root(environment), path)
 
 
+
+def locked_asset(environment: str, asset: dict, *, asset_root=None):
+    """Resolve a declared provider asset or a shared runtime package asset."""
+    scope = asset.get("scope", "provider")
+    _require(_enum(scope, {"provider", "runtime"}), "unknown asset scope")
+    root = (asset_root if asset_root is not None else _provider_root(environment)) if scope == "provider" else files("p11lab").joinpath("data", "runtime")
+    return _asset(root, asset.get("path"))
+
 def _json(asset):
     try:
         result = json.loads(asset.read_text(encoding="utf-8"))
@@ -98,7 +106,7 @@ def _source(source):
                  and _text(selector.get("value")), "source selector must declare kind and value")
 
 
-def _lock(lock, root):
+def _lock(lock, root, environment):
     _require(lock.get("schema_version") == 1, "unsupported lock schema_version")
     for key in ("sources", "dependencies", "patches", "base_images", "packages", "toolchain", "assets"):
         _require(isinstance(lock.get(key), list), f"lock requires {key} list")
@@ -118,9 +126,10 @@ def _lock(lock, root):
         _require(_text(asset.get("role")), "lock asset requires role")
         _require(isinstance(asset.get("sha256"), str) and _SHA256.fullmatch(asset["sha256"]), "asset requires sha256")
         path = asset.get("path")
-        target = _asset(root, path)
-        _require(path not in paths, "duplicate asset path")
-        paths.add(path)
+        target = locked_asset(environment, asset, asset_root=root)
+        scoped_path = (asset.get("scope", "provider"), path)
+        _require(scoped_path not in paths, "duplicate asset path")
+        paths.add(scoped_path)
         roles.add(asset["role"])
         _require(hashlib.sha256(target.read_bytes()).hexdigest() == asset["sha256"], f"asset sha256 mismatch: {path}")
     _require({"recipe", "adapter"} <= roles, "locked entry requires recipe and adapter assets")
@@ -166,7 +175,7 @@ def validate_descriptor(spec: dict, *, asset_root=None) -> None:
         elif status == "locked":
             _require(set(channel) == {"status", "lock"}, "locked channel requires lock path")
             root = asset_root if asset_root is not None else _provider_root(spec["id"])
-            _lock(_json(_asset(root, channel["lock"])), root)
+            _lock(_json(_asset(root, channel["lock"])), root, spec["id"])
         else:
             raise CatalogError(f"unknown channel status: {name}")
 

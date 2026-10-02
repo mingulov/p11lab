@@ -58,7 +58,7 @@ def _ref(value):
     if kind == "oci":
         _require(reference.endswith("@sha256:" + sha) and len(reference) > len("@sha256:" + sha), "OCI artifact must bind matching immutable digest")
     elif kind == "docker-local":
-        _require(reference == "sha256:" + sha, "local image must bind exact config digest")
+        _require(reference == "sha256:" + sha, "local image must bind exact engine image ID")
     else:
         _require(kind == "bundle", "unsupported artifact reference kind")
     _require(isinstance(value["platform"], str) and re.fullmatch(r"[a-z0-9]+/[a-z0-9]+", value["platform"]), "artifact platform is required")

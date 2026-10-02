@@ -1,6 +1,8 @@
-"""Read-only installed catalogue command interface."""
+"""Installed catalogue, verified source acquisition and runtime builds."""
 
 import argparse
+from dataclasses import asdict
+from pathlib import Path
 import json
 import sys
 
@@ -16,9 +18,25 @@ def main(argv=None) -> int:
     describe.add_argument("id")
     describe.add_argument("--channel", required=True)
     commands.add_parser("validate", help="validate installed catalogue and declared assets")
+    for name in ("resolve", "build"):
+        command = commands.add_parser(name, help="acquire locked sources" if name == "resolve" else "build a locked runtime")
+        command.add_argument("id")
+        command.add_argument("--channel", required=True)
+        command.add_argument("--output-dir", required=True, type=Path)
+        if name == "build":
+            command.add_argument("--role", default="runtime")
     args = parser.parse_args(argv)
     try:
-        if args.command == "describe":
+        if args.command in {"resolve", "build"}:
+            spec = load_environment(args.id, args.channel)
+            if args.command == "resolve":
+                from .sources import resolve_sources
+                result = resolve_sources(spec, output_dir=args.output_dir)
+            else:
+                from .build import build_artifact
+                result = asdict(build_artifact(spec, args.role, args.output_dir))
+            print(json.dumps(result, indent=2, sort_keys=True))
+        elif args.command == "describe":
             print(json.dumps(load_environment(args.id, args.channel), indent=2, sort_keys=True))
         else:
             environments = list_environments()

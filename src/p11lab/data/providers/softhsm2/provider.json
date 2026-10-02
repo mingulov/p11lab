@@ -24,55 +24,30 @@
     "P11LAB_SO_PIN_FILE": {
       "secret": true,
       "required": false
+    },
+    "P11LAB_PIN": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
     }
   },
   "services": [],
   "channels": {
     "rolling": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/softhsm/SoftHSMv2.git",
-        "selector": {
-          "kind": "branch",
-          "value": "main"
-        },
-        "license_status": "unreviewed",
-        "revision": "884cb38f3d2012a0447bd5f50dbd29c429987c41",
-        "license_observation": "BSD-2-Clause",
-        "license_evidence": [
-          {
-            "variant": "rolling",
-            "path": "LICENSE",
-            "url": "https://raw.githubusercontent.com/softhsm/SoftHSMv2/884cb38f3d2012a0447bd5f50dbd29c429987c41/LICENSE",
-            "sha256": "230cab7102816e99f7ce03ef476352fcad09d742fcbc6580d44393db6280b64c"
-          }
-        ]
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "rolling.lock.json"
     },
     "release": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/softhsm/SoftHSMv2.git",
-        "selector": {
-          "kind": "tag",
-          "value": "2.7.0"
-        },
-        "license_status": "unreviewed",
-        "revision": "13e6e86b83748fef74046dbf0c91f664b7acc1c3",
-        "license_observation": "BSD-2-Clause",
-        "license_evidence": [
-          {
-            "variant": "stable",
-            "path": "LICENSE",
-            "url": "https://raw.githubusercontent.com/softhsm/SoftHSMv2/13e6e86b83748fef74046dbf0c91f664b7acc1c3/LICENSE",
-            "sha256": "230cab7102816e99f7ce03ef476352fcad09d742fcbc6580d44393db6280b64c"
-          }
-        ]
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "release.lock.json"
     }
   },
   "application_profile": "general-token",
@@ -81,6 +56,11 @@
     "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
   },
   "constraints": [
-    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+    "Linux amd64, glibc 2.41; exact module closure supplied locally. Native slot IDs are assigned by SoftHSM; a consumer slot index is a different value.",
+    "Initialize only an empty writable /var/lib/p11lab volume; tokens are private to the named softhsm2 directory. Compatible init is non-destructive; partial or incompatible state fails.",
+    "PIN_FILE/SO_PIN_FILE are preferred; scalar alternatives are explicit disposable-test inputs. Conflicting scalar/file or absent/empty credentials fail initial provisioning.",
+    "Runtime controls/config are recreated under writable /run/p11lab by every exec invocation. The adapter preserves argv and native/application exit status.",
+    "Ordinary application consumers do not require checker, Python, tracing or a workspace mount. Reset is an explicit removal/replacement of disposable state; no automatic reset or retry.",
+    "Whole-image licensing, source companion delivery and digest-bound admission remain separate requirements."
   ]
 }
