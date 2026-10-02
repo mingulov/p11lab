@@ -215,3 +215,12 @@ def test_metadata_descriptor_platform_must_match_runtime():
     metadata = {'containerimage.digest': 'sha256:' + 'b' * 64, 'containerimage.descriptor': {'digest': 'sha256:' + 'b' * 64, 'platform': {'os': 'linux', 'architecture': 'arm64'}}}
     with pytest.raises(BuildError, match='platform'):
         verify_build_metadata(metadata, 'sha256:' + 'b' * 64, 'linux/amd64')
+
+
+def test_checked_readback_failure_is_a_build_error_with_attempt_and_stderr(tmp_path):
+    import sys
+    from p11lab.build import _checked
+    with pytest.raises(BuildError) as raised:
+        _checked([sys.executable, '-c', 'import sys; sys.stderr.write("readback unavailable"); sys.exit(29)'], tmp_path)
+    text = str(raised.value)
+    assert '29' in text and 'readback unavailable' in text and str(tmp_path) in text

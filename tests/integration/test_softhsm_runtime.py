@@ -49,18 +49,18 @@ def test_real_standalone_lifecycle(image, tmp_path):
         listed = docker(*base, '-e', 'P11LAB_LABEL=acceptance', consumer, 'exec', '--', 'pkcs11-tool', '--module', description['module_path'], '--list-token-slots').stdout
         assert 'acceptance' in listed
         assert 'Slot 0' in listed
-        docker(*base, consumer, 'exec', '--', 'pkcs11-tool', '--module', description['module_path'], '--login', '--pin', '1234', '--list-objects')
+        docker(*base, '-e', 'P11LAB_LABEL=acceptance', consumer, 'exec', '--', 'pkcs11-tool', '--module', description['module_path'], '--login', '--pin', '1234', '--list-objects')
         conflict = docker(*base, *controls, '-e', 'P11LAB_PIN=other', image, 'init', check=False)
         assert conflict.returncode != 0 and 'conflicting' in conflict.stderr
-        stripped = docker(*base, image, 'exec', '--', 'sh', '-c', 'command -v python python3 pkcs11-check pkcs11-tool; exit 0').stdout
+        stripped = docker(*base, *controls, image, 'exec', '--', 'sh', '-c', 'command -v python python3 pkcs11-check pkcs11-tool; exit 0').stdout
         assert stripped == ''
-        result = docker(*base, image, 'exec', '--', 'sh', '-c', 'printf "%s\\n" "$SOFTHSM2_CONF" "$P11LAB_MODULE" "$1"; exit 37', 'caller', 'literal $argument with spaces', check=False)
+        result = docker(*base, *controls, image, 'exec', '--', 'sh', '-c', 'printf "%s\\n" "$SOFTHSM2_CONF" "$P11LAB_MODULE" "$1"; exit 37', 'caller', 'literal $argument with spaces', check=False)
         assert result.returncode == 37
         assert result.stdout.splitlines() == ['/run/p11lab/softhsm2.conf', description['module_path'], 'literal $argument with spaces']
-        docker('run', '--rm', '-v', partial + ':/var/lib/p11lab', image, 'exec', '--', 'sh', '-c', 'touch /var/lib/p11lab/unknown')
+        docker('run', '--rm', '-v', partial + ':/var/lib/p11lab', '--entrypoint', 'sh', image, '-c', 'touch /var/lib/p11lab/unknown')
         result = docker('run', '--rm', '-v', partial + ':/var/lib/p11lab', *controls, image, 'init', check=False)
         assert result.returncode != 0 and 'partial' in result.stderr
-        marker = docker(*base, image, 'exec', '--', 'cat', '/var/lib/p11lab/softhsm2/complete').stdout
+        marker = docker(*base, *controls, image, 'exec', '--', 'cat', '/var/lib/p11lab/softhsm2/complete').stdout
         assert {line.split('=', 1)[0] for line in marker.splitlines()} == {'schema', 'provider', 'artifact', 'label', 'backend'}
         assert 'label=acceptance' in marker
         assert 'pin' not in marker.lower()
@@ -108,5 +108,49 @@ exec /usr/bin/mv "$@"
         result = docker('run', '--rm', '--network', 'none', '--tmpfs', '/run/p11lab', '-v', volume + ':/var/lib/p11lab', '-v', str(tools) + ':/acceptance-tools:ro', '-e', 'PATH=/acceptance-tools:/usr/local/bin:/usr/bin:/bin', '-e', 'P11LAB_PIN=1234', '-e', 'P11LAB_SO_PIN=12345678', image, 'init', check=False)
         assert result.returncode == 0, result.stderr
         docker('run', '--rm', '--network', 'none', '-v', volume + ':/var/lib/p11lab', image, 'health')
+    finally:
+        docker('volume', 'rm', volume, check=False)
+
+
+@pytest.mark.parametrize('image', IMAGES)
+@pytest.mark.parametrize('state', ['fresh', 'unknown-partial', 'incompatible'])
+def test_exec_does_not_reach_caller_before_readiness(image, state):
+    setup = {
+        'fresh': ':',
+        'unknown-partial': 'touch /var/lib/p11lab/unknown',
+        'incompatible': 'p11lab-provider init && export P11LAB_LABEL=different',
+    }[state]
+    command = setup + '''
+status=0
+p11lab-provider exec -- sh -c 'echo APP-RAN; touch /tmp/app-ran' || status=$?
+[ ! -e /tmp/app-ran ] || exit 90
+exit "$status"
+'''
+    result = docker('run', '--rm', '--network', 'none', '--entrypoint', 'sh', '-e', 'P11LAB_PIN=1234', '-e', 'P11LAB_SO_PIN=12345678', image, '-c', command, check=False)
+    assert result.returncode != 0 and result.returncode != 90
+    assert 'APP-RAN' not in result.stdout
+    assert ('incompatible' if state == 'incompatible' else 'partial') in result.stderr
+
+
+@pytest.mark.parametrize('image', IMAGES)
+@pytest.mark.parametrize('lost', ['all-files', 'token-object'])
+def test_lost_token_contents_are_not_reinitialized_or_ready(image, lost):
+    volume = 'p11lab-t2-lost-' + uuid4().hex
+    docker('volume', 'create', volume)
+    base = ['run', '--rm', '--network', 'none', '-v', volume + ':/var/lib/p11lab']
+    try:
+        docker(*base, '-e', 'P11LAB_PIN=1234', '-e', 'P11LAB_SO_PIN=12345678', image, 'init')
+        deletion = 'find /var/lib/p11lab/softhsm2/tokens -type f'
+        if lost == 'token-object':
+            deletion += ' -name token.object'
+        docker(*base, '--entrypoint', 'sh', image, '-c', deletion + ' -delete')
+        snapshot = ['--entrypoint', 'sh', image, '-c', 'find /var/lib/p11lab -type f -exec sha256sum {} + | sort']
+        before = docker(*base, *snapshot).stdout
+        for operation in ('init', 'health'):
+            result = docker(*base, image, operation, check=False)
+            assert result.returncode != 0 and 'partial' in result.stderr
+        result = docker(*base, image, 'exec', '--', 'sh', '-c', 'echo APP-RAN', check=False)
+        assert result.returncode != 0 and 'APP-RAN' not in result.stdout
+        assert docker(*base, *snapshot).stdout == before
     finally:
         docker('volume', 'rm', volume, check=False)

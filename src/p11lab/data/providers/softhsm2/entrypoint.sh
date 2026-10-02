@@ -25,9 +25,33 @@ complete() {
     [ ! -L "$owned" ] && [ ! -L "$owned/complete" ] && [ ! -L "$owned/tokens" ] || p11lab_die "partial or unsafe state"
     [ -f "$owned/complete" ] && [ -d "$owned/tokens" ] || p11lab_die "partial state: missing completion marker or token directory"
     [ -n "$(find "$owned/tokens" -mindepth 1 -maxdepth 1 -type d -print -quit)" ] || p11lab_die "partial state: missing initialized token"
+    # Do not enter native enumeration on wholly lost contents: SoftHSM creates
+    # auxiliary generation bookkeeping even when opening an invalid empty token.
+    [ -n "$(find "$owned/tokens" -mindepth 1 -type f -print -quit)" ] || p11lab_die "partial state: missing token contents"
     [ "$(cat "$owned/complete")" = "$(expected_marker)" ] || p11lab_die "incompatible non-secret initialization configuration"
     [ -z "$(find "$state" -mindepth 1 -maxdepth 1 ! -name softhsm2 -print -quit)" ] || p11lab_die "partial state: unknown files"
     [ -z "$(find "$owned" -mindepth 1 -maxdepth 1 ! -name tokens ! -name complete -print -quit)" ] || p11lab_die "partial state: unknown owned files"
+    if slots=$(softhsm2-util --module "$P11LAB_MODULE" --show-slots); then
+        # This pinned stock utility reports C_GetTokenInfo flags and padded label.
+        # Successful enumeration alone also includes the uninitialized free slot.
+        printf '%s\n' "$slots" | awk -v expected="$label" '
+            function ready() { return initialized == "yes" && user_initialized == "yes" && serial != "" && token_label == expected }
+            BEGIN { sub(/ +$/, "", expected) }
+            /^Slot [0-9]+$/ {
+                if (ready()) found = 1
+                initialized = user_initialized = serial = token_label = ""
+            }
+            /^        Initialized:      / { initialized = substr($0, 27) }
+            /^        User PIN init\.:   / { user_initialized = substr($0, 27) }
+            /^        Serial number:    / { serial = substr($0, 27); sub(/ +$/, "", serial) }
+            /^        Label:            / { token_label = substr($0, 27); sub(/ +$/, "", token_label) }
+            END { if (ready()) found = 1; exit !found }
+        ' || p11lab_die "partial state: expected initialized token is not ready"
+    else
+        status=$?
+        printf '%s\n' 'p11lab: native slot enumeration failed' >&2
+        exit "$status"
+    fi
 }
 case "${1-}" in
     describe)
@@ -62,7 +86,7 @@ case "${1-}" in
         [ "$#" -eq 1 ] || p11lab_die "health takes no arguments"
         configure
         complete
-        softhsm2-util --module "$P11LAB_MODULE" --show-slots
+        printf '%s\n' "$slots"
         ;;
     exec)
         shift
@@ -70,6 +94,7 @@ case "${1-}" in
         shift
         [ "$#" -gt 0 ] || p11lab_die "exec requires an application"
         configure
+        complete
         exec "$@"
         ;;
     *) p11lab_die "usage: p11lab-provider describe|init|health|exec -- ARGV..." ;;

@@ -8,6 +8,17 @@ class BuildError(ValueError):
     """A build or its inspected artifact does not match declared inputs."""
 
 
+def _checked(argv: list[str], output_dir: Path):
+    """Translate inspected-artifact readback failures into the handled CLI path."""
+    import shlex
+    import subprocess
+    try:
+        return subprocess.run(argv, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as error:
+        raise BuildError(f"post-build command failed ({error.returncode}): {shlex.join(argv)}; "
+                         f"{error.stderr.strip()}; attempt retained at {output_dir}") from error
+
+
 def validate_context(context: Path, declared: dict[str, str]) -> None:
     actual = set()
     for path in Path(context).rglob('*'):
@@ -144,7 +155,7 @@ def build_artifact(spec: dict, role: str, output_dir: Path):
     if result.returncode:
         raise BuildError('runtime build failed; see build.log (no artifact receipt emitted)')
     image_id = (output_dir / 'image-id').read_text().strip()
-    inspected = json.loads(subprocess.run(['docker', 'image', 'inspect', image_id], check=True, capture_output=True, text=True).stdout)[0]
+    inspected = json.loads(_checked(['docker', 'image', 'inspect', image_id], output_dir).stdout)[0]
     if inspected['Id'] != image_id or inspected['Os'] + '/' + inspected['Architecture'] != spec['runtime_platforms'][0]:
         raise BuildError('built image identity/platform mismatch')
     build_metadata = json.loads((output_dir / 'build-metadata.json').read_text())
@@ -152,13 +163,13 @@ def build_artifact(spec: dict, role: str, output_dir: Path):
     verify_build_metadata(build_metadata, image_id, spec['runtime_platforms'][0])
     inventories = {}
     for phase in ('base', 'builder', 'runtime'):
-        result = subprocess.run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'cat', image_id,
-                                 f'/usr/share/p11lab/build/actual-{phase}.tsv'], check=True, capture_output=True, text=True)
+        result = _checked(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'cat', image_id,
+                           f'/usr/share/p11lab/build/actual-{phase}.tsv'], output_dir)
         expected = spec['lock']['packages'] if phase == 'builder' else [p for p in spec['lock']['packages'] if p['phase'] == 'runtime']
         verify_inventory(result.stdout, expected)
         inventories[phase] = result.stdout
         (output_dir / f'actual-{phase}.tsv').write_text(result.stdout)
-    index_receipt = subprocess.run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'cat', image_id, '/usr/share/p11lab/build/actual-signed-indexes.sha256'], check=True, capture_output=True, text=True).stdout
+    index_receipt = _checked(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'cat', image_id, '/usr/share/p11lab/build/actual-signed-indexes.sha256'], output_dir).stdout
     verify_index_inventory(index_receipt, spec['lock']['signed_index_inputs'])
     (output_dir / 'actual-signed-indexes.sha256').write_text(index_receipt)
     artifact = ArtifactRef('docker-local', image_id, image_id.removeprefix('sha256:'), spec['runtime_platforms'][0])
