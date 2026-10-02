@@ -151,10 +151,10 @@ static int load_module(State *s)
     memcpy(&get_list, &symbol, sizeof(get_list));
 #endif
     if (get_interface) {
-        CK_INTERFACE_PTR interface = NULL;
-        if (!native("C_GetInterface", get_interface((CK_UTF8CHAR_PTR)"PKCS 11", NULL, &interface, 0))) return 0;
-        if (!interface || !interface->pFunctionList) return error("provider returned null interface");
-        s->f = (CK_FUNCTION_LIST_PTR)interface->pFunctionList;
+        CK_INTERFACE_PTR selected_interface = NULL;
+        if (!native("C_GetInterface", get_interface((CK_UTF8CHAR_PTR)"PKCS 11", NULL, &selected_interface, 0))) return 0;
+        if (!selected_interface || !selected_interface->pFunctionList) return error("provider returned null interface");
+        s->f = (CK_FUNCTION_LIST_PTR)selected_interface->pFunctionList;
     } else {
         if (!get_list) return error("module has no PKCS11 discovery entry point");
         if (!native("C_GetFunctionList", get_list(&s->f))) return 0;

@@ -70,6 +70,13 @@ class ConsumerTests(unittest.TestCase):
         return self.run_smoke('--module', SOFTHSM, '--token-label', 'Smoke token',
                               '--output', output, '--key-mode', 'generated', *args, env=self.env), output
 
+    def test_windows_sdk_interface_macro_does_not_break_consumer_compile(self):
+        self.assertTrue(self.available, 'independent consumer implementation is missing')
+        result = subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic',
+                                 '-fsyntax-only', '-Dinterface=struct', str(ROOT / 'smoke.c')],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_help_and_bad_module_do_not_expose_credentials(self):
         self.assertEqual(self.run_smoke('--help').returncode, 0)
         pin = self.work / 'credential-file'
