@@ -125,8 +125,9 @@ def _payload_copy(payload: dict, destination: Path) -> None:
             raise SourceError('source payload needs local verified file or public HTTPS URL')
         count = 0
         with urlopen(url, timeout=60) as response, destination.open('wb') as stream:
-            if urlparse(response.geturl()).scheme != 'https':
-                raise SourceError('source payload redirected outside HTTPS')
+            redirected = urlparse(response.geturl())
+            if redirected.scheme != 'https' or redirected.username or redirected.password:
+                raise SourceError('source payload redirected outside public HTTPS')
             while chunk := response.read(min(1024 * 1024, size + 1 - count)):
                 count += len(chunk)
                 if count > size:
@@ -139,8 +140,12 @@ def _payload_copy(payload: dict, destination: Path) -> None:
 def _verify_debian_source_sets(files: Path, inventory: dict) -> None:
     import re
     from .licenses import relative_path
+    discovered = {identity for package in inventory.get('observation', {}).get('packages', [])
+        for identity in [package['source_package'] + '=' + package['source_version']] + package['incorporated_sources']}
     for source in inventory['sources']:
-        if source.get('format') != 'debian':
+        if not source.get('name') or not source.get('version') or source['id'] != source['name'] + '=' + source['version']:
+            raise SourceError('source identity mismatch: ' + source['id'])
+        if source.get('format') != 'debian' and source['id'] not in discovered:
             continue
         dscs = [name for name in source['payloads'] if name.endswith('.dsc')]
         if len(dscs) != 1:

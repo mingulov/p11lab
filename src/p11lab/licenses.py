@@ -27,7 +27,7 @@ def relative_path(name: str) -> str:
 
 def parse_dpkg_status(text: str) -> list[dict]:
     packages = []
-    for paragraph in text.strip().split('\n\n'):
+    for paragraph in re.split(r'\n[ \t]*\n', text.strip('\n')):
         fields = {}
         key = None
         for line in paragraph.splitlines():
@@ -35,9 +35,18 @@ def parse_dpkg_status(text: str) -> list[dict]:
                 fields[key] += ' ' + line.strip()
             elif ':' in line:
                 key, value = line.split(':', 1)
+                if not re.fullmatch('[A-Za-z0-9][-A-Za-z0-9]*', key):
+                    raise SourceError('malformed dpkg field name')
+                key = key.title()
+                if key in fields:
+                    raise SourceError('duplicate dpkg field: ' + key)
                 fields[key] = value.lstrip()
+            else:
+                raise SourceError('malformed dpkg paragraph/continuation')
         if fields.get('Status') != 'install ok installed':
             continue
+        if any(not fields.get(field) for field in ('Package', 'Version', 'Architecture')):
+            raise SourceError('missing installed dpkg identity field')
         source = fields.get('Source', fields['Package'])
         match = re.fullmatch(r'([^ ()]+)(?: \(([^()]+)\))?', source)
         if not match:
@@ -59,20 +68,81 @@ def parse_dpkg_status(text: str) -> list[dict]:
 
 
 def _needed(binary: bytes) -> list[str]:
-    from .debug import _sections
-    # This first proof is deliberately bounded to the declared amd64 ELF ABI.
-    sections = _sections(binary)
-    strings = sections.get('.dynstr', b'')
-    needed = []
-    dynamic = sections.get('.dynamic', b'')
-    for offset in range(0, len(dynamic), 16):
-        tag, value = struct.unpack_from('<QQ', dynamic, offset)
-        if tag == 1:
-            name = strings[value:].split(b'\0', 1)[0].decode('utf-8')
+    # The loader uses program headers; section names are only consistency evidence.
+    try:
+        if binary[:6] != b'\x7fELF\x02\x01':
+            raise ValueError('expected ELF64 little-endian')
+        phoff, shoff = struct.unpack_from('<QQ', binary, 32)
+        phsize, phcount, shsize, shcount, shnames = struct.unpack_from('<HHHHH', binary, 54)
+        if (phcount and phsize != 56) or phoff + phsize * phcount > len(binary):
+            raise ValueError('invalid program headers')
+        programs = [struct.unpack_from('<IIQQQQQQ', binary, phoff + i * phsize) for i in range(phcount)]
+        sections = []
+        if shcount:
+            if shsize != 64 or shoff + shsize * shcount > len(binary) or shnames >= shcount:
+                raise ValueError('invalid section headers')
+            sections = [struct.unpack_from('<IIQQQQIIQQ', binary, shoff + i * shsize) for i in range(shcount)]
+        labels = b''
+        if shnames:
+            header = sections[shnames]
+            labels = binary[header[4]:header[4] + header[5]]
+        def label(header):
+            return labels[header[0]:].split(b'\0', 1)[0]
+        dynamics = [h for h in programs if h[0] == 2]
+        dynamic_sections = [h for h in sections if h[1] == 6 or label(h) == b'.dynamic']
+        if not dynamics:
+            if dynamic_sections:
+                raise ValueError('inconsistent section/program dynamic metadata')
+            return []
+        if len(dynamics) != 1:
+            raise ValueError('multiple dynamic segments')
+        dynamic = dynamics[0]
+        start, size = dynamic[2], dynamic[5]
+        # objcopy's separate debug files retain headers but no dynamic payload.
+        if size == 0 and any(h[1] == 8 and label(h) == b'.dynamic' for h in sections):
+            return []
+        if not size or size % 16 or start + size > len(binary):
+            raise ValueError('invalid dynamic segment bounds')
+        if sections and (len(dynamic_sections) != 1 or dynamic_sections[0][4:6] != (start, size)
+                or dynamic_sections[0][1] != 6 or (labels and label(dynamic_sections[0]) != b'.dynamic')):
+            raise ValueError('inconsistent section/program dynamic metadata')
+        entries = []
+        for offset in range(start, start + size, 16):
+            tag, value = struct.unpack_from('<QQ', binary, offset)
+            if tag == 0:
+                break
+            entries.append((tag, value))
+        else:
+            raise ValueError('unterminated dynamic segment')
+        needed_offsets = [value for tag, value in entries if tag == 1]
+        if not needed_offsets:
+            return []
+        pointers = [value for tag, value in entries if tag == 5]
+        lengths = [value for tag, value in entries if tag == 10]
+        if len(pointers) != 1 or len(lengths) != 1:
+            raise ValueError('missing/duplicate dynamic string table')
+        address, length = pointers[0], lengths[0]
+        loads = [h for h in programs if h[0] == 1 and h[3] <= address and address + length <= h[3] + h[5]]
+        if len(loads) != 1:
+            raise ValueError('unmapped dynamic string table')
+        string_start = loads[0][2] + address - loads[0][3]
+        if string_start + length > len(binary):
+            raise ValueError('invalid dynamic string bounds')
+        string_sections = [h for h in sections if label(h) == b'.dynstr']
+        if string_sections and (len(string_sections) != 1 or string_sections[0][4:6] != (string_start, length)):
+            raise ValueError('inconsistent section/program string metadata')
+        strings = binary[string_start:string_start + length]
+        needed = []
+        for offset in needed_offsets:
+            if offset >= length or b'\0' not in strings[offset:]:
+                raise ValueError('invalid dependency string offset')
+            name = strings[offset:].split(b'\0', 1)[0].decode('utf-8')
             if not name or '/' in name:
-                raise SourceError('unsupported ELF dependency name')
+                raise ValueError('unsupported dependency name')
             needed.append(name)
-    return sorted(set(needed))
+        return sorted(set(needed))
+    except (ValueError, struct.error, UnicodeError, IndexError) as error:
+        raise SourceError('ELF dependency inspection: ' + str(error)) from error
 
 
 def inspect_distribution_archive(archive: Path, final_files: list[dict]) -> dict:
@@ -93,19 +163,48 @@ def inspect_distribution_archive(archive: Path, final_files: list[dict]) -> dict
             raise SourceError('distribution archive must select exactly one image')
         config_data = saved.extractfile(relative_path(manifest[0]['Config'])).read()
         config = json.loads(config_data)
+        diff_ids = config.get('rootfs', {}).get('diff_ids', [])
+        if config.get('rootfs', {}).get('type') != 'layers' or len(diff_ids) != len(manifest[0]['Layers']):
+            raise SourceError('config/manifest layer roster mismatch')
+        blobs = {}
         for path in names:
             if path.startswith('blobs/sha256/'):
                 data = saved.extractfile(path).read()
                 if hashlib.sha256(data).hexdigest() != PurePosixPath(path).name:
                     raise SourceError('OCI blob checksum mismatch')
+                blobs['sha256:' + PurePosixPath(path).name] = (len(data), data)
                 if data.startswith(b'{'):
                     blob = json.loads(data)
                     if 'schemaVersion' in blob:
-                        descriptors.append({'sha256': hashlib.sha256(data).hexdigest(), 'document': blob})
+                        descriptors.append({'sha256': hashlib.sha256(data).hexdigest(), 'size_bytes': len(data), 'document': blob})
+        documents = { 'sha256:' + d['sha256']: d['document'] for d in descriptors }
+        if 'index.json' in names:
+            documents['index.json'] = json.loads(saved.extractfile('index.json').read())
+        expected_config = 'sha256:' + hashlib.sha256(config_data).hexdigest()
+        expected_layers = ['sha256:' + hashlib.sha256(saved.extractfile(relative_path(n)).read()).hexdigest() for n in manifest[0]['Layers']]
+        for document in documents.values():
+            refs = document.get('manifests', []) if 'manifests' in document else [document['config']] + document.get('layers', [])
+            for ref in refs:
+                if ref.get('digest') not in blobs or ref.get('size') != blobs[ref['digest']][0]:
+                    raise SourceError('OCI descriptor digest/size graph mismatch')
+            if 'config' in document and (document['config']['digest'] != expected_config
+                    or [ref['digest'] for ref in document.get('layers', [])] != expected_layers):
+                raise SourceError('OCI descriptor config/layer graph mismatch')
         for index, name in enumerate(manifest[0]['Layers']):
             blob = saved.extractfile(relative_path(name)).read()
             layer = {'index': index, 'sha256': hashlib.sha256(blob).hexdigest(), 'compressed_blob_bytes': len(blob), 'regular_file_bytes': 0}
             with tarfile.open(fileobj=io.BytesIO(blob), mode='r:*') as contents:
+                diff_hash, unpacked_bytes = hashlib.sha256(), 0
+                contents.fileobj.seek(0)
+                while chunk := contents.fileobj.read(1024 * 1024):
+                    unpacked_bytes += len(chunk)
+                    if unpacked_bytes > 2 * 1024**3:
+                        raise SourceError('uncompressed layer exceeds inspection bound')
+                    diff_hash.update(chunk)
+                if diff_ids[index] != 'sha256:' + diff_hash.hexdigest():
+                    raise SourceError('config layer diff_id checksum mismatch')
+                contents.fileobj.seek(0)
+                layer['diff_id'] = diff_ids[index]
                 seen = set()
                 for member in contents:
                     path = member.name.removeprefix('./').rstrip('/')
@@ -129,10 +228,10 @@ def inspect_distribution_archive(archive: Path, final_files: list[dict]) -> dict
                             hidden.append({'layer': index, 'path': '/' + path, 'sha256': digest, 'size': len(data)})
             layers.append(layer)
         hidden = [f for f in hidden if f['path'] not in runtime_mount_files or f['sha256'] != runtime_mount_files[f['path']]['sha256']]
-        return {'runtime_mount_files': sorted(runtime_mount_files.values(), key=lambda f: f['path']), 'config_sha256': hashlib.sha256(config_data).hexdigest(),
+        return {'archive_size_bytes': archive.stat().st_size, 'runtime_mount_files': sorted(runtime_mount_files.values(), key=lambda f: f['path']), 'config_sha256': hashlib.sha256(config_data).hexdigest(),
             'platform': config['os'] + '/' + config['architecture'], 'layers': layers,
             'hidden_layer_files': hidden, 'whiteouts': sorted(set(whiteouts)), 'raw_descriptors': sorted(descriptors, key=lambda d: d['sha256']),
-            'measurement': 'compressed OCI blob bytes and summed regular-file payload bytes per layer; directories/symlinks excluded'}
+            'measurement': 'distribution archive bytes, compressed OCI blob bytes and summed regular-file payload bytes per layer; directories/symlinks excluded'}
 
 
 def inspect_artifact(artifact: ArtifactRef) -> dict:
@@ -173,11 +272,31 @@ def inspect_artifact(artifact: ArtifactRef) -> dict:
             from .debug import verify_debug_files
             parent = ArtifactRef(**provenance['matched_runtime'])
             parent_observation = inspect_artifact(parent)
-            runtime = {}
-            for name, path in [('libsofthsm2.so', '/usr/local/lib/p11lab/libsofthsm2.so'), ('softhsm2-util', '/usr/local/bin/softhsm2-util')]:
-                runtime[name] = subprocess.check_output(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'cat', parent.reference, path])
             with tempfile.TemporaryDirectory(prefix='p11lab-debug-admission-') as temporary:
                 directory = Path(temporary)
+                parent_archive = Path(parent.reference)
+                if parent.kind == 'docker-local':
+                    parent_archive = directory / 'parent.tar'
+                    container = subprocess.check_output(['docker', 'create', '--network', 'none', parent.reference, '/p11lab-inspection-not-executed'], text=True).strip()
+                    try:
+                        subprocess.run(['docker', 'export', '--output', str(parent_archive), container], check=True, capture_output=True)
+                    finally:
+                        subprocess.run(['docker', 'rm', container], check=True, capture_output=True)
+                if parent_archive.stat().st_size > 2 * 1024**3:
+                    raise SourceError('debug parent exceeds inspection bound')
+                parent_files = {f['path']: f for f in parent_observation['files']}
+                runtime = {}
+                with tarfile.open(parent_archive) as contents:
+                    members = {m.name.removeprefix('./'): m for m in contents}
+                    for name, path in [('libsofthsm2.so', '/usr/local/lib/p11lab/libsofthsm2.so'), ('softhsm2-util', '/usr/local/bin/softhsm2-util')]:
+                        member = members.get(path.removeprefix('/'))
+                        if member is None or not member.isfile() or member.size > 512 * 1024**2:
+                            raise SourceError('missing/invalid inert debug parent file: ' + path)
+                        data = contents.extractfile(member).read()
+                        expected = parent_files.get(path, {})
+                        if hashlib.sha256(data).hexdigest() != expected.get('sha256') or len(data) != expected.get('size'):
+                            raise SourceError('inert debug parent byte identity mismatch: ' + path)
+                        runtime[name] = data
                 for name, data in retained.items():
                     path = directory / relative_path(name)
                     path.parent.mkdir(parents=True, exist_ok=True)
@@ -205,7 +324,7 @@ def inspect_artifact(artifact: ArtifactRef) -> dict:
                 raise SourceError('rootfs inspection exceeds 2 GiB bound')
             with tarfile.open(archive) as contents:
                 files, elf, aliases, owners = [], {}, {}, {}
-                packages = []
+                packages, md5sums, actual_md5 = [], {}, {}
                 for member in contents:
                     name = member.name.removeprefix('./').rstrip('/')
                     if not name:
@@ -216,6 +335,7 @@ def inspect_artifact(artifact: ArtifactRef) -> dict:
                         if member.size > 512 * 1024**2:
                             raise SourceError('rootfs member exceeds inspection bound')
                         data = contents.extractfile(member).read()
+                        actual_md5[path] = hashlib.md5(data).hexdigest()
                         files.append({'path': path, 'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data), 'mode': member.mode})
                         if data.startswith(b'\x7fELF'):
                             elf[path] = {'path': path, 'sha256': files[-1]['sha256'], 'size': len(data), 'needed': _needed(data)}
@@ -225,6 +345,20 @@ def inspect_artifact(artifact: ArtifactRef) -> dict:
                             package = PurePosixPath(name).name[:-5].split(':')[0]
                             for entry in data.decode().splitlines():
                                 owners[entry] = package
+                        if name.startswith('var/lib/dpkg/info/') and name.endswith('.md5sums'):
+                            package = PurePosixPath(name).name[:-8].split(':')[0]
+                            sums = {}
+                            for line in data.decode().splitlines():
+                                match = re.fullmatch(r'([0-9a-f]{32})  (.+)', line)
+                                if not match:
+                                    raise SourceError('malformed installed dpkg md5sums')
+                                entry = '/' + relative_path(match[2])
+                                if entry in sums:
+                                    raise SourceError('duplicate installed dpkg checksum path')
+                                sums[entry] = match[1]
+                            if package in md5sums:
+                                raise SourceError('duplicate installed package checksum manifest')
+                            md5sums[package] = (path, files[-1]['sha256'], sums)
                     elif member.issym() or member.islnk():
                         files.append({'path': path, 'link': member.linkname, 'mode': member.mode})
                         aliases[path] = member.linkname if member.issym() else '/' + member.linkname
@@ -251,12 +385,28 @@ def inspect_artifact(artifact: ArtifactRef) -> dict:
                 distribution_archive = Path(temporary) / 'distribution.tar'
                 subprocess.run(['docker', 'image', 'save', '--output', str(distribution_archive), artifact.reference], check=True, capture_output=True)
                 distribution = inspect_distribution_archive(distribution_archive, files)
+                descriptor = inspect.get('Descriptor')
+                if descriptor:
+                    records = { 'sha256:' + d['sha256']: d for d in distribution['raw_descriptors'] }
+                    if (descriptor.get('digest') != artifact.reference or descriptor['digest'] not in records
+                            or descriptor.get('size') != records[descriptor['digest']]['size_bytes']):
+                        raise SourceError('local engine descriptor/export graph mismatch')
+                elif artifact.reference != 'sha256:' + distribution['config_sha256']:
+                    raise SourceError('local engine config/export graph mismatch')
                 # Docker creates these virtual mount files per container; inventory
                 # the actual underlying distributed bytes, not injected host state.
                 mount_paths = {'/etc/hosts', '/etc/hostname', '/etc/resolv.conf'}
                 files = [f for f in files if f['path'] not in mount_paths] + distribution['runtime_mount_files']
                 for record in files:
                     record['package'] = owners.get(record['path'])
+                    if record['package'] and 'sha256' in record:
+                        manifest = md5sums.get(record['package'])
+                        verification = {'status': 'unverifiable', 'actual_md5': actual_md5.get(record['path'])}
+                        if manifest and record['path'] in manifest[2] and record['path'] not in mount_paths:
+                            expected = manifest[2][record['path']]
+                            verification.update(manifest_path=manifest[0], manifest_sha256=manifest[1], expected_md5=expected,
+                                status='verified' if expected == verification['actual_md5'] else 'modified')
+                        record['package_verification'] = verification
                 if distribution['platform'] != artifact.platform:
                     raise SourceError('exported distribution platform mismatch')
                 return {'artifact': asdict(artifact), 'distribution': distribution, 'packages': packages, 'binaries': list(elf.values()),
@@ -306,6 +456,8 @@ def validate_inventory(artifact: ArtifactRef, inventory: dict) -> list[str]:
     if len(reviews) != len(inventory.get('reviews', [])):
         reasons.append('duplicate reviewed identities')
     for identity, source in sources.items():
+        if not source.get('name') or not source.get('version') or identity != source['name'] + '=' + source['version']:
+            reasons.append('source identity mismatch: ' + identity)
         for path in source.get('payloads', []):
             if path not in payloads or payloads[path]['role'] != 'source':
                 reasons.append('absent required source payload: ' + identity + ':' + path)
@@ -353,8 +505,15 @@ def validate_inventory(artifact: ArtifactRef, inventory: dict) -> list[str]:
             reasons.append('debug companion lacks exact verified parent relationship')
     content_reviews = {(r.get('path'), r.get('sha256')): r for r in inventory.get('content_reviews', [])}
     for file in observation.get('files', []):
-        if 'sha256' not in file or file.get('package'):
+        if 'sha256' not in file:
             continue
+        verification = file.get('package_verification', {})
+        if file.get('package') and verification.get('status') == 'verified':
+            manifest_review = content_reviews.get((verification.get('manifest_path'), verification.get('manifest_sha256')), {})
+            if (verification.get('expected_md5') == verification.get('actual_md5')
+                    and re.fullmatch('[0-9a-f]{32}', verification.get('actual_md5', ''))
+                    and manifest_review.get('status') == 'reviewed' and manifest_review.get('source') in sources):
+                continue
         review = content_reviews.get((file['path'], file['sha256']), {})
         if review.get('status') != 'reviewed' or review.get('source') not in sources:
             reasons.append('unreviewed copied/generated content: ' + file['path'])
@@ -364,7 +523,10 @@ def validate_inventory(artifact: ArtifactRef, inventory: dict) -> list[str]:
         if review.get('status') != 'reviewed' or review.get('source') not in sources:
             reasons.append('unreviewed distributed lower-layer bytes: ' + hidden['path'])
     for patch in inventory.get('patches', []):
-        if patch.get('status') != 'reviewed' or not patch.get('license') or patch.get('path') not in payloads:
+        if (patch.get('status') != 'reviewed' or not patch.get('license') or patch.get('path') not in payloads
+                or not re.fullmatch('[0-9a-f]{64}', patch.get('sha256', ''))
+                or patch.get('sha256') != payloads.get(patch.get('path'), {}).get('sha256')
+                or not patch.get('provenance') or not patch.get('changed_behavior')):
             reasons.append('unreviewed or missing patch evidence')
     if payloads.get(inventory.get('build_instructions'), {}).get('role') != 'build':
         reasons.append('absent required build instructions')
@@ -437,7 +599,19 @@ def assess_distribution(artifact: ArtifactRef, evidence_dir: Path) -> dict:
         if checksum(archive) != companion['sha256']:
             raise SourceError('source companion checksum mismatch')
         with tempfile.TemporaryDirectory(prefix='p11lab-admission-') as temporary:
-            inventory = verify_source_bundle(archive, Path(temporary) / 'extract')
+            extracted = Path(temporary) / 'extract'
+            inventory = verify_source_bundle(archive, extracted)
+            expected_receipt = {'schema_version': 1, 'role': 'source-companion', 'archive': archive.name,
+                'artifact': {'kind': 'bundle', 'reference': 'sha256:' + checksum(archive),
+                    'sha256': checksum(archive), 'platform': artifact.platform},
+                'matched_artifact': inventory['artifact'], 'size_bytes': archive.stat().st_size,
+                'sbom_sha256': checksum(extracted / 'sbom.spdx.json'), 'inventory_sha256': checksum(extracted / 'inventory.json'),
+                'payload_count': len(inventory['payloads']), 'source_count': len(inventory['sources']),
+                'publication_status': 'not-published', 'source_rights': 'explicit reviewed records; no automatic grant inference'}
+            if json.dumps(receipt, sort_keys=True) != json.dumps(expected_receipt, sort_keys=True):
+                blockers.append('source companion receipt metadata mismatch')
+            if (evidence_dir / 'sbom.spdx.json').read_bytes() != (extracted / 'sbom.spdx.json').read_bytes():
+                blockers.append('outer/embedded SPDX inventory mismatch')
         blockers.extend(validate_inventory(artifact, inventory))
         actual = inspect_artifact(artifact)
         if not _same_observation(actual, inventory['observation'], artifact):

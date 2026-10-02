@@ -28,9 +28,12 @@ subsequently generated OCI object automatically.
 
 Image inspection creates a stopped container, exports its inert filesystem and
 removes that exact container. It inventories installed dpkg Source, Built-Using
-and Static-Built-Using fields, every regular-file hash and ELF DT_NEEDED
-relationship for the supported Linux amd64 ELF ABI. It also inspects distributed
-OCI layers: deleted/overwritten lower-layer content needs explicit source review.
+and Static-Built-Using fields, per-file dpkg md5sums verification, every
+regular-file hash and ELF DT_NEEDED relationship from PT_DYNAMIC program headers for the supported Linux amd64 ELF ABI. It also inspects distributed
+OCI layers: config diff_ids must match the complete ordered layer roster and
+uncompressed hashes, and OCI descriptor digests/sizes must match the exported
+graph. Measured distribution archive bytes accompany blob and file/layer metrics.
+Deleted/overwritten lower-layer content needs explicit source review.
 Engine-injected hosts/hostname/resolver files are replaced with their actual
 underlying distributed bytes. Library candidates are recorded from the rootfs;
 this is not an assertion of runtime loader search order or plugin configuration.
@@ -43,14 +46,14 @@ An inventory has schema version 1 and these required fields:
 | Field | Contract |
 | --- | --- |
 | `artifact`, `role`, `observation` | Exact ArtifactRef, delivery role and complete result of `inspect_artifact`. |
-| `sources` | Explicit `id`, `name`, `version`, ordered `payloads` paths. Debian records use `format: debian`. |
+| `sources` | Explicit `id: name=version`, `name`, `version`, ordered `payloads` paths. Debian records use `format: debian`; discovered installed/static Debian identities require complete Debian verification even if this field is omitted. |
 | `payloads` | Portable relative `path`, SHA256, size, role (`source`, `notice`, `license`, `build`, `metadata`), plus optional acquisition `local_path` or public HTTPS `url`. |
 | `components` | Component ID, owning source identity and scope. Copied ELF IDs are their absolute artifact paths. |
 | `reviews` | One explicit reviewer assertion per source: status, known grant, source redistribution rights, original license expression, chosen route, concluded expression, retained grant/notice paths, obligations and modifications. |
-| `patches` | Ordered path/hash/license/provenance/changed behavior and reviewed status; an empty list means no P11Lab patches. |
+| `patches` | Ordered `path`/`sha256`/`license`/`provenance`/`changed_behavior` and reviewed `status`; an empty list means no P11Lab patches. |
 | `build_instructions` | Retained payload path with role `build`. |
-| `content_reviews` | Exact path/hash/source/reviewed mapping for all copied or generated regular files not owned by dpkg. |
-| `parent_artifact` | Required exact parent for debug companions; inspection verifies real runtime hashes, build IDs and GNU debuglink CRCs. |
+| `content_reviews` | Exact path/hash/source/reviewed mapping for copied/generated regular files, checksum manifests, and modified or unverifiable package-owned files. Ownership alone is insufficient; `package_verification` records status, actual/expected MD5, and manifest path/SHA256. MD5 is an installed-package comparison, with the manifest separately bound to an explicit SHA256 review. |
+| `parent_artifact` | Required exact parent for debug companions; inspection reads inert parent exports and verifies exact runtime hashes, build IDs and GNU debuglink CRCs, without running parent code. |
 | `layer_reviews` | Explicit path/hash/source/reviewed records for any distributed lower-layer bytes absent from the final rootfs. |
 | `limitations` | Unresolved attribution precision and other evidence limits. |
 
@@ -70,7 +73,8 @@ The archive drops private acquisition paths. It includes inventory.json,
 SHA256SUMS, SPDX 2.3 JSON, notices, complete source families and usable build/install
 instructions. The separate receipt binds binary, companion and SPDX hashes
 without circular embedded hashes. Assessment re-inspects actual binary bytes and
-verifies the companion in a new temporary directory; an unrelated admitted digest
+verifies the companion in a new temporary directory, binds every receipt field to
+measured/extracted metadata and requires identical outer/embedded SPDX bytes; an unrelated admitted digest
 never authorizes a changed artifact. SPDX contains binary/source/static-link
 relationships and actual file hashes. Mixed source-package and uncertain final
 Rust vendor attribution may use `NOASSERTION` while retained exact source grants
