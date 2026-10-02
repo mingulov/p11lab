@@ -53,7 +53,7 @@ def archive(tmp_path, *, spec=None, extra=(), zip_archive=False):
                 info = tarfile.TarInfo(name)
                 info.size, info.mode = len(data), mode
                 output.addfile(info, io.BytesIO(data))
-    return ArtifactRef("native-bundle", str(path), hashlib.sha256(path.read_bytes()).hexdigest(), spec["platform"])
+    return ArtifactRef("bundle", str(path), hashlib.sha256(path.read_bytes()).hexdigest(), spec["platform"])
 
 
 def install(artifact, prefix, **selection):
@@ -560,3 +560,146 @@ def test_same_artifact_concurrent_installers_share_only_a_fully_verified_result(
     assert outcomes == [("ok", artifact.sha256), ("ok", artifact.sha256)]
     assert read(prefix).artifact == artifact
     assert not list(tmp_path.glob(".p11lab-stage-*"))
+
+
+@pytest.mark.parametrize("kind", ["native-bundle", "oci", "docker-local", "unknown"])
+def test_archive_inputs_reject_nonbundle_artifact_kinds_before_placement(tmp_path, kind):
+    valid = archive(tmp_path)
+    artifact = ArtifactRef(kind, valid.reference, valid.sha256, valid.platform)
+    with pytest.raises(bundle.BundleError, match="kind"):
+        bundle.inspect_bundle(artifact, environment="softhsm2", channel="release", platform="linux/amd64")
+    with pytest.raises(bundle.BundleError, match="kind"):
+        install(artifact, tmp_path / "prefix")
+    assert not (tmp_path / "prefix").exists()
+    assert not list(tmp_path.glob(".p11lab-stage-*"))
+
+
+@pytest.mark.parametrize("kind", ["native-bundle", "oci", "docker-local", "unknown"])
+def test_readback_rejects_nonbundle_artifact_kinds_in_receipt(tmp_path, kind):
+    prefix = tmp_path / "prefix"
+    installed = install(archive(tmp_path), prefix)
+    receipt = json.loads(installed.receipt_path.read_text())
+    receipt["artifact"]["kind"] = kind
+    installed.receipt_path.write_text(json.dumps(receipt))
+    with pytest.raises(bundle.BundleError, match="kind"):
+        read(prefix)
+
+
+def test_installed_artifact_is_accepted_unchanged_by_shared_run_identity(tmp_path):
+    from dataclasses import asdict
+    from p11lab.identity import public_identity
+
+    installed = install(archive(tmp_path), tmp_path / "prefix")
+    inputs = {
+        "artifacts": [asdict(installed.artifact)],
+        "profile": {"id": "fixture-smoke", "sha256": "b" * 64},
+        "configuration": {}, "initialization": {}, "selection": ["fixture"],
+        "datasets": [], "limits": {"timeout": 30},
+        "attempt_id": "4eb1e1fa-38b4-4c58-8862-184c2421ed11",
+    }
+    public = public_identity("run", inputs)
+    assert public["inputs"]["artifacts"][0] == {
+        "kind": "bundle", "reference": installed.artifact.reference,
+        "sha256": installed.artifact.sha256, "platform": "linux/amd64",
+    }
+
+
+def _zip_module_mode(tmp_path, *, declared_mode, unix_mode, create_system=3):
+    import stat
+
+    spec = manifest()
+    spec["files"][0]["mode"] = declared_mode
+    original = archive(tmp_path, spec=spec, zip_archive=True)
+    path = Path(original.reference)
+    with zipfile.ZipFile(path) as source:
+        entries = [(entry, source.read(entry)) for entry in source.infolist()]
+    with zipfile.ZipFile(path, "w") as output:
+        for entry, data in entries:
+            if entry.filename == "payload/lib/module.so":
+                entry.create_system = create_system
+                # A nonzero DOS archive flag preserves genuinely absent upper
+                # Unix bits through ZipFile's default-attribute initialization.
+                entry.external_attr = ((stat.S_IFREG | unix_mode) << 16) if unix_mode is not None else 0x20
+            output.writestr(entry, data)
+    return ArtifactRef("bundle", str(path), hashlib.sha256(path.read_bytes()).hexdigest(), "linux/amd64")
+
+
+def test_zip_explicit_unix_mode_zero_must_match_manifest_before_placement(tmp_path):
+    artifact = _zip_module_mode(tmp_path, declared_mode=0o644, unix_mode=0)
+    with zipfile.ZipFile(artifact.reference) as source:
+        assert source.getinfo("payload/lib/module.so").external_attr >> 16 == 0o100000
+    with pytest.raises(bundle.BundleError, match="mode mismatch"):
+        bundle.inspect_bundle(artifact, environment="softhsm2", channel="release", platform="linux/amd64")
+    with pytest.raises(bundle.BundleError, match="mode mismatch"):
+        install(artifact, tmp_path / "prefix")
+    assert not (tmp_path / "prefix").exists()
+    assert not list(tmp_path.glob(".p11lab-stage-*"))
+
+
+def test_zip_explicit_unix_mode_zero_is_preserved_during_inspection(tmp_path):
+    artifact = _zip_module_mode(tmp_path, declared_mode=0, unix_mode=0)
+    inspected = bundle.inspect_bundle(artifact, environment="softhsm2", channel="release", platform="linux/amd64")
+    assert inspected["files"][0]["mode"] == 0
+
+
+@pytest.mark.parametrize("create_system", [0, 3])
+def test_zip_without_unix_mode_metadata_defaults_to_regular_file_mode_0644(tmp_path, create_system):
+    artifact = _zip_module_mode(tmp_path, declared_mode=0o644, unix_mode=None, create_system=create_system)
+    with zipfile.ZipFile(artifact.reference) as source:
+        assert source.getinfo("payload/lib/module.so").external_attr >> 16 == 0
+    installed = install(artifact, tmp_path / "prefix")
+    assert installed.manifest["files"][0]["mode"] == 0o644
+    assert (installed.prefix / "payload/lib/module.so").stat().st_mode & 0o777 == 0o644
+
+
+@pytest.mark.parametrize("create_system", [0, 3])
+def test_zip_absent_mode_default_must_still_match_declared_mode(tmp_path, create_system):
+    artifact = _zip_module_mode(tmp_path, declared_mode=0o755, unix_mode=None, create_system=create_system)
+    with pytest.raises(bundle.BundleError, match="mode mismatch"):
+        install(artifact, tmp_path / "prefix")
+    assert not (tmp_path / "prefix").exists()
+
+
+def test_new_destination_ancestor_entries_are_synced_through_existing_parent(tmp_path, monkeypatch):
+    artifact = archive(tmp_path)
+    original = bundle._sync_directory
+    synchronized = []
+
+    def trace_actual_sync(directory):
+        original(directory)
+        synchronized.append(directory)
+
+    monkeypatch.setattr(bundle, "_sync_directory", trace_actual_sync)
+    prefix = tmp_path / "new/parent/prefix"
+    installed = install(artifact, prefix)
+    assert installed.prefix == prefix
+    expected_chain = [tmp_path / "new/parent", tmp_path / "new", tmp_path]
+    assert synchronized[-3:] == expected_chain
+    assert read(prefix).artifact == artifact
+
+
+def test_existing_ancestor_fsync_failure_cannot_report_success_or_delete_unowned_paths(tmp_path, monkeypatch):
+    artifact = archive(tmp_path)
+    original = bundle._sync_directory
+    synchronized = []
+    sentinel = tmp_path / "sentinel"
+    sentinel.write_text("keep")
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    unrelated_identity = unrelated.stat().st_ino
+    prefix = tmp_path / "new/parent/prefix"
+
+    def fail_first_existing_ancestor(directory):
+        original(directory)
+        synchronized.append(directory)
+        if directory == tmp_path:
+            raise OSError("injected ancestor fsync failure")
+
+    monkeypatch.setattr(bundle, "_sync_directory", fail_first_existing_ancestor)
+    with pytest.raises(bundle.BundleError, match="ancestor fsync failure"):
+        install(artifact, prefix)
+    assert synchronized[-3:] == [tmp_path / "new/parent", tmp_path / "new", tmp_path]
+    assert not prefix.exists()
+    assert not list(prefix.parent.glob(".p11lab-stage-*"))
+    assert sentinel.read_text() == "keep"
+    assert unrelated.stat().st_ino == unrelated_identity

@@ -60,6 +60,7 @@ def _check_digest(value):
 def _artifact(value):
     _require(isinstance(value, dict) and set(value) == {"kind", "reference", "sha256", "platform"}, "invalid ArtifactRef fields")
     _require(all(isinstance(item, str) and item for item in value.values()), "invalid ArtifactRef values")
+    _require(value["kind"] == "bundle", "native archive ArtifactRef kind must be bundle")
     _check_digest(value["sha256"])
     _require(value["platform"] in _PLATFORMS, "unsupported artifact platform")
     return ArtifactRef(**value)
@@ -176,7 +177,12 @@ def _archive(artifact):
                     kind = stat.S_IFMT(mode) if info.create_system == 3 else 0
                     directory = info.is_dir()
                     _require(kind in ({0, stat.S_IFDIR} if directory else {0, stat.S_IFREG}), "ZIP links or special entries are forbidden")
-                    permissions = stat.S_IMODE(mode) or (0o755 if directory else 0o644)
+                    # Unix type/permission metadata makes zero permissions
+                    # explicit. With no Unix mode (non-Unix producer or zero
+                    # upper attribute word), use 0755 dirs / 0644 files and
+                    # still require the manifest to match that default.
+                    has_unix_mode = info.create_system == 3 and mode != 0
+                    permissions = stat.S_IMODE(mode) if has_unix_mode else (0o755 if directory else 0o644)
                     members.append(_Member(info.filename, directory, info.file_size, permissions, info))
                 yield members, lambda entry: archive.open(entry)
         else:
@@ -262,6 +268,26 @@ def _sync_directory(path):
             os.close(fd)
 
 
+def _create_parents(parent):
+    """Return a bottom-up durability roster through the first existing ancestor.
+
+    Keep observed missing entries in the roster even if another installer wins
+    their mkdir race, so our success does not depend on that process flushing
+    them. Ancestors are not cleanup-owned and are never removed on failure.
+    """
+    missing = []
+    ancestor = parent
+    while not ancestor.exists():
+        missing.append(ancestor)
+        ancestor = ancestor.parent
+    for directory in reversed(missing):
+        try:
+            directory.mkdir()
+        except FileExistsError:
+            _require(directory.is_dir(), "destination ancestor is not a directory")
+    return (parent, *(directory.parent for directory in missing))
+
+
 def _place_no_replace(stage, destination):
     if sys.platform == "linux":
         library = ctypes.CDLL(None, use_errno=True)
@@ -306,7 +332,7 @@ def install_bundle(artifact: ArtifactRef, prefix: Path, *, environment: str, cha
             installed = read_installation(prefix, **selection)
             _require(installed.artifact == artifact, "existing installation belongs to a different artifact")
             return installed
-        prefix.parent.mkdir(parents=True, exist_ok=True)
+        parent_sync_paths = _create_parents(prefix.parent)
         with _archive(artifact) as (members, opener):
             manifest, manifest_bytes, files, names = _archive_layout(members, opener, artifact, selection)
             stage = Path(tempfile.mkdtemp(prefix=".p11lab-stage-", dir=prefix.parent))
@@ -334,10 +360,13 @@ def install_bundle(artifact: ArtifactRef, prefix: Path, *, environment: str, cha
                 if error.errno in {errno.EEXIST, errno.ENOTEMPTY} or isinstance(error, FileExistsError):
                     installed = read_installation(prefix, **selection)
                     _require(installed.artifact == artifact, "concurrent installation conflict")
+                    for directory in parent_sync_paths:
+                        _sync_directory(directory)
                     return installed
                 raise
             placed = True
-            _sync_directory(prefix.parent)
+            for directory in parent_sync_paths:
+                _sync_directory(directory)
         installed = read_installation(prefix, **selection)
         completed = True
         return installed
