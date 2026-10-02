@@ -44,6 +44,7 @@ COPY --from=builder /debug/ /
 FROM ${BASE_IMAGE} AS runtime
 COPY --from=builder /runtime/ /
 COPY entrypoint.sh /usr/local/bin/p11lab-provider
+COPY THIRD-PARTY-NOTICES.txt SOURCE-ACCESS.md /usr/share/p11lab/
 COPY common.sh LICENSE provider.json runtime-id build-inputs.json /usr/share/p11lab/
 RUN chmod 755 /usr/local/bin/p11lab-provider \
  && find /usr/share/p11lab -type f -exec chmod 644 {} + \

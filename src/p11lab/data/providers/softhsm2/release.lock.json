@@ -2621,7 +2621,7 @@
     {
       "role": "recipe",
       "path": "Dockerfile",
-      "sha256": "180950e96c5108670a7c99822fe114c2cdb228348e2631fb1034cf6a7e1a4f57"
+      "sha256": "c14d93461e65e357b48e534b9bb9c6f91b1ea722026756b1f76260cf8d4a40b2"
     },
     {
       "role": "adapter",
@@ -2646,6 +2646,20 @@
       "role": "build-helper",
       "path": "split-debug.sh",
       "sha256": "2960f92c3af83a49cca3e87329af669f5151bd248eaafded56dda931bd9c2bcd"
+    },
+    {
+      "scope": "runtime",
+      "path": "THIRD-PARTY-NOTICES.txt",
+      "context_path": "THIRD-PARTY-NOTICES.txt",
+      "role": "notice",
+      "sha256": "bff5d235a58b12eecf1a686ce2c773eb1d1db3eb745686e2ef25f7de0566ec75"
+    },
+    {
+      "scope": "runtime",
+      "path": "SOURCE-ACCESS.md",
+      "context_path": "SOURCE-ACCESS.md",
+      "role": "notice",
+      "sha256": "92690ada33a965339d49431ed53e6ab3986be6c701064b383007d186a8c93c51"
     }
   ],
   "features": {

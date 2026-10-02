@@ -92,3 +92,167 @@ def resolve_sources(spec: dict, *, output_dir: Path | None = None) -> dict:
               'dependencies': acquired[len(lock['sources']):], 'patches': lock['patches']}
     (output_dir / 'resolved-sources.json').write_text(json.dumps(result, indent=2) + '\n')
     return result
+
+
+def _portable_inventory(inventory: dict) -> dict:
+    """Drop acquisition paths and local references from recipient metadata."""
+    import copy
+    result = copy.deepcopy(inventory)
+    for payload in result['payloads']:
+        payload.pop('local_path', None)
+    # A local reference is an acquisition handle, not a public identity.
+    for ref in (result['artifact'], result['observation']['artifact']):
+        if ref['kind'] == 'bundle':
+            ref['reference'] = 'sha256:' + ref['sha256']
+    return result
+
+
+def _payload_copy(payload: dict, destination: Path) -> None:
+    import shutil
+    size = payload['size']
+    if size > 1024**3:
+        raise SourceError('source payload exceeds 1 GiB acquisition bound')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if 'local_path' in payload:
+        path = Path(payload['local_path'])
+        if not path.is_file() or path.is_symlink() or path.stat().st_size != size:
+            raise SourceError('source payload size/type mismatch: ' + payload['path'])
+        shutil.copyfile(path, destination)
+    else:
+        from urllib.parse import urlparse
+        url = payload.get('url', '')
+        if urlparse(url).scheme != 'https' or urlparse(url).username or urlparse(url).password:
+            raise SourceError('source payload needs local verified file or public HTTPS URL')
+        count = 0
+        with urlopen(url, timeout=60) as response, destination.open('wb') as stream:
+            if urlparse(response.geturl()).scheme != 'https':
+                raise SourceError('source payload redirected outside HTTPS')
+            while chunk := response.read(min(1024 * 1024, size + 1 - count)):
+                count += len(chunk)
+                if count > size:
+                    raise SourceError('source payload exceeds declared size')
+                stream.write(chunk)
+    if destination.stat().st_size != size or checksum(destination) != payload['sha256']:
+        raise SourceError('source payload checksum/size mismatch: ' + payload['path'])
+
+
+def _verify_debian_source_sets(files: Path, inventory: dict) -> None:
+    import re
+    from .licenses import relative_path
+    for source in inventory['sources']:
+        if source.get('format') != 'debian':
+            continue
+        dscs = [name for name in source['payloads'] if name.endswith('.dsc')]
+        if len(dscs) != 1:
+            raise SourceError('Debian source payload needs one exact dsc: ' + source['id'])
+        dsc = files / relative_path(dscs[0])
+        text = dsc.read_text()
+        for field, wanted in [('Source', source['name']), ('Version', source['version'])]:
+            if not re.search(r'^' + field + ': ' + re.escape(wanted) + r'$', text, re.M):
+                raise SourceError('Debian source identity mismatch: ' + source['id'])
+        match = re.search(r'^Checksums-Sha256:\n((?:[ \t].*\n)+)', text, re.M)
+        if not match:
+            raise SourceError('Debian source missing payload checksums: ' + source['id'])
+        for line in match[1].splitlines():
+            digest, size, name = line.split()
+            relative_path(name)
+            path = dsc.parent / name
+            relative = path.relative_to(files).as_posix()
+            if relative not in source['payloads'] or not path.is_file() or path.stat().st_size != int(size) or checksum(path) != digest:
+                raise SourceError('Debian corresponding-source payload missing/mismatched: ' + relative)
+
+
+def collect_source_bundle(artifact, inventory: dict, output_dir: Path) -> Path:
+    """Collect exact retained sources/notices/recipes from reviewed declarations.
+
+    Local cache paths are optional acquisition inputs, removed from the archive.
+    Hashes and source closure are mandatory; URLs alone never count as sources.
+    A fresh output directory preserves prior attempts. No public write occurs.
+    """
+    from dataclasses import asdict
+    from .licenses import inspect_artifact, validate_inventory, spdx_inventory, relative_path
+    reasons = validate_inventory(artifact, inventory)
+    actual = inspect_artifact(artifact)
+    if actual != inventory.get('observation'):
+        reasons.append('actual binary content inventory mismatch')
+    if reasons:
+        raise SourceError('; '.join(reasons))
+    output_dir = Path(output_dir)
+    if sum(p['size'] for p in inventory['payloads']) > 4 * 1024**3:
+        raise SourceError('source collection exceeds 4 GiB bound')
+    output_dir.mkdir(parents=True, exist_ok=False)
+    files = output_dir / 'files'
+    files.mkdir()
+    reserved = {'inventory.json', 'SHA256SUMS', 'sbom.spdx.json'}
+    for payload in inventory['payloads']:
+        if payload['path'] in reserved:
+            raise SourceError('payload conflicts with generated metadata')
+        _payload_copy(payload, files / relative_path(payload['path']))
+    _verify_debian_source_sets(files, inventory)
+    public = _portable_inventory(inventory)
+    (files / 'inventory.json').write_text(json.dumps(public, sort_keys=True, indent=2) + '\n')
+    sbom = spdx_inventory(artifact, public)
+    (files / 'sbom.spdx.json').write_text(json.dumps(sbom, sort_keys=True, indent=2) + '\n')
+    manifest = {p.relative_to(files).as_posix(): checksum(p) for p in sorted(files.rglob('*')) if p.is_file()}
+    (files / 'SHA256SUMS').write_text(''.join(digest + '  ' + path + '\n' for path, digest in manifest.items()))
+    archive = output_dir / 'source-companion.tar.gz'
+    with tarfile.open(archive, 'w:gz') as contents:
+        for path in sorted(files.rglob('*')):
+            if path.is_file():
+                contents.add(path, arcname=path.relative_to(files).as_posix(), recursive=False)
+    import shutil
+    shutil.copyfile(files / 'sbom.spdx.json', output_dir / 'sbom.spdx.json')
+    # Public identity uses the immutable archive digest, never a staging path.
+    receipt = {'schema_version': 1, 'role': 'source-companion', 'archive': archive.name,
+        'artifact': {'kind': 'bundle', 'reference': 'sha256:' + checksum(archive), 'sha256': checksum(archive), 'platform': artifact.platform},
+        'matched_artifact': asdict(artifact), 'size_bytes': archive.stat().st_size,
+        'sbom_sha256': checksum(output_dir / 'sbom.spdx.json'), 'inventory_sha256': checksum(files / 'inventory.json'),
+        'payload_count': len(inventory['payloads']), 'source_count': len(inventory['sources']),
+        'publication_status': 'not-published', 'source_rights': 'explicit reviewed records; no automatic grant inference'}
+    (output_dir / 'source-companion.json').write_text(json.dumps(receipt, sort_keys=True, indent=2) + '\n')
+    return archive
+
+
+def verify_source_bundle(archive: Path, output_dir: Path) -> dict:
+    """Extract only regular files into a new owned directory and verify every byte."""
+    from .licenses import relative_path
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=False)
+    total = 0
+    seen = set()
+    try:
+        with tarfile.open(archive) as contents:
+            for member in contents:
+                name = relative_path(member.name)
+                if not member.isfile() or name in seen or member.size > 1024**3:
+                    raise SourceError('unsafe/duplicate/oversized source companion member')
+                total += member.size
+                if total > 4 * 1024**3 or len(seen) >= 50000:
+                    raise SourceError('source companion exceeds extraction bounds')
+                seen.add(name)
+                destination = output_dir / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                import shutil
+                with contents.extractfile(member) as source, destination.open('xb') as target:
+                    shutil.copyfileobj(source, target)
+        expected = {}
+        for line in (output_dir / 'SHA256SUMS').read_text().splitlines():
+            digest, name = line.split('  ', 1)
+            relative_path(name)
+            if name in expected:
+                raise SourceError('duplicate companion manifest entry')
+            expected[name] = digest
+        if set(expected) != seen - {'SHA256SUMS'}:
+            raise SourceError('source companion manifest roster mismatch')
+        for name, digest in expected.items():
+            if checksum(output_dir / name) != digest:
+                raise SourceError('source companion checksum mismatch: ' + name)
+        inventory = json.loads((output_dir / 'inventory.json').read_text())
+        for payload in inventory['payloads']:
+            name = relative_path(payload['path'])
+            if name not in expected or expected[name] != payload['sha256'] or (output_dir / name).stat().st_size != payload['size']:
+                raise SourceError('source payload manifest mismatch: ' + name)
+        _verify_debian_source_sets(output_dir, inventory)
+        return inventory
+    except (tarfile.TarError, OSError, KeyError, ValueError) as error:
+        raise SourceError('invalid source companion: ' + str(error)) from error
