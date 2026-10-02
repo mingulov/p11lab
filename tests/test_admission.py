@@ -210,3 +210,13 @@ def test_empty_deb822_field_does_not_append_conffiles_to_source_version():
     from p11lab.licenses import parse_dpkg_status
     packages = parse_dpkg_status('Package: libaudit-common\nStatus: install ok installed\nArchitecture: all\nSource: audit\nVersion: 1:4.0.2-2+deb13u1\nConffiles:\n /etc/libaudit.conf cdc703f9d27f0d980271a9e95d0f18b2\nDescription: library metadata\n')
     assert packages[0]['source_version'] == '1:4.0.2-2+deb13u1'
+
+
+def test_outer_admission_and_companion_receipts_do_not_publish_acquisition_paths(tmp_path):
+    from p11lab.licenses import assess_distribution
+    artifact, inventory, output, archive = assemble(tmp_path)
+    result = assess_distribution(artifact, output)
+    receipt = json.loads((output/'source-companion.json').read_text())
+    assert str(tmp_path) not in json.dumps(receipt)
+    assert str(tmp_path) not in json.dumps(result)
+    assert result['artifact']['reference'] == 'sha256:' + artifact.sha256

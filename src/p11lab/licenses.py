@@ -442,7 +442,7 @@ def assess_distribution(artifact: ArtifactRef, evidence_dir: Path) -> dict:
         actual = inspect_artifact(artifact)
         if not _same_observation(actual, inventory['observation'], artifact):
             blockers.append('actual binary content inventory mismatch')
-        if receipt['matched_artifact'] != asdict(artifact):
+        if not _same_artifact(receipt['matched_artifact'], artifact):
             blockers.append('source companion binary identity mismatch')
         sbom = json.loads((evidence_dir / 'sbom.spdx.json').read_text())
         if checksum(evidence_dir / 'sbom.spdx.json') != receipt['sbom_sha256']:
@@ -451,7 +451,10 @@ def assess_distribution(artifact: ArtifactRef, evidence_dir: Path) -> dict:
             blockers.append('SPDX binary identity mismatch')
     except (OSError, ValueError, KeyError, tarfile.TarError) as error:
         blockers.append(str(error))
-    result = {'schema_version': 1, 'artifact': asdict(artifact), 'source_companion': companion,
+    public_reference = asdict(artifact)
+    if artifact.kind == 'bundle':
+        public_reference['reference'] = 'sha256:' + artifact.sha256
+    result = {'schema_version': 1, 'artifact': public_reference, 'source_companion': companion,
         'status': 'blocked' if blockers else 'eligible', 'blockers': sorted(set(blockers)),
         'publication_status': 'blocked', 'publication_blockers': ['anonymous-source-first delivery not verified'],
         'source_companion_status': 'blocked' if blockers else 'eligible', 'role': inventory.get('role', 'unknown'), 'limitations': inventory.get('limitations', [])}

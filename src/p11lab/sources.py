@@ -205,7 +205,7 @@ def collect_source_bundle(artifact, inventory: dict, output_dir: Path) -> Path:
     # Public identity uses the immutable archive digest, never a staging path.
     receipt = {'schema_version': 1, 'role': 'source-companion', 'archive': archive.name,
         'artifact': {'kind': 'bundle', 'reference': 'sha256:' + checksum(archive), 'sha256': checksum(archive), 'platform': artifact.platform},
-        'matched_artifact': asdict(artifact), 'size_bytes': archive.stat().st_size,
+        'matched_artifact': public['artifact'], 'size_bytes': archive.stat().st_size,
         'sbom_sha256': checksum(output_dir / 'sbom.spdx.json'), 'inventory_sha256': checksum(files / 'inventory.json'),
         'payload_count': len(inventory['payloads']), 'source_count': len(inventory['sources']),
         'publication_status': 'not-published', 'source_rights': 'explicit reviewed records; no automatic grant inference'}
