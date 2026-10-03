@@ -3,6 +3,20 @@
 # Common provider lifecycle primitives. Never include secrets in markers or logs.
 p11lab_die() { printf '%s\n' "p11lab: $*" >&2; exit 1; }
 
+p11lab_check_find() {
+    # Capture status before interpreting stdout: a failed traversal is never
+    # evidence of either an empty roster or a missing token/TLS permission.
+    find_expectation=$1
+    find_message=$2
+    shift 2
+    find_entries=$(find "$@") || p11lab_die "cannot enumerate $1"
+    case "$find_expectation" in
+        empty) [ -z "$find_entries" ] || p11lab_die "$find_message" ;;
+        present) [ -n "$find_entries" ] || p11lab_die "$find_message" ;;
+        *) p11lab_die "invalid enumeration check" ;;
+    esac
+}
+
 p11lab_no_credential_conflict() {
     eval 'scalar_set=${'"$1"'+x}; file_set=${'"$2"'+x}'
     [ "$scalar_set$file_set" != xx ] || p11lab_die "conflicting value and file credential inputs"

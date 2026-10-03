@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import subprocess
 
+import pytest
+
 from p11lab.catalog import package_data
 
 
@@ -23,6 +25,8 @@ def entrypoint_text():
 def redirected_script(directory):
     """Copy the real script with only its absolute paths aimed at stubs."""
     text = entrypoint_text()
+    text = text.replace('. /usr/share/p11lab/common.sh',
+                        package_data('runtime/common.sh').read_text())
     for original, redirect in (
             ('/usr/local/bin/p11lab-provider', str(directory / 'stub-provider')),
             ('/usr/local/bin/pkcs11-proxy-ng', str(directory / 'stub-proxy')),
@@ -52,8 +56,9 @@ def write_tls(directory):
     return config
 
 
-def run_daemon(script, config):
+def run_daemon(script, config, extra_env=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith(('SOFTHSM', 'FHSM_'))}
+    env.update(extra_env or {})
     return subprocess.run(['sh', str(script), 'daemon', str(config)],
                           capture_output=True, text=True, timeout=60, env=env)
 
@@ -133,3 +138,74 @@ def test_daemon_rejects_missing_config(tmp_path):
     result = run_daemon(script, tmp_path / 'absent.toml')
     assert result.returncode != 0
     assert 'readable regular file' in result.stderr
+
+
+def marker_stubs(directory, status=0):
+    for name in ('provider', 'proxy'):
+        script = directory / ('stub-' + name)
+        script.write_text('#!/bin/sh\n'
+                          f'touch "{directory}/{name}-called"\n'
+                          f'echo {name}-diagnostic >&2\n'
+                          f'exit {status}\n')
+        script.chmod(0o755)
+
+
+@pytest.mark.parametrize('invalid', ['missing-ca', 'linked-certificate', 'writable-certificate',
+                                   'readable-key', 'linked-key'])
+def test_invalid_tls_fails_before_provider_adapter(tmp_path, invalid):
+    script = redirected_script(tmp_path)
+    config = write_tls(tmp_path)
+    marker_stubs(tmp_path)
+    tls = tmp_path / 'tls'
+    if invalid == 'missing-ca':
+        (tls / 'ca.crt').unlink()
+    elif invalid == 'linked-certificate':
+        (tls / 'server.crt').unlink()
+        (tls / 'server.crt').symlink_to(tls / 'ca.crt')
+    elif invalid == 'writable-certificate':
+        (tls / 'server.crt').chmod(0o666)
+    elif invalid == 'readable-key':
+        (tls / 'server.key').chmod(0o644)
+    else:
+        (tls / 'server.key').unlink()
+        (tls / 'server.key').symlink_to(tls / 'ca.crt')
+    result = run_daemon(script, config)
+    assert result.returncode != 0
+    assert 'TLS' in result.stderr
+    assert not (tmp_path / 'provider-called').exists()
+    assert not (tmp_path / 'proxy-called').exists()
+
+
+@pytest.mark.parametrize('status', [37, 73])
+def test_daemon_preserves_adapter_exit_status(tmp_path, status):
+    script = redirected_script(tmp_path)
+    config = write_tls(tmp_path)
+    marker_stubs(tmp_path, status)
+    result = run_daemon(script, config)
+    assert result.returncode == status
+    assert result.stderr == 'provider-diagnostic\n'
+    assert (tmp_path / 'provider-called').exists()
+    assert not (tmp_path / 'proxy-called').exists()
+
+
+@pytest.mark.parametrize('failure_at', [1, 2, 3])
+def test_tls_find_failure_fails_before_provider_adapter(tmp_path, failure_at):
+    script = redirected_script(tmp_path)
+    config = write_tls(tmp_path)
+    marker_stubs(tmp_path)
+    tools = tmp_path / 'tools'
+    tools.mkdir()
+    find = tools / 'find'
+    find.write_text('#!/bin/sh\n'
+                    f'count=$(cat "{tmp_path}/find-count" 2>/dev/null || echo 0)\n'
+                    'count=$((count + 1))\n'
+                    f'echo "$count" > "{tmp_path}/find-count"\n'
+                    f'if [ "$count" = {failure_at} ]; then echo "injected TLS find failure" >&2; exit 71; fi\n'
+                    'exec /usr/bin/find "$@"\n')
+    find.chmod(0o755)
+    result = run_daemon(script, config, {'PATH': str(tools) + ':' + os.environ['PATH']})
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert 'cannot enumerate' in result.stderr
+    assert 'injected TLS find failure' in result.stderr
+    assert not (tmp_path / 'provider-called').exists()
+    assert not (tmp_path / 'proxy-called').exists()

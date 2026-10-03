@@ -3004,12 +3004,12 @@
     {
       "role": "recipe",
       "path": "Dockerfile",
-      "sha256": "e2b0bddbe8a2be93c95ee8643b5e6229312f98cda3483ecfc29f2b6a2d23583d"
+      "sha256": "54fcc482585f1778da0a249ea52005cbb5e9e65f0baf30ad08a34ebe9a04a40f"
     },
     {
       "role": "adapter",
       "path": "entrypoint.sh",
-      "sha256": "62353b65663d326b86a78a6e7c91ed4c04a1f10962c265a7cf65f79fc34d12ca"
+      "sha256": "ce6be8e4f789d7376d1ad4de9548f563fda93c150c9ed5fbab55733a613adc8d"
     },
     {
       "role": "adapter",
@@ -3019,7 +3019,7 @@
     {
       "role": "adapter-common",
       "path": "common.sh",
-      "sha256": "4dcfcd4e4e5baa8570206c7cad45ba6aed6812c13ad14975223fd648cd8725c9",
+      "sha256": "af05f3e0b7774235f12ad8dc099694dec55cce25986d5ca53d0f9c96f32149a3",
       "scope": "runtime"
     },
     {
@@ -3043,13 +3043,18 @@
     {
       "role": "notice",
       "path": "FILE-NOTICES.txt",
-      "sha256": "2ed97253939e432bda32b934f3d5885c1c54fd0e4a11db2de82bf046e18990d4"
+      "sha256": "79cf5e207f22a33e2f39d1861f2f0dc2af940b5eac4e97c97bdd08bca20abaca"
     },
     {
       "role": "build-helper",
       "path": "nspr-rolling.txt",
-      "sha256": "a5dbebd1a5ad27deb3c62a100746cda31ed6b4fb55fe490aacb2140cf2c8b20a",
+      "sha256": "009b66bf95061db74dbbf23444e2d6e643427333213651f8895f0a642ae63a4b",
       "context_path": "nspr-manifest.txt"
+    },
+    {
+      "role": "build-helper",
+      "path": "nspr-manifest.sh",
+      "sha256": "55679344df5c1419dbd4614e76776cf1bfcc3a78c7eaaef1ef82d9eccbfb91a0"
     }
   ],
   "features": {

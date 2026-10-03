@@ -56,7 +56,7 @@ complete() {
         [ ! -L "$owned/$file" ] || p11lab_die "partial or unsafe state"
         [ -f "$owned/$file" ] && [ -s "$owned/$file" ] || p11lab_die "partial state: missing provisioned file $file"
     done
-    [ -z "$(find "$state" -mindepth 1 -maxdepth 1 ! -name haskoki -print -quit)" ] || p11lab_die "partial state: unknown files"
+    p11lab_check_find empty "partial state: unknown files" "$state" -mindepth 1 -maxdepth 1 ! -name haskoki -print -quit
     for entry in "$owned"/*; do
         [ -e "$entry" ] || continue
         [ ! -L "$entry" ] || p11lab_die "partial or unsafe state"
@@ -100,7 +100,7 @@ case "${1-}" in
         configure
         if [ -e "$owned/complete" ]; then complete; exit 0; fi
         [ "$label" = haskoki-demo ] || p11lab_die "label policy: this provider serves only haskoki-demo on slot 0; refusing other labels"
-        [ -z "$(find "$state" -mindepth 1 -maxdepth 1 -print -quit)" ] || p11lab_die "partial state: refusing to initialize nonempty volume"
+        p11lab_check_find empty "partial state: refusing to initialize nonempty volume" "$state" -mindepth 1 -maxdepth 1 -print -quit
         expected_marker > "$control/marker.$$"
         p11lab_secret P11LAB_PIN P11LAB_PIN_FILE
         user_credential=$credential

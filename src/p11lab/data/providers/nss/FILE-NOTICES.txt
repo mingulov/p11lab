@@ -16,8 +16,10 @@ a separate source-companion deliverable, not this file.
   Pinned independently of NSS; see the lock toolchain record.
 - HACL* verified code vendored in NSS lib/freebl/verified/ (ChaCha20,
   Poly1305, ChaCha20-Poly1305, Hash), MIT License, copyright INRIA, CMU,
-  Microsoft Corporation and HACL* Contributors. The MIT grant travels
-  with the vendored sources; no separate upstream text file exists.
+  Microsoft Corporation and HACL* Contributors. Full grant and copyright
+  notices: /usr/share/licenses/nss/HACL-MIT.txt, extracted verbatim from
+  the leading license comment of vendored Hacl_Chacha20.c in the pinned
+  NSS source. The complete vendored sources travel in the source companion.
 - libcrux ML-KEM/ML-DSA/SHA-3 extraction vendored in NSS
   lib/freebl/libcrux/, MIT or Apache-2.0 at the licensee's option,
   vendored from https://github.com/cryspen/libcrux (see the retained

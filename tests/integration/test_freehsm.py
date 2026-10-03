@@ -30,6 +30,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -89,6 +90,42 @@ def as_ref(image):
     return ArtifactRef('docker-local', image, image.removeprefix('sha256:'), 'linux/amd64')
 
 
+def assert_real_receipts(output, channel, credential_files=(), checker=False):
+    receipt = output / 'receipt.json'
+    assert receipt.is_file() and receipt.stat().st_size, 'real lane receipt is missing'
+    record = json.loads(receipt.read_text())
+    assert (record['environment'], record['channel']) == ('freehsm', channel)
+    if checker:
+        checker_receipt = output / 'checker/checker-receipt.json'
+        assert checker_receipt.is_file() and checker_receipt.stat().st_size
+    declarations = load_environment('freehsm', channel)['runtime_env']
+    credentials = {Path(path).read_text().strip() for path in credential_files}
+
+    def inspect(value):
+        if isinstance(value, dict):
+            for entry in declarations:
+                assert value.get(entry['name']) != entry['value'], 'environment pairing in receipt'
+                assert not (value.get('name') == entry['name'] and value.get('value') == entry['value']), 'environment pairing in receipt'
+            for key, child in value.items():
+                inspect(key)
+                inspect(child)
+        elif isinstance(value, list):
+            for entry in declarations:
+                assert value != [entry['name'], entry['value']], 'environment pairing in receipt'
+            for child in value:
+                inspect(child)
+        elif isinstance(value, str):
+            for credential in credentials:
+                assert not re.search(r'(?<![A-Za-z0-9_])' + re.escape(credential) +
+                                     r'(?![A-Za-z0-9_])', value), 'credential value in receipt'
+            for entry in declarations:
+                assert f"{entry['name']}={entry['value']}" not in value, 'environment pairing in receipt'
+
+    for path in output.rglob('*receipt.json'):
+        assert path.stat().st_size, 'empty durable receipt'
+        inspect(json.loads(path.read_text()))
+
+
 @pytest.mark.parametrize('channel', CHANNELS)
 def test_channels_locked(channel):
     spec = load_environment('freehsm', channel)
@@ -118,8 +155,12 @@ def test_real_standalone_lifecycle(channel, tmp_path):
     assert description['module_path'] == MODULE
     assert description['id'] == 'freehsm'
     initialized = docker(*base, *controls, image, 'init')
+    (tmp_path / 'native-init.stdout.log').write_text(initialized.stdout)
+    (tmp_path / 'native-init.stderr.log').write_text(initialized.stderr)
     assert initialized.returncode == 0, initialized.stderr
     # The KAT safety net must never trigger: any real KAT failure would print here.
+    assert initialized.stderr.strip(), 'native init diagnostics are missing'
+    assert 'integrity bypass active' in initialized.stderr
     assert 'KAT FAIL' not in initialized.stderr
     env = docker(*base, *controls, image, 'exec', '--', 'sh', '-c',
                  'printf "%s\\n" "$FHSM_TOKENS_DIR" "$FHSM_INTEGRITY_ALLOW_UNSIGNED" "$FHSM_KAT_ALLOW_FAIL"').stdout
@@ -141,9 +182,14 @@ def test_real_standalone_lifecycle(channel, tmp_path):
                          '/var/lib/p11lab/freehsm/slot0.tok').stdout
     assert token_before == token_after
     health = docker(*base, *controls, image, 'health')
+    (tmp_path / 'native-health.stdout.log').write_text(health.stdout)
+    (tmp_path / 'native-health.stderr.log').write_text(health.stderr)
     assert health.returncode == 0, health.stderr
     assert TOKEN_LABEL in health.stdout
     assert TOKEN_MODEL in health.stdout
+    assert health.stderr.strip(), 'native health diagnostics are missing'
+    assert 'integrity bypass active' in health.stderr
+    assert 'integrity bypass active' not in health.stdout
     assert 'KAT FAIL' not in health.stderr
     conflict = docker(*base, *controls, '-e', 'P11LAB_PIN=other', image, 'init', check=False)
     assert conflict.returncode != 0 and 'conflicting' in conflict.stderr
@@ -233,7 +279,38 @@ def run_direct(channel, image, argv, inputs, output, caller, timeout=300):
     assert not result.lifecycle_errors and not result.cleanup_errors
     receipt = json.loads(Path(result.receipt_path).read_text())
     assert [stage['phase'] for stage in receipt['stages']] == ['init', 'ready', 'application', 'post-health']
+    assert_real_receipts(output, channel, [value for key, value in inputs.items() if key.endswith('_PIN_FILE')])
     return result
+
+
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_receipt_assertions_detect_pairings_in_real_lane_output(channel, tmp_path):
+    if channel not in CONSUMERS:
+        pytest.skip('P11LAB_TEST_FREEHSM_CONSUMER_IMAGES lacks ' + channel)
+    pin, so_pin = write_pins(tmp_path)
+    caller = tmp_path / 'caller'
+    caller.mkdir()
+    output = tmp_path / 'output'
+    run_direct(channel, CONSUMERS[channel], ('sh', '-c', 'echo RECEIPT-CONTROL'),
+               {'P11LAB_PIN_FILE': str(pin), 'P11LAB_SO_PIN_FILE': str(so_pin)}, output, caller)
+    path = output / 'receipt.json'
+    original = path.read_bytes()
+    record = json.loads(original)
+    # Mutate a real receipt to prove these assertions are sensitive to both
+    # credential leakage and declared environment pairings, then restore it.
+    try:
+        for leak in (load_environment('freehsm', channel)['runtime_env'],
+                     {'P11LAB_PIN': pin.read_text()}, 'P11LAB_PIN=' + pin.read_text()):
+            path.write_text(json.dumps(record | {'unexpected': leak}))
+            with pytest.raises(AssertionError):
+                assert_real_receipts(output, channel, [pin, so_pin])
+        path.write_bytes(b'')
+        with pytest.raises(AssertionError, match='missing'):
+            assert_real_receipts(output, channel, [pin, so_pin])
+    finally:
+        path.write_bytes(original)
+    assert_real_receipts(output, channel, [pin, so_pin])
+    print(f'receipt guard direct/{channel}: real receipt accepted; credential, environment-pairing and empty-receipt mutations rejected')
 
 
 SMOKE_ARGV = ('p11lab-smoke', '--module', MODULE, '--token-label', TOKEN_LABEL,
@@ -329,6 +406,7 @@ def test_direct_checker_smoke(channel, tmp_path):
                    (), {'P11LAB_PIN_FILE': str(pin), 'P11LAB_SO_PIN_FILE': str(so_pin)},
                    output, caller, 1500)
     result = run_checker(spec, 'smoke-v1')
+    assert_real_receipts(output, channel, [pin, so_pin], checker=True)
     record = json.loads((output / 'checker/checker-receipt.json').read_text())
     assert record['evidence']['observations_complete'] is True, record['evidence']
     assert record['token']['label'] == TOKEN_LABEL
@@ -358,6 +436,7 @@ def test_proxy_crypto_container(channel, tmp_path):
     result = run_application(spec)
     assert result.exit_code == 0, (result.lifecycle_errors, result.cleanup_errors)
     assert result.app_returncode == 0
+    assert_real_receipts(output, channel, [pin, so_pin])
     assert (output / 'proxy-health.stdout.log').read_text().strip() == 'SERVING'
     oracle(output / 'crypto')
 
@@ -396,4 +475,5 @@ def test_proxy_crypto_host(tmp_path):
                    output, caller, 600)
     result = run_application(spec)
     assert result.exit_code == 0, (result.lifecycle_errors, result.cleanup_errors)
+    assert_real_receipts(output, channel, [pin, so_pin])
     oracle(output / 'crypto')

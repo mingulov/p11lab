@@ -2903,12 +2903,12 @@
     {
       "role": "adapter",
       "path": "entrypoint.sh",
-      "sha256": "fadb055207fa97d4ee2738105d8313506bb2d21d4cd7d4668d11e1782de78b4d"
+      "sha256": "ade824262ffc994ff1a5fcb3ba50fbd74877f1477f371da9870c8056a3a944e2"
     },
     {
       "role": "adapter-common",
       "path": "common.sh",
-      "sha256": "4dcfcd4e4e5baa8570206c7cad45ba6aed6812c13ad14975223fd648cd8725c9",
+      "sha256": "af05f3e0b7774235f12ad8dc099694dec55cce25986d5ca53d0f9c96f32149a3",
       "scope": "runtime"
     },
     {

@@ -140,8 +140,8 @@ complete() { # server must already run; verifies marker, files and live slot
     local slot counts
     [ ! -L "$owned" ] && [ ! -L "$owned/complete" ] && [ ! -L "$owned/BouncyHsm.db" ] || p11lab_die "partial or unsafe state"
     [ -f "$owned/complete" ] && [ -f "$owned/BouncyHsm.db" ] || p11lab_die "partial state: missing completion marker or database"
-    [ -z "$(find "$state" -mindepth 1 -maxdepth 1 ! -name bouncyhsm ! -name .init-lock -print -quit)" ] || p11lab_die "partial state: unknown files"
-    [ -z "$(find "$owned" -mindepth 1 -maxdepth 1 ! -name complete ! -name BouncyHsm.db ! -name BouncyHsm-log.db -print -quit)" ] || p11lab_die "partial state: unknown owned files"
+    p11lab_check_find empty "partial state: unknown files" "$state" -mindepth 1 -maxdepth 1 ! -name bouncyhsm ! -name .init-lock -print -quit
+    p11lab_check_find empty "partial state: unknown owned files" "$owned" -mindepth 1 -maxdepth 1 ! -name complete ! -name BouncyHsm.db ! -name BouncyHsm-log.db -print -quit
     counts=$(native_slots) || p11lab_die "native slot probe failed"
     slot=$(selected_slot "$(slot_json)")
     [ -n "$slot" ] || p11lab_die "partial state: expected slot is absent"
@@ -195,7 +195,7 @@ case "${1-}" in
             complete
             exit 0
         fi
-        [ -z "$(find "$state" -mindepth 1 -maxdepth 1 -print -quit)" ] || p11lab_die "partial state: refusing to initialize nonempty volume"
+        p11lab_check_find empty "partial state: refusing to initialize nonempty volume" "$state" -mindepth 1 -maxdepth 1 -print -quit
         p11lab_secret P11LAB_PIN P11LAB_PIN_FILE
         user_credential=$credential
         p11lab_secret P11LAB_SO_PIN P11LAB_SO_PIN_FILE

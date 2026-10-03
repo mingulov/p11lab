@@ -19,9 +19,8 @@ COPY source.tar /tmp/source.tar
 COPY source.sha256 /tmp/source.sha256
 RUN cd /tmp && sha256sum -c source.sha256 && mkdir -p /build/nss && tar -xf source.tar -C /build/nss
 COPY nspr-manifest.txt /tmp/nspr-manifest.txt
-RUN grep -Eq '^(NSPR_(TAG|REVISION|VERSION|URL|SHA256|SIZE))=[^ ]+$' /tmp/nspr-manifest.txt \
- && [ "$(grep -c . /tmp/nspr-manifest.txt)" = 6 ] \
- && . /tmp/nspr-manifest.txt \
+COPY nspr-manifest.sh /tmp/nspr-manifest.sh
+RUN . /tmp/nspr-manifest.sh && p11lab_nspr_manifest /tmp/nspr-manifest.txt \
  && curl -fsSL --retry 3 --retry-all-errors -o /tmp/nspr.tar.gz "$NSPR_URL" \
  && echo "$NSPR_SHA256  /tmp/nspr.tar.gz" | sha256sum -c - \
  && [ "$(stat -c %s /tmp/nspr.tar.gz)" = "$NSPR_SIZE" ] \
@@ -56,9 +55,12 @@ RUN mkdir -p /runtime/usr/local/lib/p11lab /runtime/usr/local/bin /runtime/etc/n
  && cp /build/nss/COPYING /runtime/usr/share/licenses/nss/COPYING.nss \
  && cp /build/nspr/LICENSE /runtime/usr/share/licenses/nss/LICENSE.nspr \
  && cp /build/nss/lib/freebl/libcrux/README.md /runtime/usr/share/licenses/nss/libcrux-README.md \
+ && sed -n '1,/^ \*\/$/p' /build/nss/lib/freebl/verified/Hacl_Chacha20.c > /runtime/usr/share/licenses/nss/HACL-MIT.txt \
+ && grep -q 'Permission is hereby granted' /runtime/usr/share/licenses/nss/HACL-MIT.txt \
+ && grep -q 'SOFTWARE\.' /runtime/usr/share/licenses/nss/HACL-MIT.txt \
  && cp /tmp/FILE-NOTICES.txt /runtime/usr/share/licenses/nss/FILE-NOTICES.txt \
  && cp /tmp/actual-base.tsv /tmp/actual-builder.tsv /runtime/usr/share/p11lab/build/ \
- && . /tmp/nspr-manifest.txt && printf '%s\n' "nspr_tag=$NSPR_TAG" "nspr_revision=$NSPR_REVISION" "nspr_version=$NSPR_VERSION" "nspr_tarball_sha256=$NSPR_SHA256" > /runtime/usr/share/p11lab/build/nspr.txt \
+ && . /tmp/nspr-manifest.sh && p11lab_nspr_manifest /tmp/nspr-manifest.txt && printf '%s\n' "nspr_tag=$NSPR_TAG" "nspr_revision=$NSPR_REVISION" "nspr_version=$NSPR_VERSION" "nspr_tarball_sha256=$NSPR_SHA256" > /runtime/usr/share/p11lab/build/nspr.txt \
  && printf '%s\n' 'gyp_next_version=0.22.3' 'gyp_next_wheel_sha256=cda65d585e378250685bf2f63afa365ac6738501bef992337914e219caf71c69' "gyp_version=$(gyp --version)" > /runtime/usr/share/p11lab/build/gyp.txt \
  && printf '%s\n' "nss_version=$(sed -n 's/^#define NSS_VMAJOR //p; s/^#define NSS_VMINOR //p; s/^#define NSS_VPATCH //p' /build/nss/lib/nss/nss.h | paste -sd .)" > /runtime/usr/share/p11lab/build/nss-version.txt \
  && (cd /var/lib/apt/lists && sha256sum *InRelease *Packages.lz4 *Sources.lz4) > /runtime/usr/share/p11lab/build/actual-signed-indexes.sha256 \

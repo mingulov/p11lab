@@ -34,6 +34,28 @@ MODULE = '/usr/local/lib/p11lab/libsoftokn3.so'
 TOKEN_LABEL = 'P11Lab'
 CHANNELS = ('release', 'rolling')
 
+
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_runtime_nspr_version(channel):
+    if channel not in IMAGES:
+        pytest.skip('P11LAB_TEST_NSS_IMAGES lacks ' + channel)
+    version = docker('run', '--rm', '--network', 'none', '--entrypoint', 'cat', IMAGES[channel],
+                     '/usr/share/p11lab/build/nspr.txt').stdout
+    assert ('nspr_version=' + ('4.40' if channel == 'release' else '4.41 Beta')) in version.splitlines()
+
+
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_runtime_hacl_grant(channel):
+    if channel not in IMAGES:
+        pytest.skip('P11LAB_TEST_NSS_IMAGES lacks ' + channel)
+    grant = docker('run', '--rm', '--network', 'none', '--entrypoint', 'cat', IMAGES[channel],
+                   '/usr/share/licenses/nss/HACL-MIT.txt').stdout
+    for text in ('MIT License', 'Copyright (c) 2016-2022 INRIA, CMU and Microsoft Corporation',
+                 'Copyright (c) 2022-2023 HACL* Contributors', 'Permission is hereby granted',
+                 'The above copyright notice and this permission notice', 'THE SOFTWARE IS PROVIDED',
+                 'SOFTWARE.'):
+        assert text in grant
+
 IMAGES = json.loads(os.environ.get('P11LAB_TEST_NSS_IMAGES', '{}'))
 CONSUMERS = json.loads(os.environ.get('P11LAB_TEST_NSS_CONSUMER_IMAGES', '{}'))
 CHECKERS = json.loads(os.environ.get('P11LAB_TEST_NSS_CHECKER_IMAGES', '{}'))

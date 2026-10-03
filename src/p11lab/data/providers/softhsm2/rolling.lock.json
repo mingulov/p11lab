@@ -2626,14 +2626,14 @@
     {
       "role": "adapter",
       "path": "entrypoint.sh",
-      "sha256": "b6cb70b8c688ece7bcecb7daf14acf4222476eca1f6b120f74022e7a81af84e9"
+      "sha256": "4d73f18645add8e34088b8674240177ed2d8787ca027e614c7f63aee7ad8798d"
     },
     {
       "role": "adapter-common",
       "scope": "runtime",
       "path": "common.sh",
       "context_path": "common.sh",
-      "sha256": "4dcfcd4e4e5baa8570206c7cad45ba6aed6812c13ad14975223fd648cd8725c9"
+      "sha256": "af05f3e0b7774235f12ad8dc099694dec55cce25986d5ca53d0f9c96f32149a3"
     },
     {
       "role": "notice",

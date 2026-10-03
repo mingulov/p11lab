@@ -27,8 +27,8 @@ complete() {
         [ ! -L "$owned/$file" ] || p11lab_die "partial or unsafe state"
         [ -f "$owned/$file" ] && [ -s "$owned/$file" ] || p11lab_die "partial state: missing token database file $file"
     done
-    [ -z "$(find "$state" -mindepth 1 -maxdepth 1 ! -name nss -print -quit)" ] || p11lab_die "partial state: unknown files"
-    [ -z "$(find "$owned" -mindepth 1 -maxdepth 1 ! -name complete ! -name cert9.db ! -name key4.db ! -name pkcs11.txt -print -quit)" ] || p11lab_die "partial state: unknown owned files"
+    p11lab_check_find empty "partial state: unknown files" "$state" -mindepth 1 -maxdepth 1 ! -name nss -print -quit
+    p11lab_check_find empty "partial state: unknown owned files" "$owned" -mindepth 1 -maxdepth 1 ! -name complete ! -name cert9.db ! -name key4.db ! -name pkcs11.txt -print -quit
     if listing=$(certutil -d "sql:$owned" -L 2>&1); then
         # This pinned stock utility opens the real certificate database; key
         # authentication stays with the application login, as with SoftHSM.
@@ -51,7 +51,7 @@ case "${1-}" in
         p11lab_writable_directory "$state"
         configure
         if [ -e "$owned/complete" ]; then complete; exit 0; fi
-        [ -z "$(find "$state" -mindepth 1 -maxdepth 1 -print -quit)" ] || p11lab_die "partial state: refusing to initialize nonempty volume"
+        p11lab_check_find empty "partial state: refusing to initialize nonempty volume" "$state" -mindepth 1 -maxdepth 1 -print -quit
         expected_marker > "$control/marker.$$"
         p11lab_secret P11LAB_PIN P11LAB_PIN_FILE
         user_credential=$credential

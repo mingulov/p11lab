@@ -4,18 +4,19 @@
 # unchanged to the provider adapter; daemon/cli add the pinned mTLS transport.
 set -eu
 umask 077
+. /usr/share/p11lab/common.sh
 p11lab_proxy_die() { printf '%s\n' "p11lab-proxy: $*" >&2; exit 1; }
 
 p11lab_proxy_server_material() {
     for file in /run/p11lab-tls/ca.crt /run/p11lab-tls/server.crt; do
         [ -f "$file" ] && [ ! -L "$file" ] && [ -r "$file" ] || p11lab_proxy_die "server TLS file is not a readable regular file: $file"
         [ "$(stat -c %u "$file")" = "$(id -u)" ] || p11lab_proxy_die "server TLS file ownership mismatch: $file"
-        [ -z "$(find "$file" -perm -002 -print -quit)" ] || p11lab_proxy_die "server TLS certificate must not be world-writable: $file"
+        p11lab_check_find empty "server TLS certificate must not be world-writable: $file" "$file" -perm -002 -print -quit
     done
     key=/run/p11lab-tls/server.key
     [ -f "$key" ] && [ ! -L "$key" ] && [ -r "$key" ] || p11lab_proxy_die "server TLS key is not a readable regular file"
     [ "$(stat -c %u "$key")" = "$(id -u)" ] || p11lab_proxy_die "server TLS key ownership mismatch"
-    [ -z "$(find "$key" -perm /077 -print -quit)" ] || p11lab_proxy_die "server TLS key must have no group/other permissions"
+    p11lab_check_find empty "server TLS key must have no group/other permissions" "$key" -perm /077 -print -quit
 }
 
 case "${1-}" in

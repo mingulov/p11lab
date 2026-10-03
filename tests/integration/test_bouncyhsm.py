@@ -30,11 +30,11 @@ except ImportError:  # pragma: no cover - step-execution contexts
 
     pytest = _Shim()
 
-WORK = Path(__file__).resolve().parents[2]
-if str(WORK / "src") not in sys.path:
-    sys.path.insert(0, str(WORK / "src"))
+from p11lab.catalog import package_data
 
-CONSUMER_DIR = WORK / "src" / "p11lab" / "data" / "consumer"
+# Script steps run from caller-owned paths such as /workspace/test_bouncyhsm.py.
+# Resolve the installed package's resources without assuming a checkout depth.
+CONSUMER_DIR = package_data('consumer/verify.py').parent
 
 
 def _env_json(name):
@@ -194,7 +194,7 @@ def step_checker_driver(args, extra):
         raise ValueError("checker run misses the provider transport")
     label = os.environ.get("P11LAB_LABEL", "P11Lab")
     output = Path(args["output"]).resolve()
-    nodes = [n["node_id"] for n in load_profile("smoke-v1")["nodes"]]
+    nodes = load_profile("smoke-v1")["nodes"]
     try:
         import pkcs11_check.testcases as tests
     except ImportError as error:
@@ -260,7 +260,7 @@ def step_checker_driver(args, extra):
     ]
     if len(selected) != 1:
         raise ValueError("token identity must select exactly one token-present slot")
-    slot, native_id = selected
+    slot, native_id = selected[0]
     from pkcs11_check.raw.rv import expect_rv
     from pkcs11_check.raw.types_std import CKR_OK
 
@@ -426,11 +426,11 @@ def step_checker_driver(args, extra):
     assessment = validate_results(output, nodes, installed_root)
     record["evidence"] = assessment
     write_receipt(output / "checker-receipt.json", record)
-    evidence = assessment["evidence"]
+    evidence = assessment
     return {
         "complete": evidence["complete"],
-        "passed": evidence["passed"],
-        "failed": evidence["failed"],
+        "passed": evidence["summary"]["passed"],
+        "failed": evidence["summary"]["failed"],
         "selected": len(nodes),
         "returncode": record["returncode"],
     }
@@ -1379,8 +1379,8 @@ def test_direct_checker_smoke(tmp_path, channel):
     record = json.loads((output / "checker" / "checker-receipt.json").read_text())
     assert record["evidence"]["complete"] is True, record["evidence"]
     print(
-        f"checker direct/{channel}: passed={record['evidence']['passed']} "
-        f"failed={record['evidence']['failed']}"
+        f"checker direct/{channel}: passed={record['evidence']['summary']['passed']} "
+        f"failed={record['evidence']['summary']['failed']}"
     )
 
 
@@ -1426,6 +1426,6 @@ def test_native_checker_smoke(tmp_path, channel):
     record = json.loads((out / "checker" / "checker-receipt.json").read_text())
     assert record["evidence"]["complete"] is True, record["evidence"]
     print(
-        f"checker native/{channel}: passed={record['evidence']['passed']} "
-        f"failed={record['evidence']['failed']}"
+        f"checker native/{channel}: passed={record['evidence']['summary']['passed']} "
+        f"failed={record['evidence']['summary']['failed']}"
     )
