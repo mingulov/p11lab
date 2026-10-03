@@ -233,12 +233,27 @@ def test_freehsm_declares_its_documented_nonsecret_env():
     'PKCS11_PROXY_ENDPOINT', 'LD_PRELOAD', 'PATH', 'LD_LIBRARY_PATH',
     'HOME', 'XDG_CONFIG_HOME', 'SYSTEMROOT', 'WINDIR',
     'PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP',
+    'API_TOKEN', 'ACCESS_TOKEN', 'MY_TOKEN', 'TOKEN', 'USER_PASSWORD_FILE',
+    'AUTHORIZATION', 'AUTH_MODE', 'CREDENTIALS', 'MY_CRED', 'PASSWD', 'USER_PASSWD',
+    'BASH_ENV', 'ENV', 'SHELLOPTS', 'GCONV_PATH', 'PERL5OPT', 'PERL5LIB',
+    'NODE_OPTIONS', 'NODE_PATH', 'RUBYOPT', 'TMPDIR', 'TMP', 'TEMP',
+    'USERPROFILE', 'SHELL', 'COMSPEC', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA',
+    'LOCALAPPDATA', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
     'lower', 'X-PIN', 'HAS SPACE', '9LIVES', '', 'A' * 65,
 ])
 def test_runtime_env_rejects_credential_reserved_and_malformed_names(name):
     spec = _spec_with_runtime_env([{'name': name, 'value': '1'}])
     with pytest.raises(CatalogError):
         validate_descriptor(spec)
+
+
+def test_runtime_env_token_word_boundary_preserves_pkcs11_token_names():
+    # TOKEN matches only as a whole underscore-bounded word: the reviewed
+    # PKCS#11-token directory name stays valid while auth-token aliases fail.
+    spec = _spec_with_runtime_env([{'name': 'FHSM_TOKENS_DIR', 'value': '/var/lib/p11lab/freehsm'}])
+    validate_descriptor(spec)
+    with pytest.raises(CatalogError):
+        validate_descriptor(_spec_with_runtime_env([{'name': 'API_TOKEN', 'value': '1'}]))
 
 
 @pytest.mark.parametrize('value', ['', 'has\nnewline', 'has\rcr', 'has\0nul', 'x' * 4097, 1, None, ['1']])

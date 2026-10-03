@@ -21,9 +21,16 @@ _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _LICENSE_STATUSES = {"unreviewed", "reviewed", "restricted", "missing"}
 _RUNTIME_ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]{0,63}\Z")
-_RUNTIME_ENV_DENIED_SUBSTRINGS = ("PIN", "SECRET", "PASSWORD", "PRIVATE", "KEY")
-_RUNTIME_ENV_RESERVED_NAMES = {"PATH", "LD_LIBRARY_PATH", "SYSTEMROOT", "WINDIR", "HOME", "XDG_CONFIG_HOME"}
-_RUNTIME_ENV_RESERVED_PREFIXES = ("P11LAB_", "P11TEST_", "PYTEST_", "PKCS11_", "LD_", "PYTHON")
+_RUNTIME_ENV_DENIED_SUBSTRINGS = ("PIN", "SECRET", "PASSWORD", "PRIVATE", "KEY", "PASSWD", "AUTH", "CRED")
+# Whole-word credential terms: bounded by underscores or name ends, so the
+# reviewed PKCS#11-token directory name FHSM_TOKENS_DIR keeps validating
+# while API_TOKEN-style aliases are rejected.
+_RUNTIME_ENV_DENIED_WORDS = tuple(re.compile(r"(^|_)%s(_|$)" % word) for word in ("TOKEN",))
+_RUNTIME_ENV_RESERVED_NAMES = {"PATH", "LD_LIBRARY_PATH", "SYSTEMROOT", "WINDIR", "HOME", "XDG_CONFIG_HOME",
+                               "ENV", "SHELLOPTS", "USERPROFILE", "SHELL", "COMSPEC",
+                               "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA"}
+_RUNTIME_ENV_RESERVED_PREFIXES = ("P11LAB_", "P11TEST_", "PYTEST_", "PKCS11_", "LD_", "PYTHON",
+                                  "TMP", "TEMP", "BASH_", "PERL", "NODE_", "RUBY", "GCONV", "XDG_")
 
 
 def _require(condition, message):
@@ -161,6 +168,8 @@ def validate_runtime_env(entries) -> None:
         _require(isinstance(name, str) and _RUNTIME_ENV_NAME.fullmatch(name),
                  "runtime_env name must match [A-Z][A-Z0-9_]{0,63}")
         _require(not any(part in name for part in _RUNTIME_ENV_DENIED_SUBSTRINGS),
+                 "runtime_env name resembles a credential and cannot be declared")
+        _require(not any(pattern.search(name) for pattern in _RUNTIME_ENV_DENIED_WORDS),
                  "runtime_env name resembles a credential and cannot be declared")
         _require(name not in _RUNTIME_ENV_RESERVED_NAMES
                  and not name.startswith(_RUNTIME_ENV_RESERVED_PREFIXES),
