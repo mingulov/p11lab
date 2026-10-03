@@ -26,6 +26,10 @@ _RUNTIME_ENV_DENIED_SUBSTRINGS = ("PIN", "SECRET", "PASSWORD", "PRIVATE", "KEY",
 # reviewed PKCS#11-token directory name FHSM_TOKENS_DIR keeps validating
 # while API_TOKEN-style aliases are rejected.
 _RUNTIME_ENV_DENIED_WORDS = tuple(re.compile(r"(^|_)%s(_|$)" % word) for word in ("TOKEN",))
+# Reviewed native PKCS#11 storage controls can contain the word TOKEN. Bind
+# each exception to its exact non-secret managed directory, so this does not
+# admit authentication-token aliases or arbitrary values under that name.
+_RUNTIME_ENV_TOKEN_STORES = {"WOLFPKCS11_TOKEN_PATH": "/var/lib/p11lab/wolfpkcs11"}
 _RUNTIME_ENV_RESERVED_NAMES = {"PATH", "LD_LIBRARY_PATH", "SYSTEMROOT", "WINDIR", "HOME", "XDG_CONFIG_HOME",
                                "ENV", "SHELLOPTS", "USERPROFILE", "SHELL", "COMSPEC",
                                "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA"}
@@ -174,7 +178,8 @@ def validate_runtime_env(entries) -> None:
                  "runtime_env name must match [A-Z][A-Z0-9_]{0,63}")
         _require(not any(part in name for part in _RUNTIME_ENV_DENIED_SUBSTRINGS),
                  "runtime_env name resembles a credential and cannot be declared")
-        _require(not any(pattern.search(name) for pattern in _RUNTIME_ENV_DENIED_WORDS),
+        _require(_RUNTIME_ENV_TOKEN_STORES.get(name) == entry["value"]
+                 or not any(pattern.search(name) for pattern in _RUNTIME_ENV_DENIED_WORDS),
                  "runtime_env name resembles a credential and cannot be declared")
         _require(name not in _RUNTIME_ENV_RESERVED_NAMES
                  and not name.startswith(_RUNTIME_ENV_RESERVED_PREFIXES),

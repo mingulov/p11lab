@@ -112,3 +112,146 @@ Neither the simulator's narrow observations nor lifecycle tests qualify
 Cryptech hardware or certify PKCS#11 behavior. Actual runtime/layer rights,
 source delivery, optional derivatives and public distribution have separate
 unmet gates.
+
+## M6: wolfPKCS11 release and rolling software tokens
+
+| Channel | Recipe | Local usability | Application qualification | Distribution |
+| --- | --- | --- | --- | --- |
+| release | wolfPKCS11 `v2.1.0-stable` plus wolfSSL `v5.9.2-stable`, exact revisions below | Native caller-PIN initialization, persistent file store, arbitrary application argv | Bounded P-256, persistent reopen, installed checker smoke and preferred proxy application lanes | Unreviewed; source-companion and actual-content admission required |
+| rolling | Frozen wolfPKCS11 master plus its separately frozen wolfSSL master pairing | Same persistent runtime contract, independently built image | Same bounded lanes against this exact pair | Unreviewed; GPLv3 grants exist, distribution admission is separate |
+
+Build either local candidate with
+`p11lab build wolfpkcs11 --channel release --output-dir NEW_DIRECTORY` or
+`p11lab build wolfpkcs11 --channel rolling --output-dir NEW_DIRECTORY`.
+Each output retains both original source archives, resolved source/license
+evidence, the sealed build context, package/index readbacks, local Docker engine
+image identity and measured size. Compilation uses `make -j2` without network
+access. Builds and local tests do not authorize publishing these images.
+
+## Appendix: wolfPKCS11
+
+The module is `/usr/local/lib/p11lab/libwolfpkcs11.so` on Linux amd64 with
+Debian 13 glibc 2.41. It dynamically links the matching wolfSSL library shipped
+at `/opt/wolfssl/lib`; installed `ldd` records identify the actual SONAME and
+remaining libc/libm closure. The basic runtime contains the module, its library
+closure, a small libc/dl lifecycle helper and notices. It contains no checker,
+Python, compiler, OpenSC/pkcs11-tool, tracing, upstream examples or datasets.
+Optional consumer, installed checker and provider-plus-proxy derivatives are
+separate artifacts. Direct applications load the native module in their own
+process. Remote applications require the compatible `pkcs11-proxy-ng` daemon and
+`libpkcs11_proxy_ng_shim.so` client; a shared network alone is insufficient.
+
+| Channel | [wolfPKCS11](https://github.com/wolfSSL/wolfPKCS11) | [wolfSSL](https://github.com/wolfSSL/wolfssl) | Pairing basis |
+| --- | --- | --- | --- |
+| release | `caeaaa5693ad7b4253d6bc585e642381033a6a87` (`v2.1.0-stable`) | `ac01707f552c611fbd135cc723b2682b3e7f80f2` (`v5.9.2-stable`) | Reference software-token stable pairing, verified and built |
+| rolling | `15691bd6accf45cad54b44eb07839e08c11b50fc` | `2411aae3f74d0fc6ccb09d3d6dfdc69e7b32c632` | Upstream default-branch CI pairing, frozen on acquisition and tested with the pinned module |
+
+Branch and tag names explain acquisition; full revisions and archive SHA-256
+values in the channel locks control subsequent builds. No provider patches are
+applied. Both locks use the shared multi-source resolver: wolfPKCS11 is the
+primary source, wolfSSL is a named dependency, each has its own sealed archive,
+and the resolved roster must match the locked roster. Debian base image,
+packages, source-package archives, signed snapshot indexes, toolchain and recipe
+assets are also pinned. Frozen inputs do not assert byte-identical rebuilds;
+token seeds and generated keys are intentionally random.
+
+Every reference software-token crypto flag is kept on both channels:
+
+| Component | Flags | Verdict and reason |
+| --- | --- | --- |
+| wolfSSL | `--enable-shared --disable-static` | Keep a dynamic, replaceable runtime closure; omit static archives from runtime |
+| wolfSSL | `--enable-aescfb` | Keep the reference's AES-CFB support; no broad CFB qualification claim |
+| wolfSSL | `--enable-aesccm --enable-aesctr --enable-aescts --enable-aesecb --enable-aeskeywrap` | Keep backing implementations for the corresponding module mechanisms |
+| wolfSSL | `--enable-cmac --enable-cryptocb` | Keep AES-CMAC and upstream crypto-callback support |
+| wolfSSL | `--enable-hkdf --enable-keygen` | Keep derivation and RSA/EC key generation coverage |
+| wolfSSL | `--enable-pwdbased --enable-scrypt` | Keep password/PIN derivation and reference prerequisites |
+| wolfSSL | `--enable-rsapss --enable-sha3` | Keep RSA-PSS and SHA-3 coverage |
+| wolfSSL | `-DWOLFSSL_PUBLIC_MP -DWC_RSA_DIRECT` in `C_EXTRA_FLAGS` | Keep public multiprecision and direct RSA interfaces used by the module |
+| wolfSSL | `-DHAVE_AES_ECB -DHAVE_AES_KEYWRAP` in `C_EXTRA_FLAGS` | Keep the reference's explicit compatibility defines along with configure selections |
+| wolfPKCS11 | `--enable-aeskeywrap --enable-aesctr --enable-aesccm --enable-aesecb --enable-aescts` | Keep advertised wrap, CTR, CCM, ECB and CTS module paths |
+| wolfPKCS11 | `--enable-aescmac --enable-pbkdf2` | Keep AES-CMAC and PBKDF2 module paths |
+
+Only installation prefixes change: wolfSSL uses `/opt/wolfssl`, wolfPKCS11 uses
+`/opt/wolfpkcs11` in the builder. `PKG_CONFIG_PATH` and `LD_LIBRARY_PATH` select
+that wolfSSL installation; this module's Autotools build additionally needs
+`CPPFLAGS=-I/opt/wolfssl/include` and `LDFLAGS=-L/opt/wolfssl/lib`. The module
+recipe explicitly selects shared libraries and excludes static ones. The
+non-PQC selection adds `--disable-mldsa --disable-mlkem` to wolfSSL because its
+SHA-3 configuration can enable ML-KEM by default, and adds
+`--disable-pkcs11v32 --disable-mldsa --disable-mlkem` to wolfPKCS11. The optional
+reference PQC enable flags are excluded; no advertised non-PQC mechanism is
+removed to obtain a passing report.
+
+Caller-selected SO and user PINs are supported through native `C_InitToken`,
+`C_Login(CKU_SO)` and `C_InitPIN`. The helper also proves user login during
+initialization. Token state is created at runtime with caller PINs and a
+selectable label. First `init` requires `P11LAB_PIN_FILE` and `P11LAB_SO_PIN_FILE`, or the shared
+scalar equivalents. Use private files where possible. Each PIN is 4–32 bytes
+after the common single-line parser removes one optional trailing LF; empty,
+multiline, NUL, oversized and conflicting scalar/file inputs fail before owned
+state is created. Scalars are unexported before child commands; provisioning
+receives PINs through inherited anonymous pipes. Logs, receipts and completion
+markers contain no PIN bytes or their hashes. Caller-selected credentials
+reopen on both channels; the reference's default PINs fail with native
+`CKR_PIN_INCORRECT` (`0xA0`). Native slot ID is `1`, token-present index is `0`.
+`P11LAB_LABEL` defaults to `P11Lab` and permits 1–32 ASCII letters, digits,
+spaces, dot, underscore or hyphen.
+
+The managed state mount is `/var/lib/p11lab`; the adapter sets
+`WOLFPKCS11_TOKEN_PATH=/var/lib/p11lab/wolfpkcs11` and rejects conflicting
+overrides. Raw native consumers must set their own independent directory;
+without the override, upstream falls back to `$HOME/.wolfPKCS11` on this
+platform. The store contains `wp11_token_0000000000000001` and native
+`wp11_obj`, symmetric/RSA/EC/DH key, certificate/trust/data companion files
+with the same slot suffix and 16-hex object index. Fresh metadata is 204 bytes;
+object type entries extend it by eight bytes each. Upstream uses temporary
+`wp11_tmp_*` files and replacement for individual file writes. This does not
+qualify cross-file transactions, concurrent processes or crash durability.
+
+`init` requires an empty caller-owned directory, takes `.init-lock`, provisions
+the token through the module and writes an exact non-secret completion marker
+only after success. Compatible repeated initialization validates existing state
+and preserves its PINs even if supplied PIN files change. `health` first
+checks ownership, private file modes, links, allowed filenames, exact marker
+bytes and bounded native metadata framing, then opens/finalizes the real module
+and checks token flags, label and PIN limits. It checks lifecycle and metadata
+readiness; application login and cryptographic verification are separate.
+`exec -- ARGV...` performs readiness and preserves arbitrary argv and exit status.
+Partial, corrupt, linked, foreign-owned, occupied or mismatched state is retained
+and refused. Direct calls to the provisioning helper refuse an initialized token.
+
+Directories use `0700` and files `0600`. Serialize all consumers of one store,
+including readiness opens; independent shards and clients need independent
+directories/processes. Applications should close sessions, finalize the module
+and stop all processes before reset. Reset is explicit caller removal/replacement
+of the entire owned state directory/volume. There is no silent reset or service
+to supervise and no provider `server`/`server-ready` operation.
+
+Both repositories are GPLv3-or-commercial. P11Lab relies on the GPLv3 grant
+and holds no commercial license. Their source/header notices also preserve
+GPLv3-or-later wording. The wolfSSL `LICENSING` listed-software GPLv2 alternative
+is not used. The original Apache-2.0 provisioning source does not relicense the
+upstream GPL header or combined executable. Matching Corresponding Source,
+used headers, generated configuration, build/install instructions and notices
+are required for applicable GPL distribution. Bundled LibTomMath/TomsFastMath,
+ChaCha and Poly1305 attributions, architecture assembly notices, conservative
+source comment notices and complete GPL texts are retained. Source archives
+also contain test/certificate/key bundles with separate review needs; those
+tools/data are excluded from the runtime payload. See
+[FILE-NOTICES.txt](../src/p11lab/data/providers/wolfpkcs11/FILE-NOTICES.txt).
+The actual image layers, Debian/compiler runtime content, source-companion
+admission and digest-bound source delivery remain distinct unfinished gates.
+
+The reference also has TPM/fwTPM and ASAN/UBSAN Dockerfiles. Those are excluded,
+as are PQC/PKCS#11 v3.2, FIPS and hardware assurance. Local qualification is
+bounded to lifecycle, caller-PIN behavior, P-256 generation/signing and persistent
+key reopen with an independent positive/altered-message oracle, installed
+23-node checker smoke and a compatible preferred-proxy application lane.
+Mechanism-list checks establish presence only. Remaining RSA/AES/HMAC/KDF/digest
+mechanisms, key import variants, multiple simultaneous clients, crashes, wider
+checker matrices, proxy-host checker, other architectures/libcs and hardware
+remain unqualified. Each installed checker smoke completed 23 observations:
+20 passed, two v3.2 checks skipped, and empty-input SHA-256 was classified as an
+expected failure after native `CKR_ARGUMENTS_BAD`. This finding is retained
+without changing provider behavior. None of these checks supplies provider-wide
+certification or public-distribution approval.

@@ -257,6 +257,26 @@ def test_runtime_env_token_word_boundary_preserves_pkcs11_token_names():
         validate_descriptor(_spec_with_runtime_env([{'name': 'API_TOKEN', 'value': '1'}]))
 
 
+def test_runtime_env_accepts_reviewed_native_token_store():
+    # Repro: TOKEN's credential-word check rejected this required non-secret
+    # file-store directory, preventing checker env restoration after scrubbing.
+    validate_descriptor(_spec_with_runtime_env([
+        {'name': 'WOLFPKCS11_TOKEN_PATH', 'value': '/var/lib/p11lab/wolfpkcs11'},
+    ]))
+
+
+@pytest.mark.parametrize('name,value', [
+    ('WOLFPKCS11_TOKEN_PATH', 'credential-value'),
+    ('WOLFPKCS11_TOKEN_PATH', '/var/lib/p11lab/wolfpkcs11/../secrets'),
+    ('API_TOKEN', '/var/lib/p11lab/wolfpkcs11'),
+    ('ACCESS_TOKEN_PATH', '/var/lib/p11lab/wolfpkcs11'),
+    ('UNREVIEWED_TOKEN_PATH', '/var/lib/p11lab/wolfpkcs11'),
+])
+def test_runtime_env_token_store_exception_preserves_credential_rejection(name, value):
+    with pytest.raises(CatalogError):
+        validate_descriptor(_spec_with_runtime_env([{'name': name, 'value': value}]))
+
+
 @pytest.mark.parametrize('value', ['', 'has\nnewline', 'has\rcr', 'has\0nul', 'x' * 4097, 1, None, ['1']])
 def test_runtime_env_rejects_bad_values(value):
     spec = _spec_with_runtime_env([{'name': 'FHSM_EXAMPLE', 'value': value}])

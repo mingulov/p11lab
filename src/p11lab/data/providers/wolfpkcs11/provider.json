@@ -24,47 +24,46 @@
     "P11LAB_SO_PIN_FILE": {
       "secret": true,
       "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
     }
   },
   "services": [],
   "channels": {
-    "rolling": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/wolfSSL/wolfPKCS11.git",
-        "selector": {
-          "kind": "branch",
-          "value": "master"
-        },
-        "license_status": "unreviewed",
-        "revision": "15691bd6accf45cad54b44eb07839e08c11b50fc",
-        "license_observation": "GPL-3.0 or separate commercial terms"
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
-    },
     "release": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/wolfSSL/wolfPKCS11.git",
-        "selector": {
-          "kind": "tag",
-          "value": "v2.1.0-stable"
-        },
-        "license_status": "unreviewed",
-        "revision": "caeaaa5693ad7b4253d6bc585e642381033a6a87",
-        "license_observation": "GPL-3.0 or separate commercial terms"
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "release.lock.json"
+    },
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
     }
   },
   "application_profile": "general-token",
   "distribution": {
     "status": "unreviewed",
-    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+    "reason": "GPLv3 grants present for both repositories. Actual-image/layer licensing, corresponding-source companion and digest-bound source delivery have not completed admission; no commercial license or publication authorization."
   },
   "constraints": [
-    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+    "Linux amd64/glibc 2.41 software token, unpatched. Each channel freezes wolfPKCS11 plus its own wolfSSL pairing and ships the dynamically linked /opt/wolfssl/lib closure. No PQC/PKCS#11 v3.2, TPM, ASAN/UBSAN or FIPS variant or assurance claim.",
+    "Bind caller-owned writable /var/lib/p11lab; init creates private wolfpkcs11/complete plus native wp11_token_0000000000000001. Object/key files use native wp11_*_0000000000000001_<16-hex-index> names. Native slot 1 is token-present index 0.",
+    "Caller-selected SO/user PINs are provisioned by native C_InitToken, C_Login(CKU_SO), C_InitPIN. First init requires both secrets: 4..32 bytes after common single-line parsing, never baked into the image. PIN files are preferred; scalars are supported by the shared contract. Adapter-created child commands receive credentials only through private inherited pipes, not argv, logs, receipts or markers.",
+    "P11LAB_LABEL defaults to P11Lab and accepts 1..32 ASCII letters/digits/spaces/dot/underscore/hyphen. Managed WOLFPKCS11_TOKEN_PATH is /var/lib/p11lab/wolfpkcs11; a conflicting override fails before native loading. Raw module users must set their own independent store directory.",
+    "Repeated compatible init validates existing state and does not change credentials, including when supplied PIN files change. Scalar/file conflicts still fail. No silent reset, recovery or retry: partial/foreign/linked/busy/unknown state is retained and refused.",
+    "Owned directories/files are 0700/0600. Readiness checks exact marker bytes, native metadata framing/label/PIN-set flags and file ownership before real C_Initialize/C_GetTokenInfo/C_Finalize. It is metadata/lifecycle readiness; applications authenticate and independently verify crypto.",
+    "exec -- preserves arbitrary argv and exit status after readiness. No provider server/server-ready operation: the module runs in the caller process. Close/finalize and stop all consumers before an explicit caller-owned volume/directory reset.",
+    "Serialize readers/writers of each file store, including readiness. Independent clients and shards require independent processes/directories. Upstream file replacement is not cross-file transaction, multi-process isolation or crash-durability qualification.",
+    "The small basic runtime contains no checker, Python, compiler, test datasets, tracing, OpenSC/pkcs11-tool or upstream example utilities. Optional installed checker/consumer/proxy derivatives are separate. Remote use requires the compatible pinned proxy daemon/client module and its documented isolation limits.",
+    "P-256 generation/signing, persistent key reopen, independent signature verification with altered-message rejection and bounded installed checker/proxy application lanes are qualification targets, not provider-wide certification. Other advertised mechanisms and concurrent/crash/hardware/platform surfaces remain unqualified.",
+    "P11Lab selects GPLv3 for wolfPKCS11, wolfSSL and the combined provisioning helper; original adapter sources retain Apache-2.0. Preserve per-file third-party notices and matching corresponding sources/build instructions. Whole-image/runtime base/source-companion/public delivery and optional-derivative rights remain separate unmet distribution gates."
+  ],
+  "runtime_env": [
+    {
+      "name": "WOLFPKCS11_TOKEN_PATH",
+      "value": "/var/lib/p11lab/wolfpkcs11"
+    }
   ]
 }
