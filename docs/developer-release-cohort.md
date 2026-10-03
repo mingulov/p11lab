@@ -705,3 +705,149 @@ library notices and actual layers must be preserved and assessed for each
 artifact. See [FILE-NOTICES.txt](../src/p11lab/data/providers/opencryptoki/FILE-NOTICES.txt).
 Admission stays blocked pending whole-content review and digest-bound source
 companions/distributor delivery; an SBOM or smoke success does not complete it.
+
+## M6: NetHSM release and rolling module with frozen local server
+
+| Channel | Frozen module source | Runtime contract | Application qualification | Distribution |
+| --- | --- | --- | --- | --- |
+| release | `v3.0.0`, `fb3f448df6033a6406c9dc034ea729e930fc5fdc` | Co-located supervised keyfender/etcd, persistent state, amd64/musl | `general-token` falsified by native public-handle cleanup; persistent P-256 assessed separately | BLOCKED: frozen server bytes have no verified source companion or complete notices |
+| rolling | `main`, `49d0a21a83c031ad35f127f21db34de5116d5040` | Same frozen server and musl platform; distinct module source/artifact | Same native profile limitation, without error normalization | Same independent binary/source/license blocks |
+
+The release selector is an annotated tag: tag object
+`a59ef5ef3e8356fb06cbef5e8dd9b01c38abe0c3` peels to the recorded release commit.
+Both module sources retain Apache-2.0. There are no upstream patches. The
+server input and module channel are separate identities: neither module
+channel promises a released, source-built or hardware-qualified server.
+
+The existing shared build gate expects the base package roster to equal the
+runtime roster. This recipe records the actual 16-package Alpine base,
+27-package runtime and 69-package builder separately; the gate cannot issue a
+successful artifact receipt for that difference. Its Debian/glibc installed
+checker recipe and pinned wheel set also require a compatible musl counterpart.
+These limitations belong to the shared components. Do not replace actual
+inventories, relabel glibc bytes or interpret a missing lane as qualification.
+
+The separate preferred-proxy derivative uses a musl daemon built from the
+frozen shared proxy revision and crate lock. A static musl CLI supplies the
+same verified bytes to the Alpine daemon image and the glibc client bundle;
+the loadable client shim retains its frozen glibc build. Each build's source,
+toolchain and binary identity is recorded separately. This composition keeps
+the shared component-identity checks and lets a compatible glibc application
+use the co-located musl provider remotely. It does not qualify additional
+architectures, proxy versions or clients.
+
+### Appendix: NetHSM input, platform, credential and lifecycle boundary
+
+**Frozen binary server input.** The input is
+`nitrokey/nethsm@sha256:4c9cf630aab7d4b9a76c7247844635d3dd1b78c34ff4fd473115cc59419f6e9b`.
+Observed banners identify keyfender/NetHSM 5.0 (`fc28f32`) and etcd 3.6.13
+(`b0f9ef1`, built with Go 1.25.11). Its matching-name source is observed at
+NetHSM `fc28f323319e34edc680197da1991b477fe199ab` and etcd
+`b0f9ef190952e6e66a778513097a02ee41220727`; version/digest agreement does not
+verify a complete source/build attestation. No upstream signing attestation
+was observed in this acquisition. All 11 upstream image layers were inventoried;
+none contains a license or notice file. Observed source EUPL-1.2, etcd
+Apache-2.0 and Go BSD-style notices are supplied separately and explicitly
+remain an incomplete binary notice/source closure.
+
+Only unchanged `keyfender.unix` and `etcd` bytes are copied into a clean,
+digest-pinned Alpine parent. No upstream image layer, `/start.sh`, shell
+provisioning default, TAP/debug/performance utility, initialized token or caller
+credential is inherited. Observed certificate files are the public CA bundle
+and its aliases; the NetHSM TLS identity is created at runtime. The binary's
+compiled dummy platform device-key and failed-unlock fallbacks remain. They
+prevent a complete no-embedded-credential or production-security claim and are
+an additional distribution-review block. The software platform is declared
+simulated; this does not qualify Nitrokey hardware or HSM security.
+
+**Musl platform exception.** Direct applications load
+`/usr/local/lib/p11lab/libnethsm_pkcs11.so` on Linux amd64/musl with loader
+`/lib/ld-musl-x86_64.so.1`. The clean parent is Alpine 3.24.1, with BusyBox and
+APK tooling rather than Debian/glibc tools. A glibc application/daemon/extension
+cannot be copied into this runtime as if its dependency closure were compatible.
+Separate proxy clients can use their own declared platform.
+
+The musl Rust 1.98.1 toolchain is digest-pinned. Both upstream Cargo locks are
+byte-identical; all 215 registry archives are pinned by their original lock
+checksums and independently verified. The build reconstructs a sealed directory
+source, then runs `cargo build --locked --offline --release --jobs 2` with
+`RUSTFLAGS=-C target-feature=-crt-static`. Default features are retained and no
+extra Cargo features are enabled. The module links musl libc only and uses
+rustls/ring; the reference's `OPENSSL_STATIC` setting does not link OpenSSL in
+these revisions. The separate HTTPS API helper uses dynamic libcurl and its
+pinned Alpine OpenSSL 3.5.9 dependency. Its observed source revision and
+archive hash are retained without claiming an equivalent Alpine rebuild.
+
+**Credentials and native behavior.** First initialization requires the caller's
+operator PIN and administrator SO input. Both use 10..200 printable ASCII
+characters; input files follow the shared single-line secret contract. Native
+API validation proves those passphrase bounds. `C_InitToken` and `C_InitPIN`
+return native `0x54`, so provisioning explicitly calls `/provision` and creates
+the Operator through `/users/operator`. Secrets travel through private stdin
+pipes and in-memory HTTPS requests, never service argv or completion markers.
+The unlock passphrase is independently generated at runtime. Loopback HTTPS
+skips TLS peer verification on both the module (`danger_insecure_cert`) and the
+supervisor; the 127.0.0.1-only binding is the transport boundary, not
+certificate authentication.
+
+`nethsm/admin`, `nethsm/unlock` and `nethsm/p11nethsm.conf` are private mode-0600
+state. The module config includes operator username but no operator password;
+the application's `C_Login` supplies the PIN. It includes the administrator
+password because native key generation automatically uses administrator access.
+Removing that access yields native `C_GenerateKeyPair=0x06`. Applications able
+to read this config have administrator authority, including native import,
+deletion and administrative operations; an operator login does not isolate them
+from that configured authority. A wrong operator PIN returns native `0x103`.
+Failed authentication can cause native rate limiting. The adapter adds no retry,
+PIN replacement, error translation or provider semantic patch.
+
+**Readiness, supervision and reset.** Supply caller-owned mode-0700 writable
+`/var/lib/p11lab` and a private mode-0700 `/run/p11lab`. Each shard/client owns
+its own volume, container, PID namespace and network namespace. No host/shared
+networking or TAP capability is needed. Both keyfender listeners (8080/8443)
+and both etcd listeners (2379/2380) bind to `127.0.0.1`; the module talks HTTPS
+to `127.0.0.1:8443/api/v1`. No external server endpoint is part of this contract.
+
+`init`, `health` and `exec -- ARGV...` use the same C supervisor. It holds the
+volume lease and private service-control lock, starts direct native children,
+waits for actual API state, and checks native slot 0/token-present index 0,
+initialized flags and exact token label before executing an application.
+Startup is bounded; each service log sink stores at most 64 KiB and drains
+excess without changing native service state. Required-service death fails the
+operation and terminates the application. Signal forwarding, bounded TERM/KILL
+escalation and subreaper adoption/reaping clean up owned child processes.
+The preferred proxy daemon uses the same supervised `exec` lifetime, so a
+separate permanent `server`/`server-ready` API is unnecessary.
+
+Repeated compatible init preserves existing PINs and keys and ignores changed
+input credential files. Static checks reject a busy `.init-lock`, incompatible
+exact-byte marker/config, foreign or hidden entries, unsafe links/hardlinks,
+changed ownership/modes and missing/invalid etcd data before a native launch.
+Clean restart unlocks an existing Locked server with its stored generated
+passphrase; an Unprovisioned server behind a completion marker is refused.
+Failed initialization retains partial state. Reset requires stopping all users
+and explicitly replacing/removing disposable caller state; no automatic reset
+or state-changing retry occurs.
+
+An etcd `SIGKILL` can leave its native `0.tmp` WAL preallocation. Static
+validation refuses that partial state without changing it. The service-death
+check proves failure propagation and process cleanup, not crash recovery.
+Clean shutdown/restart is the supported persistence path.
+
+**Qualification limits.** The unchanged generated-key smoke preserves
+`C_DestroyObject(public cleanup)=0x60` after private-key deletion invalidates the
+public alias; `general-token` is falsified. Restricted persistent P-256
+generation/signing is checked separately with original-message verification and
+altered-message rejection. Those narrower observations do not qualify session
+object semantics, wider mechanisms, concurrent clients, crash/power-loss
+recovery, other architectures/libcs or hardware/security properties. Optional
+checker/consumer/proxy artifacts have separate provenance and admission. The
+basic runtime contains none of their Python, checker, dataset, compiler or
+tracing dependencies.
+
+Server bytes have no verified complete source companion. Alpine packages,
+Rust incorporated runtime, OCaml/Go/server closure, embedded data, per-file
+notices, corresponding-source/relinking obligations and anonymous source-first
+delivery still require review. See
+[FILE-NOTICES.txt](../src/p11lab/data/providers/nethsm/FILE-NOTICES.txt).
+Distribution remains blocked independently of local runtime or crypto results.

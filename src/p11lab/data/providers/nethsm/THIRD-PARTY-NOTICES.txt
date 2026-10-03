@@ -1,0 +1,23 @@
+P11Lab NetHSM local candidate - partial third-party notices
+
+Original P11Lab material is Apache-2.0. NetHSM PKCS#11 source retains Apache-2.0;
+its exact LICENSE and crate license/notice files are preserved under
+/usr/share/licenses/nethsm. Crates retain their per-file grants and exceptions.
+
+Observed matching-name/version upstream source notices for NetHSM/keyfender
+(EUPL-1.2), etcd (Apache-2.0) and Go (BSD-style) are preserved under
+/usr/share/licenses/nethsm/observed-server-sources. They were acquired separately
+because the frozen upstream image contains no license or notice files. They
+are not a verified complete notice/source closure for its binary bytes.
+
+The clean Alpine base and pinned APK additions retain their own licenses.
+apk-lock.json records observed package origin/version/license declarations and
+binary archive hashes; declarations are not a whole-image legal review.
+The module uses rustls/ring. Dynamic OpenSSL is used by libcurl in the API
+supervisor, not statically incorporated by the PKCS#11 module. Its package
+identity and supporting source observation are recorded separately.
+
+See FILE-NOTICES.txt and SOURCE-ACCESS.md. Missing upstream notices, unverified
+server/OCaml/Go source closure, embedded demo platform fallbacks and incomplete
+Alpine/Rust content/source admission block distribution. No whole-image Apache
+license, hardware-security qualification or public distribution is asserted.

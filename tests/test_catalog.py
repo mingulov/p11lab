@@ -27,7 +27,7 @@ def test_full_cohort_has_distinct_module_and_backend_dispositions():
         validate_descriptor(spec)
         assert spec['module_implementation']['name']
         assert spec['backend']['name']
-        expected_admission = 'blocked' if spec['id'] == 'cryptech' else 'unreviewed'
+        expected_admission = 'blocked' if spec['id'] in ('cryptech', 'nethsm') else 'unreviewed'
         assert spec['distribution']['status'] == expected_admission
         assert set(spec['channels']) == {'release', 'rolling'}
     by_id = {s['id']: s for s in entries}

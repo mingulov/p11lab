@@ -1,0 +1,2 @@
+ea1722957448032530273eeae1a584416cad4ed367f0a0816c338dc034a22d57 main-APKINDEX.tar.gz https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/APKINDEX.tar.gz
+3dac0b62d8e4dfc0363faa134d65ac8256054be388570eeec4021671a8e7d48b community-APKINDEX.tar.gz https://dl-cdn.alpinelinux.org/alpine/v3.24/community/x86_64/APKINDEX.tar.gz

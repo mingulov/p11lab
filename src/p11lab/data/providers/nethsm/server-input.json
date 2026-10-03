@@ -1,0 +1,60 @@
+{
+  "image": "nitrokey/nethsm@sha256:4c9cf630aab7d4b9a76c7247844635d3dd1b78c34ff4fd473115cc59419f6e9b",
+  "keyfender": {
+    "banner_version": "5.0",
+    "banner_revision": "fc28f32",
+    "matching_source_revision": "fc28f323319e34edc680197da1991b477fe199ab",
+    "source_license": "EUPL-1.2",
+    "binary_source_closure": "unverified",
+    "embedded_platform_fallbacks": [
+      "all-zero device key",
+      "known failed-unlock digest sentinel; not the initialized admin/operator passphrase"
+    ]
+  },
+  "etcd": {
+    "version": "3.6.13",
+    "git_sha_banner": "b0f9ef1",
+    "go_version": "go1.25.11",
+    "binary_source_closure": "unverified"
+  },
+  "base_alpine": "3.24.1",
+  "image_license_files_present": 0,
+  "source_license_sha256": "6fc9e709ccbfe0d77fbffa2427a983282be2eb88e47b1cdb49f21a83b4d1e665",
+  "server_input_decision": "frozen binary input; copy required binaries only to clean pinned Alpine",
+  "distribution": "blocked: no verified complete server source companion, no upstream in-image notices, embedded demo platform fallbacks, unreviewed OCaml/Go and package closure",
+  "observed_layer_inventory_sha256": "65f3f0adacf12ff79583a270fd5ac9782eb027a96ebdf0253c2278f1e2359dae",
+  "observed_layers": 11,
+  "observed_entries": 804,
+  "copied_binaries": [
+    {
+      "path": "bin/etcd",
+      "sha256": "1db4d5116493fa3cfdaf799444a9553905d2372156fa86838617fcb092e9811f",
+      "size": 26661048,
+      "mode": "0o755"
+    },
+    {
+      "path": "keyfender.unix",
+      "sha256": "21104983e392da1c2ebd4f9d532f6eb7df861b40fe64d4e6b6d42f0fa29a63c2",
+      "size": 49889936,
+      "mode": "0o755"
+    }
+  ],
+  "observed_certificate_or_key_paths": [
+    {
+      "path": "etc/ssl/cert.pem",
+      "type": "2",
+      "size": 0
+    },
+    {
+      "path": "etc/ssl/certs/ca-certificates.crt",
+      "type": "0",
+      "size": 179359
+    },
+    {
+      "path": "etc/ssl1.1/cert.pem",
+      "type": "2",
+      "size": 0
+    }
+  ],
+  "state_observation": "No initialized /data state or caller admin/operator credentials found; upstream shell defaults are excluded by clean-parent copying. Binary contains compiled dummy platform fallbacks; their complete incorporation cannot be removed or source-admitted in the frozen-binary model."
+}
