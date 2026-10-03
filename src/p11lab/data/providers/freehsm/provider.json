@@ -16,6 +16,11 @@
   ],
   "state_mode": "persistent",
   "module_path": "/usr/local/lib/p11lab/libfreehsm.so",
+  "runtime_env": [
+    {"name": "FHSM_TOKENS_DIR", "value": "/var/lib/p11lab/freehsm"},
+    {"name": "FHSM_INTEGRITY_ALLOW_UNSIGNED", "value": "1"},
+    {"name": "FHSM_KAT_ALLOW_FAIL", "value": "1"}
+  ],
   "inputs": {
     "P11LAB_PIN_FILE": {
       "secret": true,

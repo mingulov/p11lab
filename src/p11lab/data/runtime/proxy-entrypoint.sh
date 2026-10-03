@@ -25,15 +25,13 @@ case "${1-}" in
         case "$2" in /*) ;; *) p11lab_proxy_die "daemon config must be an absolute path" ;; esac
         [ -f "$2" ] && [ ! -L "$2" ] && [ -r "$2" ] || p11lab_proxy_die "daemon config is not a readable regular file"
         p11lab_proxy_server_material
-        # Provider configuration mirrors p11lab-provider configure(): the daemon
-        # loads the provider in-process, so SOFTHSM2_CONF must exist here.
-        control=/run/p11lab
-        [ ! -L "$control/softhsm2.conf" ] || p11lab_proxy_die "configuration cannot be a symlink"
-        mkdir -p -- "$control" || p11lab_proxy_die "cannot create control directory"
-        printf '%s\n' "directories.tokendir = /var/lib/p11lab/softhsm2/tokens" 'objectstore.backend = file' 'log.level = ERROR' 'slots.removable = false' > "$control/daemon-config.$$"
-        mv -f -- "$control/daemon-config.$$" "$control/softhsm2.conf"
-        export SOFTHSM2_CONF=$control/softhsm2.conf
-        exec /usr/local/bin/pkcs11-proxy-ng "$2"
+        # Provider configuration is owned by the provider adapter: launching
+        # the daemon through `p11lab-provider exec` applies the exact same
+        # generated controls and environment as every other lifecycle phase
+        # (SoftHSM writes its softhsm2.conf there; NSS writes its params
+        # file; FreeHSM exports FHSM_*), for every present and future
+        # provider. No provider-specific configuration lives in this script.
+        exec /usr/local/bin/p11lab-provider exec -- /usr/local/bin/pkcs11-proxy-ng "$2"
         ;;
     cli)
         shift

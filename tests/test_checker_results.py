@@ -299,3 +299,88 @@ def test_build_provenance_file_reaches_native_assembler(tmp_path):
     assert native['extra']['checker'] == {'source_revision': SOURCE, 'wheel_sha256': WHEEL,
                                           'runtime_lock_sha256': LOCK}
     assert 'secret' not in path.read_text()
+
+
+DECLARED_DESCRIPTOR = {'runtime_env': [
+    {'name': 'FHSM_TOKENS_DIR', 'value': '/var/lib/p11lab/freehsm'},
+    {'name': 'FHSM_INTEGRITY_ALLOW_UNSIGNED', 'value': '1'},
+    {'name': 'FHSM_KAT_ALLOW_FAIL', 'value': '1'},
+]}
+
+
+def test_checker_environment_applies_declared_fixed_env(tmp_path, monkeypatch):
+    from p11lab.checker import checker_environment
+    monkeypatch.setenv('FHSM_TOKENS_DIR', '/wrong/dir')
+    env = checker_environment(tmp_path, 'secret-pin', 'secret-so-pin',
+                              provider_descriptor=DECLARED_DESCRIPTOR)
+    assert env['FHSM_TOKENS_DIR'] == '/var/lib/p11lab/freehsm'
+    assert env['FHSM_INTEGRITY_ALLOW_UNSIGNED'] == '1'
+    assert env['FHSM_KAT_ALLOW_FAIL'] == '1'
+
+
+def test_checker_environment_still_scrubs_undeclared_vars(tmp_path, monkeypatch):
+    from p11lab.checker import checker_environment
+    monkeypatch.setenv('FHSM_UNDECLARED', '1')
+    monkeypatch.setenv('P11TEST_PIN', 'ambient-selection')
+    monkeypatch.setenv('PYTEST_ADDOPTS', '-x')
+    env = checker_environment(tmp_path, 'secret-pin', 'secret-so-pin',
+                              provider_descriptor=DECLARED_DESCRIPTOR)
+    assert 'FHSM_UNDECLARED' not in env
+    assert env['P11TEST_PIN'] == 'secret-pin'
+    assert env['PYTEST_ADDOPTS'] == '-v'
+
+
+def test_checker_environment_keeps_declared_values_out_of_evidence(tmp_path):
+    from p11lab.checker import checker_environment
+    env = checker_environment(tmp_path, 'secret-pin', 'secret-so-pin',
+                              provider_descriptor=DECLARED_DESCRIPTOR)
+    provenance = Path(env['PKCS11_CHECK_BUILD_PROVENANCE']).read_text()
+    assert '/var/lib/p11lab/freehsm' not in provenance
+
+
+def test_checker_environment_rejects_invalid_declaration(tmp_path):
+    from p11lab.checker import checker_environment
+    with pytest.raises(ValueError):
+        checker_environment(tmp_path, 'p', 's',
+                            provider_descriptor={'runtime_env': [{'name': 'X_PIN', 'value': '1'}]})
+
+
+def test_checker_environment_without_declaration_keeps_base_allowlist(tmp_path, monkeypatch):
+    from p11lab.checker import checker_environment
+    monkeypatch.setenv('FHSM_TOKENS_DIR', '1')
+    monkeypatch.setenv('SOFTHSM2_CONF', '/run/p11lab/softhsm2.conf')
+    env = checker_environment(tmp_path, 'p', 's', provider_descriptor={})
+    assert 'FHSM_TOKENS_DIR' not in env
+    assert env['SOFTHSM2_CONF'] == '/run/p11lab/softhsm2.conf'
+
+
+def test_checker_environment_reads_in_image_declaration(tmp_path, monkeypatch):
+    import p11lab.checker as checker_module
+    from p11lab.checker import checker_environment
+    output = tmp_path / 'out'
+    output.mkdir()
+    declared = tmp_path / 'provider.json'
+    declared.write_text(json.dumps(DECLARED_DESCRIPTOR))
+    monkeypatch.setattr(checker_module, 'PROVIDER_DESCRIPTOR_PATH', declared)
+    env = checker_environment(output, 'p', 's')
+    assert env['FHSM_TOKENS_DIR'] == '/var/lib/p11lab/freehsm'
+
+
+def test_checker_environment_missing_declaration_file_is_no_extension(tmp_path, monkeypatch):
+    import p11lab.checker as checker_module
+    from p11lab.checker import checker_environment
+    monkeypatch.setattr(checker_module, 'PROVIDER_DESCRIPTOR_PATH', tmp_path / 'absent.json')
+    env = checker_environment(tmp_path, 'p', 's')
+    assert 'FHSM_TOKENS_DIR' not in env
+
+
+def test_checker_environment_corrupt_declaration_file_fails_closed(tmp_path, monkeypatch):
+    import p11lab.checker as checker_module
+    from p11lab.checker import checker_environment
+    output = tmp_path / 'out'
+    output.mkdir()
+    corrupt = tmp_path / 'provider.json'
+    corrupt.write_text('{not json')
+    monkeypatch.setattr(checker_module, 'PROVIDER_DESCRIPTOR_PATH', corrupt)
+    with pytest.raises(ValueError):
+        checker_environment(output, 'p', 's')

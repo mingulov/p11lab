@@ -92,11 +92,47 @@ def installed_identity() -> dict:
                    'dependencies': dict(sorted((d.metadata['Name'], d.version) for d in importlib.metadata.distributions()))}
 
 
-def checker_environment(output: Path, pin: str, so_pin: str) -> dict:
+PROVIDER_DESCRIPTOR_PATH = Path('/usr/share/p11lab/provider.json')
+
+
+def _declared_fixed_env(provider_descriptor) -> dict:
+    """Provider-declared non-secret env for checker grandchildren (names+values).
+
+    The declaration is the only allowlist extension source; undeclared names
+    stay scrubbed. Fail closed and loud: a present-but-invalid declaration
+    raises instead of silently scrubbing. Only a missing file (host callers
+    outside a provider image) or an absent key (providers without getenv-only
+    controls) means no extension.
+    """
+    from .catalog import validate_runtime_env
+    if provider_descriptor is None:
+        try:
+            raw = PROVIDER_DESCRIPTOR_PATH.read_text(encoding='utf-8')
+        except FileNotFoundError:
+            return {}
+        except OSError as error:
+            raise ValueError('provider declaration is unreadable') from error
+        try:
+            provider_descriptor = json.loads(raw)
+        except ValueError as error:
+            raise ValueError('provider declaration is not valid JSON') from error
+    if not isinstance(provider_descriptor, dict):
+        raise ValueError('provider declaration must be an object')
+    if 'runtime_env' not in provider_descriptor:
+        return {}
+    validate_runtime_env(provider_descriptor['runtime_env'])
+    return {entry['name']: entry['value'] for entry in provider_descriptor['runtime_env']}
+
+
+def checker_environment(output: Path, pin: str, so_pin: str, *, provider_descriptor=None) -> dict:
     # Inherited P11TEST_*, pytest options, TOML search locations and plugins must
     # not change selection. Keep only provider configuration and OS essentials.
     allowed = {'PATH', 'LD_LIBRARY_PATH', 'SYSTEMROOT', 'WINDIR', 'SOFTHSM2_CONF'}
     env = {k: v for k, v in os.environ.items() if k in allowed}
+    # Declared fixed values are authoritative for grandchildren; ambient values
+    # for the same names are ignored so adapter/descriptor drift cannot silently
+    # change the checked configuration.
+    env.update(_declared_fixed_env(provider_descriptor))
     provenance_file = output.resolve() / 'build-provenance.json'
     with os.fdopen(os.open(provenance_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
         json.dump({'extra': {'checker': {'source_revision': SOURCE, 'wheel_sha256': WHEEL,

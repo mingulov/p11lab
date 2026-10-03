@@ -20,6 +20,10 @@ _ID = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _LICENSE_STATUSES = {"unreviewed", "reviewed", "restricted", "missing"}
+_RUNTIME_ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]{0,63}\Z")
+_RUNTIME_ENV_DENIED_SUBSTRINGS = ("PIN", "SECRET", "PASSWORD", "PRIVATE", "KEY")
+_RUNTIME_ENV_RESERVED_NAMES = {"PATH", "LD_LIBRARY_PATH", "SYSTEMROOT", "WINDIR", "HOME", "XDG_CONFIG_HOME"}
+_RUNTIME_ENV_RESERVED_PREFIXES = ("P11LAB_", "P11TEST_", "PYTEST_", "PKCS11_", "LD_")
 
 
 def _require(condition, message):
@@ -140,6 +144,35 @@ def _lock(lock, root, environment):
         _require(hashlib.sha256(target.read_bytes()).hexdigest() == patch.get("sha256"), "patch sha256 mismatch")
 
 
+def validate_runtime_env(entries) -> None:
+    """Validate the provider-declared non-secret env channel (fixed values only).
+
+    Consumers extend their environment from these entries alone; undeclared
+    names stay scrubbed. Fail closed: credential-like and reserved names are
+    rejected, values are single-line printable ASCII and never enter receipts.
+    """
+    _require(isinstance(entries, list) and 1 <= len(entries) <= 32,
+             "runtime_env must be a non-empty list of fixed entries")
+    seen = set()
+    for entry in entries:
+        _require(isinstance(entry, dict) and set(entry) == {"name", "value"},
+                 "runtime_env entry must declare exactly name and value")
+        name = entry["name"]
+        _require(isinstance(name, str) and _RUNTIME_ENV_NAME.fullmatch(name),
+                 "runtime_env name must match [A-Z][A-Z0-9_]{0,63}")
+        _require(not any(part in name for part in _RUNTIME_ENV_DENIED_SUBSTRINGS),
+                 "runtime_env name resembles a credential and cannot be declared")
+        _require(name not in _RUNTIME_ENV_RESERVED_NAMES
+                 and not name.startswith(_RUNTIME_ENV_RESERVED_PREFIXES),
+                 "runtime_env name is reserved for the runner or OS essentials")
+        _require(name not in seen, "duplicate runtime_env name")
+        seen.add(name)
+        value = entry["value"]
+        _require(isinstance(value, str) and 1 <= len(value) <= 4096
+                 and all(0x20 <= ord(c) <= 0x7E for c in value),
+                 "runtime_env value must be non-empty single-line printable ASCII")
+
+
 def validate_descriptor(spec: dict, *, asset_root=None) -> None:
     """Validate a candidate without pretending planned inputs are buildable."""
     _require(isinstance(spec, dict), "descriptor must be an object")
@@ -153,6 +186,8 @@ def validate_descriptor(spec: dict, *, asset_root=None) -> None:
         _require(isinstance(value, list) and value and all(isinstance(p, str) and re.fullmatch(r"[a-z0-9]+/[a-z0-9]+", p) for p in value), f"descriptor requires {key}")
     _require(_enum(spec.get("state_mode"), {"persistent", "ephemeral", "process-local"}), "invalid state_mode")
     _require(_text(spec.get("module_path")), "descriptor requires module_path")
+    if "runtime_env" in spec:
+        validate_runtime_env(spec["runtime_env"])
     _require(isinstance(spec.get("inputs"), dict), "descriptor requires inputs object")
     _require(isinstance(spec.get("services"), list), "descriptor requires services list")
     _require(_text(spec.get("application_profile")), "descriptor requires application_profile")

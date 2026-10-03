@@ -194,3 +194,67 @@ def test_malformed_patch_license_status_raises_catalog_error(locked_environment)
     (root / 'release.lock.json').write_text(json.dumps(spec['lock']))
     with pytest.raises(CatalogError, match='license_status'):
         validate_descriptor(spec, asset_root=root)
+
+
+def _spec_with_runtime_env(entries):
+    spec = load_environment('tpm2', 'release')
+    spec['runtime_env'] = entries
+    return spec
+
+
+def test_runtime_env_is_optional():
+    spec = load_environment('tpm2', 'release')
+    assert 'runtime_env' not in spec
+    validate_descriptor(spec)
+
+
+def test_runtime_env_accepts_fixed_nonsecret_entries():
+    spec = _spec_with_runtime_env([
+        {'name': 'FHSM_TOKENS_DIR', 'value': '/var/lib/p11lab/freehsm'},
+        {'name': 'FHSM_INTEGRITY_ALLOW_UNSIGNED', 'value': '1'},
+        {'name': 'FHSM_KAT_ALLOW_FAIL', 'value': '1'},
+    ])
+    validate_descriptor(spec)
+
+
+def test_freehsm_declares_its_documented_nonsecret_env():
+    spec = load_environment('freehsm', 'release')
+    assert spec['runtime_env'] == [
+        {'name': 'FHSM_TOKENS_DIR', 'value': '/var/lib/p11lab/freehsm'},
+        {'name': 'FHSM_INTEGRITY_ALLOW_UNSIGNED', 'value': '1'},
+        {'name': 'FHSM_KAT_ALLOW_FAIL', 'value': '1'},
+    ]
+    validate_descriptor(spec)
+
+
+@pytest.mark.parametrize('name', [
+    'FHSM_PIN', 'MY_SECRET', 'USER_PASSWORD', 'PRIVATE_DIR', 'API_KEY',
+    'P11LAB_PIN', 'P11TEST_PIN', 'PYTEST_ADDOPTS', 'PKCS11_CHECK_FOO',
+    'PKCS11_PROXY_ENDPOINT', 'LD_PRELOAD', 'PATH', 'LD_LIBRARY_PATH',
+    'HOME', 'XDG_CONFIG_HOME', 'SYSTEMROOT', 'WINDIR',
+    'lower', 'X-PIN', 'HAS SPACE', '9LIVES', '', 'A' * 65,
+])
+def test_runtime_env_rejects_credential_reserved_and_malformed_names(name):
+    spec = _spec_with_runtime_env([{'name': name, 'value': '1'}])
+    with pytest.raises(CatalogError):
+        validate_descriptor(spec)
+
+
+@pytest.mark.parametrize('value', ['', 'has\nnewline', 'has\rcr', 'has\0nul', 'x' * 4097, 1, None, ['1']])
+def test_runtime_env_rejects_bad_values(value):
+    spec = _spec_with_runtime_env([{'name': 'FHSM_EXAMPLE', 'value': value}])
+    with pytest.raises(CatalogError):
+        validate_descriptor(spec)
+
+
+@pytest.mark.parametrize('entries', [
+    [], {}, None, 'FHSM_EXAMPLE=1',
+    ['FHSM_EXAMPLE=1'], [{'name': 'FHSM_EXAMPLE'}],
+    [{'value': '1'}], [{'name': 'FHSM_EXAMPLE', 'value': '1', 'inherit': True}],
+    [{'name': 'FHSM_EXAMPLE', 'inherit': True}],
+    [{'name': 'FHSM_A', 'value': '1'}, {'name': 'FHSM_A', 'value': '2'}],
+])
+def test_runtime_env_rejects_malformed_channels(entries):
+    spec = _spec_with_runtime_env(entries)
+    with pytest.raises(CatalogError):
+        validate_descriptor(spec)
