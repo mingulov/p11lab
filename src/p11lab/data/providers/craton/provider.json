@@ -5,7 +5,7 @@
     "name": "Craton HSM"
   },
   "backend": {
-    "name": "RustCrypto development token with auto-init extension",
+    "name": "Stock RustCrypto software token with encrypted redb persistence",
     "simulated": false
   },
   "runtime_platforms": [
@@ -24,6 +24,15 @@
     "P11LAB_SO_PIN_FILE": {
       "secret": true,
       "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
+    },
+    "CRATON_HSM_INTEGRITY_BYPASS": {
+      "secret": false,
+      "required": true
     }
   },
   "services": [],
@@ -33,27 +42,37 @@
       "reason": "No refs/tags in official ls-remote snapshot; crate version 0.10.3 is not a release tag"
     },
     "rolling": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/craton-co/craton-hsm-core.git",
-        "selector": {
-          "kind": "branch",
-          "value": "main"
-        },
-        "license_status": "unreviewed",
-        "revision": "ef5deafad4037067a14c1ab95aec3939791e4b39",
-        "license_observation": "Apache-2.0"
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "rolling.lock.json"
     }
   },
   "application_profile": "general-token",
   "distribution": {
     "status": "unreviewed",
-    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+    "reason": "Unsigned dev/test candidate. Whole-image/crate/Rust runtime licensing and source delivery admission remain incomplete; no publication authorized."
   },
   "constraints": [
-    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+    "UNSIGNED DEVELOPMENT/TESTING ONLY. Explicit caller CRATON_HSM_INTEGRITY_BYPASS=unsafe-dev-only is required for init/health/exec. The recipe never sets it. It bypasses upstream module integrity authentication only while the embedded key is the all-zero placeholder; algorithm POST still runs. No production/FIPS/certification claim.",
+    "APPLICATION QUALIFICATION BLOCKED at this frozen revision: single-shot CKM_ECDSA signs/verifies with an extra SHA-256 hash. Independent OpenSSL verification rejects the original-message signature for generated and reopened P-256 keys, including through the preferred proxy. This behavior is retained and disclosed; no semantic correction or consumer-side hashing workaround is supplied.",
+    "Stock main ef5deafad4037067a14c1ab95aec3939791e4b39; no provider patch. Default features, no insecure-rustcrypto-rsa-private-ops. Capability-aware RSA POST permits initialization while vulnerable RustCrypto RSA private operations remain disabled and return native errors.",
+    "Linux amd64/glibc 2.41. Direct applications need this module and its recorded libc/libgcc/loader closure. Arbitrary exec -- ARGV is supported; no native library becomes remotely loadable through a shared Docker network.",
+    "Bind writable /var/lib/p11lab. init creates private craton/craton_hsm.toml, craton/complete, and craton/store/{objects.redb,objects.redb.lock,token_state_0.json,lockout_state.json}. Lockout file is optional until written by the provider. Owned directories are 0700, files 0600, same UID, regular and without hard links. PIN hashes/wrapped object key are sensitive persistent state.",
+    "Configuration is CRATON_HSM_CONFIG=craton_hsm.toml with [token] storage_path=\"store\", persist_objects=true, slot_count=1 and [audit] enabled=false. Every module consumer must retain CWD /var/lib/p11lab/craton or provide separately reviewed configuration. Markers use relative config/storage names. The adapter changes CWD before native init/readiness/application execution.",
+    "P11LAB_LABEL defaults to P11Lab: 1..32 ASCII letters/digits/spaces/dot/underscore/hyphen. User/SO PIN files required on first init; no baked credentials. Native default PIN policy: length 8..64, at least three distinct bytes and two ASCII character classes; digit-only PINs fail CKR_PIN_INVALID. Fixtures SoPin1234/UserPin1 are examples, not defaults. Secrets use anonymous pipes, not config/argv/logs/receipts.",
+    "Stock persistence proved for auth flags, SO/user PINs and token-object reload across sequential processes; application crypto/reopen qualification is separate. Session objects remain process-local. Readiness opens/finalizes the actual module and checks initialized/user-PIN flags and exact label. Clean close/finalize releases the exclusive redb lock; serialize clients/writers, including health and exec preflight. Independent shards/clients need independent state.",
+    "Compatible repeated init preserves state and ignores changed PIN files. Occupied initialization lock, unknown/partial files, links, wrong ownership/permissions, changed marker/config bytes, missing token-auth/DB and invalid redb header are refused without reset. Provider errors remain visible; no retry or return-value normalization. Reset requires explicit replacement/removal of disposable state.",
+    "No checker, Python, datasets, tracing tools, compiler/Rust tooling or OpenSC in the basic runtime. Optional checker/consumer/pkcs11-proxy-ng derivatives and compatible external shim/client are separate artifacts with their own admission. Upstream internal tracing warnings remain visible.",
+    "Installed direct checker smoke is blocked by the requested relative-config/CWD contract: checker grandchildren run in their output directory and see an uninitialized default token. Frozen upstream now accepts absolute config/storage paths, but this recipe deliberately retains the relative design pending review. Preferred proxy crypto completes native application calls but separate post-health fails CKR_GENERAL_ERROR while the daemon holds the exclusive store lock; proxy checker preflight also fails and its observation evidence is incomplete. No per-provider checker hook, silent retry or masked native error is supplied. Upstream Craton gRPC daemon plus daemon-client module is a distinct follow-up integration outside this runtime.",
+    "Upstream Apache-2.0 LICENSE/NOTICE, verbatim p11-kit header grant and frozen crate notices are retained independently. Required package sources, Rust standard-library/linked-crate reachability, actual layers and digest-bound source companions remain subject to review. Runtime and all derivatives stay unreviewed; no publication authorized."
+  ],
+  "runtime_env": [
+    {
+      "name": "CRATON_HSM_CONFIG",
+      "value": "craton_hsm.toml"
+    },
+    {
+      "name": "CRATON_HSM_INTEGRITY_BYPASS",
+      "value": "unsafe-dev-only"
+    }
   ]
 }
