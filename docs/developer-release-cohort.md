@@ -539,3 +539,169 @@ actual layers, compiler runtime/header content and corresponding-source delivery
 still require admission. Other curves/mechanisms, broad PKCS#11 compliance,
 certificate trust/expiry, full checker matrices, other architecture/libc,
 concurrency/crash behavior and public qualification remain unqualified.
+
+## M6: OpenCryptoki release and rolling SWToken
+
+OpenCryptoki has locked `release` and `rolling` runtimes using only its software
+SWToken backend. Build through the installed package with
+`p11lab build opencryptoki --channel release --output-dir NEW_DIRECTORY` or the
+same operation with `--channel rolling`. Release `v3.27.0` is frozen at
+`583d0128bb5ebfac263496bc8fe32d4aef440178`; the rolling `master` snapshot is
+`b0769d6332d4d82b33991b89f2d2dc9d64142cbe`. Builds acquire these commits, verify
+Git archive hashes, check the frozen Debian package/index inventories, and
+compile with `make -j2`. They do not resolve a new branch tip or release tag.
+
+Both channels use Debian OpenSSL 3.5.7 and its packaged legacy provider. Native
+initialization and legacy DES encryption work with that pairing; hiding the
+legacy module makes native initialization return `CKR_FUNCTION_FAILED`.
+A separate source-built OpenSSL is unnecessary for these two frozen builds.
+Neither channel includes a FIPS claim. The `general-token` profile is retained
+on the bounded P-256 application evidence; this is not provider-wide qualification.
+
+Local runtime, application, checker and proxy evidence has separate identities.
+Every artifact remains unreviewed for distribution; these build operations do
+not publish images or satisfy corresponding-source delivery requirements.
+
+The current shared checker launcher drops the trusted NSS/preload environment
+needed by the native provider: token preflight succeeds, but the checker child
+returns native initialization error `0x6` with zero completed smoke observations.
+The preferred proxy application signs and passes independent verification, but
+the shared runner starts post-run health against the state before stopping its
+live daemon; the required volume lease refuses that second operation. Overall
+proxy lifecycle acceptance is blocked. Both issues belong to their shared
+launchers and require separate fixes; the recipe preserves native errors and
+state isolation. Its acceptance tests mark these two integration lanes as
+expected failures while retaining their receipts and successful crypto evidence.
+
+## Appendix: OpenCryptoki
+
+The local module is `/usr/local/lib/p11lab/libopencryptoki.so` on Linux amd64,
+glibc 2.41. Its SWToken module is `/usr/local/lib/p11lab/libpkcs11_sw.so`. Native
+`pkcsslotd` is `/usr/local/sbin/pkcsslotd`; the P11Lab provisioning/supervision
+adapter is `/usr/local/bin/p11lab-opencryptoki`. The runtime keeps Debian's
+`libcrypto.so.3`, its exact legacy module and base library closure. It adds
+hash-verified Debian `liblber.so.2` and `libnss_wrapper.so` bytes, with their
+copyright records. It contains no compiler, checker, Python, datasets, tracing
+requirement, OpenSC, `pkcs11-tool`, `pkcsconf` or `p11sak` consumer dependency.
+
+**Execution identity.** Use a non-root UID and primary **GID 1001**. OpenCryptoki
+requires its strength configuration to be root-owned, group-owned by its native
+PKCS#11 group, and mode `0640`; the image retains this check with immutable
+`/usr/share/p11lab/opencryptoki/strength.conf`, owned `0:1001`. NSS wrapper maps
+the actual non-root caller UID to the native `p11lab` daemon account, using
+private ephemeral passwd/group files. It does not alter native policy checks,
+PIN checks or return values. The installed P11Lab runner uses the host UID/GID,
+so its current supported host primary GID for this recipe is 1001. Other primary
+groups require a separately reviewed variant or an owning-runner enhancement;
+this recipe does not claim their acceptance. For direct Docker use, select the
+required container group explicitly and make the bound state writable by the
+selected UID. Root execution is refused to avoid the native daemon's root
+privilege-drop/re-exec path.
+
+**Daemon requirement and supervision.** Both frozen native SWToken builds fail
+`C_Initialize` with `CKR_FUNCTION_FAILED` before daemon startup and again after
+daemon shutdown. With the daemon, they enumerate slot 0, initialize and
+authenticate the token, exercise native legacy DES encryption, and sign P-256
+messages that an independent OpenSSL verifier accepts while rejecting altered
+messages. The daemon manages native SysV shared memory, slots, locking and event
+notifications, even for the software token.
+
+`init`, `health` and `exec -- ARGV...` each launch the native daemon for their own
+operation. The Linux supervisor becomes a child subreaper, waits for the native
+launcher, adopts and verifies the daemon's native fork, gates on its socket and
+a real module/token open, then monitors the provisioning/readiness child or
+application. Native startup and library errors stay visible. Applications retain
+separate argv elements and their exit status. A required daemon exit fails the
+operation and stops its application; it is never silently restarted. Signals
+stop the application process group before the daemon, with bounded terminate,
+kill and reap handling. A persistent volume lease and an ephemeral service lease
+prevent conflicting operations. Native daemon logs stay under ephemeral owned
+state, with a 64 KiB bound; an exceeded bound fails the operation. Shutdown
+removes owned sockets/pid state and native IPC after children stop. There is no
+long-lived `server`/`server-ready` operation: the preferred proxy daemon is an
+application launched through this same supervised `exec` operation.
+
+**Slots, authentication and provisioning.** The generated configuration selects
+exactly one SWToken in native slot ID `0`, token-present index `0`, with native
+token-data version `3.12`. `P11LAB_LABEL` defaults to `P11Lab` and accepts 1–32
+ASCII letters, digits, spaces, dot, underscore or hyphen. First `init` requires
+caller-selected `P11LAB_PIN_FILE` and `P11LAB_SO_PIN_FILE`, or the corresponding
+scalar environment inputs, with 4–8 bytes per PIN. Empty, conflicting,
+multiline, NUL-containing and out-of-bound inputs are refused before state is
+created; a file may have one trailing LF. Caller credential files remain outside
+the persistent state. Prefer files to keep values out of Docker argv.
+
+A fresh native SWToken authenticates `C_InitToken` against its upstream factory
+SO credential. Passing the selected SO PIN directly to that fresh operation
+returns `CKR_PIN_INCORRECT`; attempting `C_InitPIN` without SO login returns
+`CKR_USER_NOT_LOGGED_IN`. The adapter uses the native factory authentication
+once, logs in as SO, calls `C_SetPIN` to replace it with the caller's SO PIN,
+then calls `C_InitPIN` for the caller's user PIN, logs out, closes and finalizes.
+Selecting the factory SO value is refused. The old factory PIN and wrong user
+PIN fail native login after provisioning. No initialized token or caller PIN is
+baked into the image. The factory value remains an upstream bootstrap property,
+not a caller default. Credentials reach provisioning over a bounded private
+stdin pipe, are erased before application launch, and never enter native argv,
+completion markers or durable logs.
+
+**State and readiness.** Bind writable `/var/lib/p11lab` and provide private
+writable ephemeral `/run/p11lab` plus `/tmp`, with a read-only image filesystem.
+The persistent owned root is `/var/lib/p11lab/opencryptoki`. It contains
+`opencryptoki.conf`, `complete`, the private `lease` file and the sole declared
+symlink `strength.conf`, pointing to the immutable protected image file.
+Upstream's configured local-state layout places token data in
+`lib/opencryptoki/swtok/`: `NVTOK.DAT` (592 bytes for these builds), `MK_SO` and
+`MK_USER` (40 bytes each), and the `TOK_OBJ/` object store/index. The sibling
+`lib/opencryptoki/HSM_MK_CHANGE/` directory remains empty for SWToken. These are
+provider-native encrypted/token metadata formats, not P11Lab credential receipts.
+Sockets, locks, identity files and bounded daemon logs are under
+`/run/p11lab/opencryptoki`. No state uses the system `/etc/opencryptoki` or
+`/var/lib/opencryptoki` defaults.
+
+Use separate volumes, containers, private PID/IPC namespaces and daemon control
+state for independent shards/clients. Do not use host/shared IPC. Serialize all
+operations against one state; a second container cannot acquire its volume
+lease. Native process/session state is ephemeral, while token objects and
+selected credentials survive restart. Arbitrary compatible applications load
+the module within the supervised application lifetime and must close/finalize
+their sessions normally. Applications that detach children into new sessions,
+unbounded native stalls and power-loss recovery are unqualified surfaces.
+
+Compatible repeated initialization ignores changed PIN files and preserves the
+existing token. Before launching a daemon or loading a module, the adapter
+refuses missing or incorrect-sized token files, changed configuration/marker
+bytes, unexpected or hidden entries, unsafe links/hardlinks, changed protected
+policy wiring and a busy `.init-lock`. Native readiness checks the exact slot,
+label, initialized/user-PIN/login-required flags and completed PIN replacement.
+It does not log in or validate an application's supplied PIN. A native failure
+retains partial state; there is no automatic reset, credential replacement or
+state-changing retry. Reset means explicitly stopping every operation and
+removing/replacing the caller's disposable volume.
+
+Native state/configuration redirects, OpenSSL provider/configuration overrides,
+preload/identity overrides and tracing controls are rejected as recipe inputs.
+The fixed system pairing and per-shard wiring are applied by the adapter.
+Remote use requires the compatible pinned `pkcs11-proxy-ng` daemon/client shim;
+a shared Docker network alone does not make a native module loadable remotely.
+The proxy's documented isolation limitations still apply. Optional checker,
+consumer and proxy derivatives keep their own source/package/content identities
+and do not enlarge the basic runtime.
+
+**Exclusions and licensing.** `icatok`, `ccatok`, `ep11tok`, `tpmtok`, `icsftok`
+and `p11sak` are disabled in both builds; unused administration/KMIP utilities
+are also disabled. ASan and s390x reference variants were not built. Wider
+mechanisms, multiple concurrent clients, power-loss/crash recovery, other
+architectures/libcs/groups, tracing, FIPS, provider-wide matrices and public
+release delivery are not qualified by this bounded acceptance.
+
+OpenCryptoki retains CPL-1.0 and its per-file terms, including the Apache-2.0
+OpenSSL-derived `constant_time.h`. Excluded AIX BSD code and s390x Apache code
+retain their source notices. P11Lab's original adapter remains Apache-2.0;
+there are no upstream semantic or provisioning patches. CPL distributor source
+access, source licensing, notices, object-code terms and applicable patent and
+commercial-distribution provisions still require review and implementation.
+The exact Git sources, generated build inputs, Debian package sources, copied
+library notices and actual layers must be preserved and assessed for each
+artifact. See [FILE-NOTICES.txt](../src/p11lab/data/providers/opencryptoki/FILE-NOTICES.txt).
+Admission stays blocked pending whole-content review and digest-bound source
+companions/distributor delivery; an SBOM or smoke success does not complete it.

@@ -24,6 +24,11 @@
     "P11LAB_SO_PIN_FILE": {
       "secret": true,
       "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
     }
   },
   "services": [
@@ -31,42 +36,32 @@
   ],
   "channels": {
     "rolling": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/opencryptoki/opencryptoki.git",
-        "selector": {
-          "kind": "branch",
-          "value": "master"
-        },
-        "license_status": "unreviewed",
-        "revision": "b0769d6332d4d82b33991b89f2d2dc9d64142cbe",
-        "license_observation": "CPL-1.0 plus per-source terms"
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "rolling.lock.json"
     },
     "release": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/opencryptoki/opencryptoki.git",
-        "selector": {
-          "kind": "tag",
-          "value": "v3.27.0"
-        },
-        "license_status": "unreviewed",
-        "revision": "583d0128bb5ebfac263496bc8fe32d4aef440178",
-        "license_observation": "CPL-1.0 plus per-source terms"
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "release.lock.json"
     }
   },
   "application_profile": "general-token",
   "distribution": {
     "status": "unreviewed",
-    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+    "reason": "Local SWToken candidate. CPL distributor source-access terms, actual-layer/generated-content review and digest-bound source-companion delivery remain incomplete; checker/consumer/proxy admission is separate."
   },
   "constraints": [
-    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+    "Linux amd64/glibc 2.41, SWToken only. All hardware tokens, p11sak, ASan, s390x and FIPS claims are excluded. No upstream source patches.",
+    "Both channels dynamically link Debian OpenSSL 3.5.7 libcrypto.so.3 and require its packaged legacy provider. No from-source OpenSSL is needed. Basic runtime has provider/API, SWToken, pkcsslotd, libc/dl adapter, base libraries and exact liblber/NSS wrapper bytes.",
+    "Use a non-root caller UID with primary GID 1001. Immutable root:1001 strength.conf stays mode 0640, preserving native policy checks; NSS wrapper supplies the native p11lab account for that UID. The installed runner currently uses the host UID/GID, so its host primary GID must be 1001. Other primary groups are not qualified.",
+    "Bind writable /var/lib/p11lab; private ephemeral /run/p11lab and private container IPC/PID namespaces are required. Never share IPC with another runtime. Each shard/client owns a separate volume, container and daemon.",
+    "Persistent opencryptoki/opencryptoki.conf and complete are exact-byte validated. strength.conf is the sole declared symlink to immutable /usr/share/p11lab/opencryptoki/strength.conf. Data lives in opencryptoki/lib/opencryptoki/swtok/{NVTOK.DAT,MK_SO,MK_USER,TOK_OBJ}; HSM_MK_CHANGE remains empty. No system /etc/opencryptoki or /var/lib/opencryptoki state is used.",
+    "P11LAB_LABEL defaults to P11Lab, 1..32 ASCII letters/digits/spaces/dot/underscore/hyphen. Caller user/SO PINs are 4..8 bytes; first init requires both. The native factory SO PIN is replaced through C_SetPIN; selecting that factory value is refused. No baked caller credentials or initialized token data.",
+    "First init calls native C_InitToken(factory), SO login, C_SetPIN(caller SO), C_InitPIN(caller user), logout/close/finalize. Caller PINs travel over a bounded private stdin pipe, never native argv, logs or markers. Compatible repeated init preserves state and ignores changed credential files.",
+    "init/health/exec supervise native pkcsslotd for that operation only. Subreaper adoption of its native fork, verified child PID, readiness socket plus real native token check, volume/control leases, daemon-death detection, signal forwarding, bounded logs and bounded terminate/kill/reap prevent owned daemon orphans. exec retains the daemon for the complete application lifetime and preserves argv/status.",
+    "No persistent server/server-ready service is needed: preferred proxy daemon is launched through the same supervised exec. Lease serializes entire operations across containers sharing a volume; no parallel clients against a single state. No silent reset or retry of native state-changing calls.",
+    "Unknown/hidden entries, unsafe links/hardlinks, changed non-secret configuration, missing/incorrect-sized token files and busy init are refused before native open. Failures retain partial state for investigation. Reset requires caller removal/replacement of disposable state after all operations stop.",
+    "The general-token profile is retained after native P-256 independent verification and altered-message rejection in both channels; wider mechanisms, multi-client concurrency, power-loss recovery, other architectures/libcs/groups and provider-wide qualification are not asserted.",
+    "Installed checker smoke is blocked: the shared checker launcher drops trusted NSS/preload environment, producing native initialization 0x6 and zero completed observations. Preferred proxy crypto succeeds, but shared proxy post-health opens a second runtime before stopping the live daemon and is refused by the required volume lease. These are owning-launcher follow-ups, not provider workarounds.",
+    "All runtime/consumer/checker/proxy artifacts remain unreviewed for distribution. Preserve exact CPL provider source plus per-file terms, Debian closure sources/notices and generated build inputs; source admission, public delivery and publication are separate gates."
   ]
 }
