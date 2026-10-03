@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 
 
@@ -17,11 +18,15 @@ def write_receipt(path: Path, record: dict) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        if sys.platform == "linux":
+            # Directory fsync needs os.O_DIRECTORY (POSIX-only); same platform
+            # gate as bundle._sync_directory. File data is fsynced above on
+            # every platform.
+            directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
