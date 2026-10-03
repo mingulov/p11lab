@@ -384,3 +384,27 @@ def test_checker_environment_corrupt_declaration_file_fails_closed(tmp_path, mon
     monkeypatch.setattr(checker_module, 'PROVIDER_DESCRIPTOR_PATH', corrupt)
     with pytest.raises(ValueError):
         checker_environment(output, 'p', 's')
+
+
+def test_checker_environment_redirects_windows_home(tmp_path, monkeypatch):
+    import os
+
+    from p11lab.checker import checker_environment
+
+    monkeypatch.setattr(os, 'name', 'nt')
+    monkeypatch.delenv('USERPROFILE', raising=False)
+    env = checker_environment(tmp_path, 'secret-pin', 'secret-so-pin')
+    assert env['USERPROFILE'] == str(tmp_path)
+    assert env['HOME'] == str(tmp_path)
+
+
+def test_checker_environment_scrubs_home_on_posix(tmp_path, monkeypatch):
+    import os
+
+    from p11lab.checker import checker_environment
+
+    monkeypatch.setattr(os, 'name', 'posix')
+    monkeypatch.setenv('USERPROFILE', 'C:\\Users\\someone')
+    env = checker_environment(tmp_path, 'secret-pin', 'secret-so-pin')
+    assert 'USERPROFILE' not in env
+    assert env['HOME'] == str(tmp_path)
