@@ -167,10 +167,12 @@ jobs:
             # build needs no installed workload: the pack restores as a plain
             # package, verified with SDK 10.0.401 in a clean container.
             # (Plain Add-Content lines: an indented here-string closer fails
-            # to parse inside this try block.)
-            Set-Content -Path upstream/NuGet.config -Value '<?xml version="1.0" encoding="utf-8"?>' -Encoding utf8
-            Add-Content -Path upstream/NuGet.config -Value '<configuration>', '  <packageSources>', '    <clear />', '    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />', '  </packageSources>', '</configuration>'
-            $env:NUGET_PACKAGES = "$PWD/nuget-packages"
+            # to parse inside this try block. Paths are relative to the
+            # pushed upstream/ location; the package cache stays at the
+            # workspace root.)
+            Set-Content -Path NuGet.config -Value '<?xml version="1.0" encoding="utf-8"?>' -Encoding utf8
+            Add-Content -Path NuGet.config -Value '<configuration>', '  <packageSources>', '    <clear />', '    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />', '  </packageSources>', '</configuration>'
+            $env:NUGET_PACKAGES = "$env:GITHUB_WORKSPACE/nuget-packages"
             dotnet nuget locals global-packages -l
             foreach ($shadow in @("$env:ProgramFiles/dotnet/packs/Microsoft.NET.Sdk.WebAssembly.Pack",
                                   "$env:ProgramFiles/dotnet/metadata/workloads")) {
