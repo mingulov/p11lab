@@ -167,10 +167,19 @@ def test_application_crypto_reopens_persistent_key_and_rejects_wrong_pin(runtime
 
 
 def snapshot(state):
+    def content(p):
+        # Ownership tests deliberately make files unreadable to the test user;
+        # byte equality there is verified by the privileged container readback.
+        if p.is_symlink():
+            return ('symlink', os.readlink(p))
+        if p.is_file():
+            try:
+                return ('file', hashlib.sha256(p.read_bytes()).hexdigest())
+            except PermissionError:
+                return ('unreadable', None)
+        return ('directory', None)
     return {str(p.relative_to(state)): {
-        'content': ('symlink', os.readlink(p)) if p.is_symlink()
-        else ('file', hashlib.sha256(p.read_bytes()).hexdigest()) if p.is_file()
-        else ('directory', None),
+        'content': content(p),
         'uid': p.lstat().st_uid, 'mode': p.lstat().st_mode, 'links': p.lstat().st_nlink,
     } for p in [state, *state.rglob('*')]}
 
