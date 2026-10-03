@@ -30,7 +30,20 @@ except ImportError:  # pragma: no cover - step-execution contexts
 
     pytest = _Shim()
 
-WORK = Path(__file__).resolve().parents[2]
+def _work_dir(start):
+    """Repo root for checkout layouts; own directory for flat copies.
+
+    The direct lane copies this file flat to /workspace, where parents[2]
+    does not exist. Flat copies run where P11Lab is installed (the image),
+    so a missing WORK/src entry is harmless: nonexistent sys.path entries
+    are ignored at import.
+    """
+    resolved = Path(start).resolve()
+    parents = resolved.parents
+    return parents[2] if len(parents) > 2 else resolved.parent
+
+
+WORK = _work_dir(__file__)
 if str(WORK / "src") not in sys.path:
     sys.path.insert(0, str(WORK / "src"))
 
@@ -173,6 +186,12 @@ def step_checker_driver(args, extra):
     so the transport is preserved and Windows supervision uses taskkill on
     the owned tree. Windows identity replaces the POSIX image seal with a
     source-checkout binding; the Linux direct lane uses the seal.
+    Collection and the test run execute with cwd at the installed root:
+    pytest anchors displayed node paths to the invocation directory, so any
+    other cwd yields install-relative ids the frozen validator cannot
+    resolve. Durable artifacts stay absolute under the output dir, and the
+    pytest cache provider is off so no cache state leaks into the shared
+    install (the checker already disables it for its own children).
     """
     import importlib.metadata
     import threading
@@ -267,10 +286,11 @@ def step_checker_driver(args, extra):
     expect_rv(p11.raw.C_Finalize(None), CKR_OK)
     env = checker_environment(output, pin, so_pin)
     env["BOUNCY_HSM_CFG_STRING"] = transport
+    env["PYTEST_ADDOPTS"] = "-v -p no:cacheprovider"
     prefix = [sys.executable, "-m", "pkcs11_check"]
     collect = subprocess.run(
         [*prefix, "list-tests", "--include-disabled", *targets],
-        cwd=output,
+        cwd=installed_root,
         env=env,
         capture_output=True,
         text=True,
@@ -326,7 +346,7 @@ def step_checker_driver(args, extra):
     ]
     proc = subprocess.Popen(
         argv,
-        cwd=output,
+        cwd=installed_root,
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -416,7 +436,7 @@ def step_checker_driver(args, extra):
             "key_inject": "off",
             "recover_mode": "off",
             "ignore_disabled_tests": True,
-            "pytest_addopts": "-v",
+            "pytest_addopts": "-v -p no:cacheprovider",
         },
         "driver": "test_bouncyhsm.checker-driver mirrors frozen execute_checker; "
         "preserves BOUNCY_HSM_CFG_STRING (T6 env-scrub precedent); "
@@ -516,6 +536,21 @@ def _need(name):
     if not value:
         pytest.skip(f"{name} is not set")
     return value
+
+
+def _print_app_stderr(output_dir):
+    """Surface the redacted application log tail on lane failure.
+
+    The native/direct runners already redact provisioned secrets in these
+    logs; without this the driver's report is discarded with tmp_path and
+    a bare exit code is the only CI evidence.
+    """
+    err_log = Path(output_dir) / "application.stderr.log"
+    if not err_log.is_file():
+        print(f"no application.stderr.log under {output_dir}")
+        return
+    tail = err_log.read_text()[-4000:]
+    print(f"--- application.stderr.log tail ({err_log}) ---\n{tail}")
 
 
 def _write_pins(directory):
@@ -1375,12 +1410,15 @@ def test_direct_checker_smoke(tmp_path, channel):
         1500,
     )
     result = run_application(spec)
+    if result.exit_code != 0:
+        _print_app_stderr(output)
     assert result.exit_code == 0, (result.lifecycle_errors, result.cleanup_errors)
     record = json.loads((output / "checker" / "checker-receipt.json").read_text())
     assert record["evidence"]["complete"] is True, record["evidence"]
+    summary = record["evidence"]["summary"]
     print(
-        f"checker direct/{channel}: passed={record['evidence']['passed']} "
-        f"failed={record['evidence']['failed']}"
+        f"checker direct/{channel}: passed={summary['passed']} "
+        f"failed={summary['failed']}"
     )
 
 
@@ -1422,10 +1460,13 @@ def test_native_checker_smoke(tmp_path, channel):
         [*driver, *[f"{k}={v}" for k, v in driver_args.items()]],
         timeout=1600,
     )
+    if result["exit_code"] != 0:
+        _print_app_stderr(out)
     assert result["exit_code"] == 0, result
     record = json.loads((out / "checker" / "checker-receipt.json").read_text())
     assert record["evidence"]["complete"] is True, record["evidence"]
+    summary = record["evidence"]["summary"]
     print(
-        f"checker native/{channel}: passed={record['evidence']['passed']} "
-        f"failed={record['evidence']['failed']}"
+        f"checker native/{channel}: passed={summary['passed']} "
+        f"failed={summary['failed']}"
     )

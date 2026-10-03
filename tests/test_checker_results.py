@@ -299,3 +299,27 @@ def test_build_provenance_file_reaches_native_assembler(tmp_path):
     assert native['extra']['checker'] == {'source_revision': SOURCE, 'wheel_sha256': WHEEL,
                                           'runtime_lock_sha256': LOCK}
     assert 'secret' not in path.read_text()
+
+
+def test_checker_environment_redirects_windows_home(tmp_path, monkeypatch):
+    import os
+
+    from p11lab.checker import checker_environment
+
+    monkeypatch.setattr(os, 'name', 'nt')
+    monkeypatch.delenv('USERPROFILE', raising=False)
+    env = checker_environment(tmp_path, 'secret-pin', 'secret-so-pin')
+    assert env['USERPROFILE'] == str(tmp_path)
+    assert env['HOME'] == str(tmp_path)
+
+
+def test_checker_environment_scrubs_home_on_posix(tmp_path, monkeypatch):
+    import os
+
+    from p11lab.checker import checker_environment
+
+    monkeypatch.setattr(os, 'name', 'posix')
+    monkeypatch.setenv('USERPROFILE', 'C:\\Users\\someone')
+    env = checker_environment(tmp_path, 'secret-pin', 'secret-so-pin')
+    assert 'USERPROFILE' not in env
+    assert env['HOME'] == str(tmp_path)

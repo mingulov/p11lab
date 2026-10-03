@@ -106,6 +106,11 @@ def checker_environment(output: Path, pin: str, so_pin: str) -> dict:
                P11TEST_PIN=pin, P11TEST_SO_PIN=so_pin,
                PKCS11_CHECK_FRAMEWORK_VERSION='0.2.2',
                PKCS11_CHECK_BUILD_PROVENANCE=str(provenance_file))
+    if os.name == 'nt':
+        # ntpath.expanduser ignores HOME: without USERPROFILE the checker's
+        # import-time Path.home() (testcases.data) aborts every CLI call.
+        # Redirect to the output dir (hermetic), never inherit the caller.
+        env['USERPROFILE'] = str(output)
     # The pin expects the source tree's -v default when parsing -qq collection.
     # Reproduce only output verbosity in the installed environment; no filters.
     # The checker explicitly loads required plugins in its child command.
