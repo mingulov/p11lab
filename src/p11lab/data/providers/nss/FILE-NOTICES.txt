@@ -1,0 +1,33 @@
+P11Lab NSS softoken runtime: third-party component notices.
+
+This runtime ships libraries and the certutil tool built from the pinned
+NSS and NSPR sources below. P11Lab's own Apache-2.0 license covers only
+P11Lab-original material (adapter, recipe, this notice); it does not
+relicense any component listed here. Full license texts live in
+/usr/share/licenses/nss/ of this image; complete corresponding sources are
+a separate source-companion deliverable, not this file.
+
+- NSS (Mozilla Network Security Services), Mozilla Public License 2.0.
+  Text: /usr/share/licenses/nss/COPYING.nss (upstream COPYING).
+  Pinned revisions and archive hashes are recorded in the channel lock
+  (release.lock.json / rolling.lock.json) and the build receipt.
+- NSPR (Netscape Portable Runtime), Mozilla Public License 2.0.
+  Text: /usr/share/licenses/nss/LICENSE.nspr (upstream LICENSE).
+  Pinned independently of NSS; see the lock toolchain record.
+- HACL* verified code vendored in NSS lib/freebl/verified/ (ChaCha20,
+  Poly1305, ChaCha20-Poly1305, Hash), MIT License, copyright INRIA, CMU,
+  Microsoft Corporation and HACL* Contributors. The MIT grant travels
+  with the vendored sources; no separate upstream text file exists.
+- libcrux ML-KEM/ML-DSA/SHA-3 extraction vendored in NSS
+  lib/freebl/libcrux/, MIT or Apache-2.0 at the licensee's option,
+  vendored from https://github.com/cryspen/libcrux (see the retained
+  libcrux-README.md for the exact upstream commit and contents).
+- System SQLite and zlib: this build uses the Debian base libraries
+  (libsqlite3.so.0, zlib1g) instead of the NSS-bundled copies. Their
+  terms are covered by the base Debian copyright/source records.
+- CRYPTOGAMS assembly-generation scripts (NSS lib/freebl/scripts/) and
+  the gyp-next build tool (BSD-3-Clause) are build-time-only inputs;
+  they are provenance recorded with the build, not shipped binaries.
+
+Rebuild provenance (source revisions, toolchain, configuration) is
+recorded under /usr/share/p11lab/build/ of this image.
