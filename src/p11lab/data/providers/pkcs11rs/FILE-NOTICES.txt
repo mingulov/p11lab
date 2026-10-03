@@ -1,0 +1,62 @@
+P11Lab pkcs11rs software-slot recipe and adapter
+=============================================
+
+Original P11Lab Dockerfile, entrypoint.sh, provision.c, freeze-crates.py and
+test orchestration: Apache-2.0. Adapter primitives and the offline freeze
+helper are adapted from the P11Lab wolfPKCS11/Kryoptic recipes at e8b978a.
+No reference-workspace Dockerfile text, fault proxy, initialization state,
+credentials, checker code or datasets are migrated. Build arguments, native
+environment controls and reference revision observations are factual inputs.
+
+Primary source: https://github.com/qpernil/pkcs11rs.git
+Revision: 646736043d1ce4949d812ed9e161949e635121c4 (original catalogue stub).
+Supporting source archives (separate shared multi-source inputs):
+- software-key-core 903e7fe3b94b37d96b2d6cd42593dba821f62383
+- virtual-yubikey dc2941a8ac2e5af51fabad6434e6c1488b130da7
+- virtual-yubihsm d71705ca4b298c1945fe05bd9aec824ec1e7b4ad
+- signatures e06d2e28699428fbcc135c388516883bbb71f170 (ml-dsa package only)
+URLs: https://github.com/qpernil/<repository>.git
+
+pkcs11rs, software-key-core and both virtual repositories declare
+MIT OR Apache-2.0. signatures/ml-dsa declares Apache-2.0 OR MIT, preserving
+RustCrypto contributor copyright. P11Lab selects Apache-2.0 for these
+artifacts. Both original grant texts and applicable third-party notices
+are retained. These selections do not relicense per-file third-party content.
+Only pkcs11rs, software-key-core and signatures/ml-dsa compile into this
+module. Cargo requires the two virtual-core manifests during resolution;
+virtual-device implementations, USB gadget and display code are excluded.
+No provider patches or manifest rewrites are applied.
+
+pkcs11rs/pkcs11.h, pkcs11f.h, pkcs11t.h and their generated Rust bindings
+retain OASIS PKCS#11 3.2 copyright and IPR-policy notices. The provisioning
+helper uses these exact headers; its Apache-2.0 source does not replace
+those terms. Full headers and THIRD_PARTY_NOTICES.md are retained.
+The primary source archive includes a vendored HIDAPI fork with separate
+licenses. native-hardware is disabled: that fork is neither compiled nor
+shipped as a runtime library. software-key-core contains Apache-2.0
+Wycheproof vectors; they are source-only test inputs and excluded from the
+runtime. The virtual-yubikey source retains separate OASIS notices.
+
+Cargo.lock is byte-identical to the frozen primary source. crates.json
+records the complete 290-registry-archive resolution closure plus the one
+Git package, exact SHA-256 values, manifest license expressions, selected
+license branches, and license/notice file hashes. The directory-source
+helper verifies archive hashes and the exact locked roster. Compilation
+uses --locked --offline --no-default-features --jobs 2 with no network.
+License selections retain conjunctive obligations (including ring's
+Apache-2.0 AND ISC and Unicode/CDLA data terms); no LGPL alternative is
+selected. Full per-file review and actual-content admission remain pending.
+Retained Cargo closure notices cover resolution-only packages as well;
+their presence does not imply compilation or qualification of those packages.
+
+Rust 1.98.1 is frozen by its OCI platform manifest digest, with rustc/cargo
+version readbacks retained. Debian base/runtime/build packages, signed
+snapshot indexes and package source archives are recorded independently.
+The runtime module links glibc/libm/libgcc_s; it has no OpenSSL, PC/SC,
+HID, gadget or display-library dependency. Runtime Debian package
+copyright files and all required dependency notices remain applicable.
+
+Local-only, unreviewed candidate. No source-companion admission, anonymous
+source readback, image-layer rights approval or public distribution is
+asserted. No publication authorization. Optional checker, consumer and
+proxy derivatives require their own actual-content and source reviews.

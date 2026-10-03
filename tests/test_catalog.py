@@ -277,6 +277,26 @@ def test_runtime_env_token_store_exception_preserves_credential_rejection(name, 
         validate_descriptor(_spec_with_runtime_env([{'name': name, 'value': value}]))
 
 
+def test_runtime_env_accepts_reviewed_pkcs11rs_token_store():
+    # Native probe: this is the named software-token directory, not a secret.
+    # Repro at e8b978a: validate_runtime_env rejected its TOKEN word.
+    validate_descriptor(_spec_with_runtime_env([
+        {'name': 'PKCS11RS_TOKEN_STORAGE', 'value': '/var/lib/p11lab/pkcs11rs'},
+    ]))
+
+
+@pytest.mark.parametrize('name,value', [
+    ('PKCS11RS_TOKEN_STORAGE', 'credential-value'),
+    ('PKCS11RS_TOKEN_STORAGE', '/var/lib/p11lab/pkcs11rs/../secrets'),
+    ('API_TOKEN', '/var/lib/p11lab/pkcs11rs'),
+    ('ACCESS_TOKEN_STORAGE', '/var/lib/p11lab/pkcs11rs'),
+    ('UNREVIEWED_TOKEN_STORAGE', '/var/lib/p11lab/pkcs11rs'),
+])
+def test_pkcs11rs_token_store_exception_preserves_credential_rejection(name, value):
+    with pytest.raises(CatalogError):
+        validate_descriptor(_spec_with_runtime_env([{'name': name, 'value': value}]))
+
+
 @pytest.mark.parametrize('value', ['', 'has\nnewline', 'has\rcr', 'has\0nul', 'x' * 4097, 1, None, ['1']])
 def test_runtime_env_rejects_bad_values(value):
     spec = _spec_with_runtime_env([{'name': 'FHSM_EXAMPLE', 'value': value}])

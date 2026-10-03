@@ -29,7 +29,10 @@ _RUNTIME_ENV_DENIED_WORDS = tuple(re.compile(r"(^|_)%s(_|$)" % word) for word in
 # Reviewed native PKCS#11 storage controls can contain the word TOKEN. Bind
 # each exception to its exact non-secret managed directory, so this does not
 # admit authentication-token aliases or arbitrary values under that name.
-_RUNTIME_ENV_TOKEN_STORES = {"WOLFPKCS11_TOKEN_PATH": "/var/lib/p11lab/wolfpkcs11"}
+_RUNTIME_ENV_TOKEN_STORES = {
+    "WOLFPKCS11_TOKEN_PATH": "/var/lib/p11lab/wolfpkcs11",
+    "PKCS11RS_TOKEN_STORAGE": "/var/lib/p11lab/pkcs11rs",
+}
 _RUNTIME_ENV_RESERVED_NAMES = {"PATH", "LD_LIBRARY_PATH", "SYSTEMROOT", "WINDIR", "HOME", "XDG_CONFIG_HOME",
                                "ENV", "SHELLOPTS", "USERPROFILE", "SHELL", "COMSPEC",
                                "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA"}

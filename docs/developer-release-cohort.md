@@ -255,3 +255,140 @@ remain unqualified. Each installed checker smoke completed 23 observations:
 expected failure after native `CKR_ARGUMENTS_BAD`. This finding is retained
 without changing provider behavior. None of these checks supplies provider-wide
 certification or public-distribution approval.
+
+## M6: pkcs11rs rolling software token
+
+| Channel | Recipe | Local usability | Application qualification | Distribution |
+| --- | --- | --- | --- | --- |
+| release | Unavailable; upstream has no release tags | No release artifact | No release qualification | Unavailable |
+| rolling | Original catalogue revision plus four separately frozen supporting repositories | Native caller-PIN initialization, persistent encrypted file store, arbitrary application argv | Bounded P-256, persistent reopen, installed checker smoke and preferred proxy application lanes | Unreviewed; actual-content and source-companion admission required |
+
+Build the local candidate with
+`p11lab build pkcs11rs --channel rolling --output-dir NEW_DIRECTORY`.
+The public build acquires and verifies all five source archives, freezes the
+recipe and crate closure, compiles without network access and retains package,
+signed-index, runtime image-identity and measured-size receipts. No initialized
+token or credentials are baked into the image. Local builds and tests do not
+authorize publication.
+
+## Appendix: pkcs11rs
+
+The module is `/usr/local/lib/p11lab/libpkcs11rs.so` for Linux amd64, Debian 13
+glibc 2.41. Its dynamic closure is libc, libm, libgcc_s and the system loader.
+The basic runtime contains the module, a libc/dl provisioning helper, lifecycle
+adapter and notices; Rust, Python, compilers, checker dependencies, OpenSC,
+tracing, test datasets and virtual-device executables are excluded. Compatible direct
+applications load the module in their own process. Remote applications require
+the matching `pkcs11-proxy-ng` daemon and `libpkcs11_proxy_ng_shim.so`; a shared
+container network alone does not expose a native module.
+
+| Repository | Frozen revision | Build role |
+| --- | --- | --- |
+| [pkcs11rs](https://github.com/qpernil/pkcs11rs) | `646736043d1ce4949d812ed9e161949e635121c4` | Original catalogue stub, verified upstream; module and internal platform-credential/yubihsm-auth-client crates |
+| [software-key-core](https://github.com/qpernil/software-key-core) | `903e7fe3b94b37d96b2d6cd42593dba821f62383` | Mandatory software cryptography and `x509-validation` feature |
+| [virtual-yubikey](https://github.com/qpernil/virtual-yubikey) | `dc2941a8ac2e5af51fabad6434e6c1488b130da7` | Required optional-dependency manifest only; device code is not compiled |
+| [virtual-yubihsm](https://github.com/qpernil/virtual-yubihsm) | `d71705ca4b298c1945fe05bd9aec824ec1e7b4ad` | Required optional/test/workspace-dependency manifest only; device code is not compiled |
+| [signatures](https://github.com/qpernil/signatures) | `e06d2e28699428fbcc135c388516883bbb71f170` | Exact Cargo.lock Git source; only `ml-dsa` compiles |
+
+The reference's older software-key-core revision lacks the required
+`x509-validation` feature. The supporting software/virtual revisions above were
+resolved once at or immediately before the unchanged module revision's commit
+time, matching its upstream CI sibling layout and frozen lock. The five
+repositories are the minimum inputs for the unmodified Cargo manifests: even
+disabled path dependencies must be present for resolution. USB gadget and
+display repositories belong to the virtual-device executable workspaces;
+those workspaces are not selected by this package build. Neither repository
+is acquired or consumed. No provider patches, manifest pruning, synthetic
+dependency packages or default features are used.
+
+The shared multi-source resolver seals each repository independently and checks
+the exact resolved roster. Rust 1.98.1 is pinned by the same platform-specific
+OCI digest used by the other Rust recipes; the upstream minimum is 1.94.
+The exact upstream `Cargo.lock`, 290 hash-verified registry archives and one
+separately sealed Git source form the full resolution closure. The
+`freeze-crates.py` builder helper constructs directory sources, preserves the
+upstream Cargo alias configuration and inherited Git-workspace lint settings,
+and inventories every file. Compilation is
+`cargo build --locked --offline --release -p pkcs11rs --no-default-features --jobs 2`.
+The retained normal/build dependency tree excludes virtual devices, native
+hardware, HIDAPI, PC/SC, USB gadget and display code. The closure also includes
+uncompiled workspace/target/test packages; their notices do not imply runtime
+inclusion. Input identity is deterministic; bit-identical binary rebuilds are
+not asserted and token master keys/nonces are intentionally random.
+
+The adapter enforces `PKCS11RS_HARDWARE_DISCOVERY=0`,
+`PKCS11RS_SOFTWARE_SLOTS=p11lab` and
+`PKCS11RS_TOKEN_STORAGE=/var/lib/p11lab/pkcs11rs`. Conflicting overrides and
+remote `PKCS11RS_YUBIHSM_URLS` controls are refused. The fixed software name
+provides stable storage identity; `P11LAB_LABEL` controls the initialized token
+label and defaults to `P11Lab`. Labels permit 1–32 ASCII letters, digits,
+spaces, dot, underscore or hyphen. Native slot ID is `0`, token-present index
+is `0`; no hardware slot is advertised by this recipe.
+
+First `init` requires caller-selected SO and user PINs, through
+`P11LAB_SO_PIN_FILE` and `P11LAB_PIN_FILE` or their shared scalar equivalents.
+The common parser removes one optional trailing LF and refuses empty,
+multiline, NUL, oversized and conflicting inputs. Native PINs are 8–1024 UTF-8
+bytes. Scalars are unexported before child commands; inherited pipes pass
+credentials to `C_InitToken`, SO login and `C_InitPIN`, followed by a user-login
+proof. Native errors remain visible. Invalid UTF-8 can fail natively, retaining
+partial state. Caller credentials reopen successfully; both roles reject the
+reference's fixed PIN with native `CKR_PIN_INCORRECT` (`0xA0`). PINs and their
+hashes are absent from adapter logs, receipts and completion markers.
+
+Bind a caller-owned state directory at `/var/lib/p11lab`. The token lives below
+`pkcs11rs/tokens-v1/software-name-7031316c6162` (hexadecimal `p11lab`). Native
+`private-keys-v1/header-<20-digit-generation>.cbor` files hold encrypted,
+role-specific master-key wrappers; initialization ends at generation 2.
+Public encrypted objects are under `public-objects-v1/objects`, and private
+encrypted objects under `private-keys-v1/records/objects`, with immutable
+`sha3-256-<64-hex-digest>.cbor` names. Public and private master keys are
+separate; the SO role cannot unlock private records. The recipe creates the
+complete new directory roster with `0700`, including on default-ACL/setgid
+mounts; files use `0600`. It never repairs permissions on occupied state.
+Native storage requires hard-link-capable local filesystems. Concurrent/crash
+durability and PIN rotation remain unqualified here.
+
+`init` requires empty owned state, takes `.init-lock` and writes an exact
+non-secret `complete` marker only after native provisioning succeeds. Compatible
+repeated initialization checks readiness and preserves existing credentials,
+including when supplied PIN files change. `health` validates the entire static
+directory/file roster, ownership, modes, links, file bounds and exact marker
+before initializing the real module and checking token flags, label and PIN
+limits. Header decoding and authentication remain native operations; malformed
+headers retain `CKR_DATA_INVALID`. This is metadata/lifecycle readiness;
+applications authenticate and verify cryptography separately. `exec -- ARGV...`
+checks readiness and preserves argv and exit status. Partial, linked, foreign,
+occupied, busy or conflicting state is retained and refused. The helper refuses
+to reset an initialized token. There is no provider service or
+`server`/`server-ready` operation.
+
+Allocate independent state directories/processes per shard and client, and
+serialize access to a store, including readiness checks. Applications should
+close sessions, finalize the module and stop every consumer before an explicit
+reset by replacing/removing the entire owned directory or volume. The proxy's
+documented isolation limits still apply.
+
+P11Lab selects Apache-2.0 for the five repositories' dual-licensed selected
+artifacts, including RustCrypto's `signatures/ml-dsa`; their original MIT and
+Apache texts and contributor notices remain intact. OASIS PKCS#11 3.2 headers
+and generated bindings retain their own IPR-policy notices. Vendored HIDAPI
+and Wycheproof vectors are source-only, uncompiled/excluded runtime inputs.
+`crates.json` records every crate's declared expression, selected branch and
+license/notice hashes; conjunctive ring/Unicode obligations and CDLA data terms
+remain applicable, including the compiled public CA-root dependency. No LGPL
+alternative is selected. Eleven resolution-only
+crate archives carry manifest license declarations without packaged grant
+texts, and require further source-delivery review; none compiles into this
+Linux runtime. Runtime/source/whole-layer rights, base-package notices and
+source-companion admission remain separate unfinished gates. See
+[FILE-NOTICES.txt](../src/p11lab/data/providers/pkcs11rs/FILE-NOTICES.txt).
+
+Qualification is bounded to lifecycle, caller PINs, P-256 generation/signing,
+persistent key reopen with independent original/altered-message verification,
+installed 23-node checker smoke and a preferred-proxy application lane.
+Mechanism enumeration is presence evidence only. Other RSA/AES/HMAC/KDF/PQC
+mechanisms, export/import variants, discovery PINs, PIN changes, concurrency,
+crashes, hardware/virtual devices, broader checker matrices, proxy-host checker,
+other platforms and public distribution remain unqualified. These observations
+do not certify the provider.

@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "status": "unavailable",
+  "reason": "No upstream release tags; explicit rolling-only disposition, no release build inputs."
+}
