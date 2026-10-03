@@ -194,7 +194,7 @@ def step_checker_driver(args, extra):
         raise ValueError("checker run misses the provider transport")
     label = os.environ.get("P11LAB_LABEL", "P11Lab")
     output = Path(args["output"]).resolve()
-    nodes = load_profile("smoke-v1")["nodes"]
+    nodes = list(load_profile("smoke-v1")["nodes"])
     try:
         import pkcs11_check.testcases as tests
     except ImportError as error:
@@ -216,7 +216,7 @@ def step_checker_driver(args, extra):
             raise ValueError("checker source checkout is not the pinned revision")
         for installed in sorted(installed_root.rglob("*.py")):
             rel = installed.relative_to(installed_root)
-            candidate = src / "src" / "pkcs11_check" / rel
+            candidate = src / "src" / "pkcs11_check" / "testcases" / rel
             if (
                 not candidate.is_file()
                 or candidate.read_bytes() != installed.read_bytes()
@@ -426,11 +426,11 @@ def step_checker_driver(args, extra):
     assessment = validate_results(output, nodes, installed_root)
     record["evidence"] = assessment
     write_receipt(output / "checker-receipt.json", record)
-    evidence = assessment
+    summary = assessment["summary"]
     return {
-        "complete": evidence["complete"],
-        "passed": evidence["summary"]["passed"],
-        "failed": evidence["summary"]["failed"],
+        "complete": assessment["complete"],
+        "passed": summary["passed"],
+        "failed": summary["failed"],
         "selected": len(nodes),
         "returncode": record["returncode"],
     }

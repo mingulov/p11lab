@@ -69,24 +69,30 @@ jobs:
 
       - name: Record host tool versions
         run: |
+          $ErrorActionPreference = "Stop"
           python --version
           dotnet --list-sdks
           dotnet --list-runtimes
           cl 2>&1 | Select-Object -First 2
           msbuild -version -nologo
           openssl version
+          if ($LASTEXITCODE) { throw "openssl is required on PATH" }
           vswhere -latest -property displayName
           "VCToolsVersion=$env:VCToolsVersion"
           "ImageVersion=$env:ImageVersion"
 
       - name: Install P11Lab test dependencies
         run: |
+          $ErrorActionPreference = "Stop"
           python -m pip install --upgrade pip
+          if ($LASTEXITCODE) { throw "pip upgrade failed" }
           python -m pip install ".[test]"
+          if ($LASTEXITCODE) { throw "test dependency install failed" }
           python -c "import p11lab; print(p11lab.__file__)"
 
       - name: Build native tools
         run: |
+          $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force tools | Out-Null
           $bouncy = "src/p11lab/data/providers/bouncyhsm"
           $consumer = "src/p11lab/data/consumer"
@@ -100,6 +106,7 @@ jobs:
 
       - name: Build release bundle
         run: |
+          $ErrorActionPreference = "Stop"
           $url = "https://github.com/harrison314/BouncyHsm/releases/download/v2.3.2/BouncyHsm.zip"
           $want = "61a1cf42bddc3bf585ce43f6eaf0a130d13ba2bf1c4a1ed4d158624abd36f238"
           curl.exe -sSL -o BouncyHsm.zip $url
@@ -121,9 +128,13 @@ jobs:
 
       - name: Build rolling bundle
         run: |
+          $ErrorActionPreference = "Stop"
           git clone https://github.com/harrison314/BouncyHsm.git upstream
+          if ($LASTEXITCODE) { throw "BouncyHSM clone failed" }
           git -C upstream checkout f09ab9a342741c56bb56621a707c1b94dfdeac4b
-          git -C upstream rev-parse HEAD
+          if ($LASTEXITCODE) { throw "BouncyHSM checkout failed" }
+          $bhead = (git -C upstream rev-parse HEAD).Trim()
+          if ($bhead -ne "f09ab9a342741c56bb56621a707c1b94dfdeac4b") { throw "BouncyHSM HEAD mismatch: $bhead" }
           '{"sdk":{"version":"10.0.401","rollForward":"disable"}}' | Set-Content upstream/global.json -Encoding utf8
           New-Item -ItemType Directory -Force payload | Out-Null
           Push-Location upstream
@@ -163,16 +174,22 @@ jobs:
 
       - name: Install checker at pin
         run: |
+          $ErrorActionPreference = "Stop"
           git init checker-src
+          if ($LASTEXITCODE) { throw "checker-src init failed" }
           git -C checker-src fetch --depth 1 https://github.com/mingulov/pkcs11-check.git de4db3d2ee738a9f99d0654e4baf568cdbd4774a
+          if ($LASTEXITCODE) { throw "checker fetch failed" }
           git -C checker-src checkout FETCH_HEAD
-          git -C checker-src rev-parse HEAD
+          if ($LASTEXITCODE) { throw "checker checkout failed" }
+          $chead = (git -C checker-src rev-parse HEAD).Trim()
+          if ($chead -ne "de4db3d2ee738a9f99d0654e4baf568cdbd4774a") { throw "checker HEAD mismatch: $chead" }
           python -m pip install ./checker-src
           python -c "import importlib.metadata; v = importlib.metadata.version('pkcs11-check'); assert v == '0.2.2', v; print('pkcs11-check', v)"
           python -m pip freeze | Sort-Object | Tee-Object -FilePath checker-pip-freeze.txt
 
       - name: Export native lane inputs
         run: |
+          $ErrorActionPreference = "Stop"
           @'
           import hashlib
           import json
@@ -195,11 +212,15 @@ jobs:
       - name: Run Windows native lanes
         timeout-minutes: 200
         run: |
+          $ErrorActionPreference = "Stop"
           python -m pytest tests/integration/test_bouncyhsm.py -q -k "test_native_install_readback or test_native_crypto_persistence or test_native_ports_and_cleanup or test_native_checker_smoke"
+          if ($LASTEXITCODE) { throw "Windows native lanes failed" }
           python -m pytest tests/test_native_lifecycle.py -q -k bouncy
+          if ($LASTEXITCODE) { throw "Windows lifecycle tests failed" }
 
       - name: Prove the published example
         run: |
+          $ErrorActionPreference = "Stop"
           @'
           import hashlib
           from pathlib import Path

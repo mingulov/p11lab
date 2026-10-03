@@ -75,7 +75,7 @@ python run.py --prefix prefix --channel release --tools .
 python <consumer>\verify.py out/smoke
 ```
 
-`run.py` provisions one token under `out/state`, runs the consumer, and
+`run.py` provisions one token under `state/`, runs the consumer, and
 prints the receipt summary. Re-running against the same state directory
 reuses the token without credentials; point at an occupied port to see
 the refusal instead of an attach.
