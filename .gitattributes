@@ -1,2 +1,5 @@
 # Preserve verbatim upstream copyright/license evidence, including its whitespace.
 src/p11lab/data/runtime/THIRD-PARTY-NOTICES.txt -whitespace
+# Byte-identical checkouts on every OS: hashed assets must keep LF endings
+# even on Windows (Git for Windows defaults to CRLF conversion otherwise).
+* text=auto eol=lf
