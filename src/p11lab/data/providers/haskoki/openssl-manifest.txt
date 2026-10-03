@@ -1,0 +1,8 @@
+# Pinned OpenSSL for the Haskoki OpenSSL4 backend (static libcrypto.a linked
+# into the module plus the legacy provider module shipped beside it).
+# Tarball hash matches the upstream toolchain record (haskoki toolchain.lock
+# [openssl]: tarball-sha256 736b4675...). Configure flags are upstream's.
+OPENSSL_VERSION=4.0.2
+OPENSSL_URL=https://github.com/openssl/openssl/releases/download/openssl-4.0.2/openssl-4.0.2.tar.gz
+OPENSSL_SHA256=736b467530f916737b7031310ccb21d8218c6229e61e8e160cd1d3458cd543a8
+OPENSSL_SIZE=55153883
