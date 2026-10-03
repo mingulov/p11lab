@@ -1,0 +1,353 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index c627e00..798514a 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1367,6 +1367,155 @@ pub unsafe extern "C" fn C_GetFunctionList(ppFunctionList: raw::CK_FUNCTION_LIST
+     raw::CKR_OK
+ }
+ 
++#[derive(Clone, Copy)]
++struct SupportedMechanism {
++    mechanism: raw::CK_MECHANISM_TYPE,
++    min_key_size: raw::CK_ULONG,
++    max_key_size: raw::CK_ULONG,
++    flags: raw::CK_FLAGS,
++}
++
++// Keep this list in numeric mechanism order. The key-size units are bits for
++// RSA/EC/generic-secret mechanisms and bytes for AES mechanisms, as specified
++// by CK_MECHANISM_INFO.
++const SUPPORTED_MECHANISMS: [SupportedMechanism; 12] = [
++    SupportedMechanism {
++        mechanism: raw::CKM_RSA_PKCS_KEY_PAIR_GEN,
++        min_key_size: 1024,
++        max_key_size: 8192,
++        flags: raw::CKF_GENERATE_KEY_PAIR,
++    },
++    SupportedMechanism {
++        mechanism: raw::CKM_RSA_PKCS,
++        min_key_size: 1024,
++        max_key_size: 8192,
++        flags: raw::CKF_SIGN | raw::CKF_VERIFY,
++    },
++    SupportedMechanism {
++        mechanism: raw::CKM_SHA256_HMAC,
++        min_key_size: 0,
++        max_key_size: 0,
++        flags: raw::CKF_SIGN | raw::CKF_VERIFY,
++    },
++    SupportedMechanism {
++        mechanism: raw::CKM_GENERIC_SECRET_KEY_GEN,
++        min_key_size: 8,
++        max_key_size: 65536,
++        flags: raw::CKF_GENERATE,
++    },
++    SupportedMechanism {
++        mechanism: raw::CKM_EC_KEY_PAIR_GEN,
++        min_key_size: 256,
++        max_key_size: 256,
++        flags: raw::CKF_GENERATE_KEY_PAIR | raw::CKF_EC_F_P | raw::CKF_EC_NAMEDCURVE | raw::CKF_EC_UNCOMPRESS,
++    },
++    SupportedMechanism {
++        mechanism: raw::CKM_ECDSA,
++        min_key_size: 256,
++        max_key_size: 256,
++        flags: raw::CKF_SIGN | raw::CKF_VERIFY | raw::CKF_EC_F_P | raw::CKF_EC_NAMEDCURVE | raw::CKF_EC_UNCOMPRESS,
++    },
++    SupportedMechanism {
++        mechanism: raw::CKM_AES_KEY_GEN,
++        min_key_size: 16,
++        max_key_size: 32,
++        flags: raw::CKF_GENERATE,
++    },
++    SupportedMechanism {
++        mechanism: raw::CKM_AES_ECB,
++        min_key_size: 16,
++        max_key_size: 32,
++        flags: raw::CKF_ENCRYPT | raw::CKF_DECRYPT,
++    },
++    SupportedMechanism {
++        mechanism: raw::CKM_AES_CBC,
++        min_key_size: 16,
++        max_key_size: 32,
++        flags: raw::CKF_ENCRYPT | raw::CKF_DECRYPT,
++    },
++    SupportedMechanism {
++        mechanism: raw::CKM_AES_CBC_PAD,
++        min_key_size: 16,
++        max_key_size: 32,
++        flags: raw::CKF_ENCRYPT | raw::CKF_DECRYPT,
++    },
++    SupportedMechanism {
++        mechanism: raw::CKM_AES_GCM,
++        min_key_size: 16,
++        max_key_size: 32,
++        flags: raw::CKF_ENCRYPT | raw::CKF_DECRYPT,
++    },
++    SupportedMechanism {
++        mechanism: raw::CKM_AES_KEY_WRAP_PAD,
++        min_key_size: 32,
++        max_key_size: 32,
++        flags: raw::CKF_WRAP | raw::CKF_UNWRAP,
++    },
++];
++
++#[no_mangle]
++/// # Safety
++///
++/// Writes the mechanism IDs and count through caller-provided pointers.
++pub unsafe extern "C" fn C_GetMechanismList(
++    slotID: raw::CK_SLOT_ID,
++    pMechanismList: raw::CK_MECHANISM_TYPE_PTR,
++    pulCount: raw::CK_ULONG_PTR,
++) -> raw::CK_RV {
++    ck("C_GetMechanismList", || {
++        HSM.slot_exists(SlotId(slotID)).ck()?;
++        if pulCount.is_null() {
++            return Err(raw::CKR_ARGUMENTS_BAD);
++        }
++
++        let required = SUPPORTED_MECHANISMS.len() as raw::CK_ULONG;
++        unsafe {
++            if pMechanismList.is_null() {
++                *pulCount = required;
++                return Ok(());
++            }
++            if *pulCount < required {
++                *pulCount = required;
++                return Err(raw::CKR_BUFFER_TOO_SMALL);
++            }
++            for (index, entry) in SUPPORTED_MECHANISMS.iter().enumerate() {
++                *pMechanismList.add(index) = entry.mechanism;
++            }
++            *pulCount = required;
++        }
++        Ok(())
++    })
++}
++
++#[no_mangle]
++/// # Safety
++///
++/// Writes mechanism information through the caller-provided pointer.
++pub unsafe extern "C" fn C_GetMechanismInfo(
++    slotID: raw::CK_SLOT_ID,
++    type_: raw::CK_MECHANISM_TYPE,
++    pInfo: raw::CK_MECHANISM_INFO_PTR,
++) -> raw::CK_RV {
++    ck("C_GetMechanismInfo", || {
++        HSM.slot_exists(SlotId(slotID)).ck()?;
++        if pInfo.is_null() {
++            return Err(raw::CKR_ARGUMENTS_BAD);
++        }
++        let mechanism = SUPPORTED_MECHANISMS
++            .iter()
++            .find(|entry| entry.mechanism == type_)
++            .ok_or(raw::CKR_MECHANISM_INVALID)?;
++        unsafe {
++            *pInfo = raw::CK_MECHANISM_INFO {
++                ulMinKeySize: mechanism.min_key_size,
++                ulMaxKeySize: mechanism.max_key_size,
++                flags: mechanism.flags,
++            };
++        }
++        Ok(())
++    })
++}
++
+ /// Defines `unsafe extern "C"` stubs that ignore their arguments and return
+ /// `CKR_FUNCTION_NOT_SUPPORTED`. The PKCS#11 2.40 function list must be fully
+ /// populated: a `None` (null) entry is a null function pointer that crashes any
+@@ -1384,8 +1533,6 @@ macro_rules! not_supported_stubs {
+ }
+ 
+ not_supported_stubs! {
+-    fn stub_get_mechanism_list(raw::CK_SLOT_ID, raw::CK_MECHANISM_TYPE_PTR, raw::CK_ULONG_PTR);
+-    fn stub_get_mechanism_info(raw::CK_SLOT_ID, raw::CK_MECHANISM_TYPE, raw::CK_MECHANISM_INFO_PTR);
+     fn stub_close_all_sessions(raw::CK_SLOT_ID);
+     fn stub_get_operation_state(raw::CK_SESSION_HANDLE, raw::CK_BYTE_PTR, raw::CK_ULONG_PTR);
+     fn stub_set_operation_state(
+@@ -1458,8 +1605,8 @@ static FUNCTION_LIST: raw::CK_FUNCTION_LIST = raw::CK_FUNCTION_LIST {
+     C_GetSlotList: Some(C_GetSlotList),
+     C_GetSlotInfo: Some(C_GetSlotInfo),
+     C_GetTokenInfo: Some(C_GetTokenInfo),
+-    C_GetMechanismList: Some(stub_get_mechanism_list),
+-    C_GetMechanismInfo: Some(stub_get_mechanism_info),
++    C_GetMechanismList: Some(C_GetMechanismList),
++    C_GetMechanismInfo: Some(C_GetMechanismInfo),
+     C_InitToken: Some(C_InitToken),
+     C_InitPIN: Some(C_InitPIN),
+     C_SetPIN: Some(C_SetPIN),
+@@ -1984,10 +2131,8 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn stubbed_function_returns_not_supported_rather_than_crashing() {
+-        let c_get_mechanism_list = FUNCTION_LIST.C_GetMechanismList.unwrap();
+-        let mut count: raw::CK_ULONG = 0;
+-        let rv = unsafe { c_get_mechanism_list(0, ptr::null_mut(), &mut count) };
+-        assert_eq!(rv, raw::CKR_FUNCTION_NOT_SUPPORTED);
++    fn mechanism_discovery_function_pointers_are_real() {
++        assert!(FUNCTION_LIST.C_GetMechanismList.is_some());
++        assert!(FUNCTION_LIST.C_GetMechanismInfo.is_some());
+     }
+ }
+diff --git a/tests/pkcs11.rs b/tests/pkcs11.rs
+index 1564ab2..b1f34b5 100644
+--- a/tests/pkcs11.rs
++++ b/tests/pkcs11.rs
+@@ -94,6 +94,8 @@ fn pkcs11_end_to_end() {
+     let c_initialize = fl.C_Initialize.expect("C_Initialize present");
+     let c_finalize = fl.C_Finalize.expect("C_Finalize present");
+     let c_get_slot_list = fl.C_GetSlotList.unwrap();
++    let c_get_mechanism_list = fl.C_GetMechanismList.unwrap();
++    let c_get_mechanism_info = fl.C_GetMechanismInfo.unwrap();
+     let c_init_token = fl.C_InitToken.unwrap();
+     let c_init_pin = fl.C_InitPIN.unwrap();
+     let c_open_session = fl.C_OpenSession.unwrap();
+@@ -128,6 +130,12 @@ fn pkcs11_end_to_end() {
+         raw::CKR_CRYPTOKI_NOT_INITIALIZED,
+         "operations must fail before C_Initialize"
+     );
++    let mut mechanism_count = 0;
++    assert_eq!(
++        unsafe { c_get_mechanism_list(0, ptr::null_mut(), &mut mechanism_count) },
++        raw::CKR_CRYPTOKI_NOT_INITIALIZED,
++        "mechanism discovery must fail before C_Initialize"
++    );
+ 
+     // --- initialize (and reject a second initialize) --------------------
+     assert_eq!(unsafe { c_initialize(ptr::null_mut()) }, raw::CKR_OK);
+@@ -136,6 +144,90 @@ fn pkcs11_end_to_end() {
+         raw::CKR_CRYPTOKI_ALREADY_INITIALIZED
+     );
+ 
++    // --- mechanism discovery follows the two-call output protocol --------
++    assert_eq!(
++        unsafe { c_get_mechanism_list(1, ptr::null_mut(), &mut mechanism_count) },
++        raw::CKR_SLOT_ID_INVALID
++    );
++    assert_eq!(
++        unsafe { c_get_mechanism_info(1, raw::CKM_AES_GCM, ptr::null_mut()) },
++        raw::CKR_SLOT_ID_INVALID
++    );
++    assert_eq!(
++        unsafe { c_get_mechanism_list(0, ptr::null_mut(), ptr::null_mut()) },
++        raw::CKR_ARGUMENTS_BAD
++    );
++    assert_eq!(
++        unsafe { c_get_mechanism_list(0, ptr::null_mut(), &mut mechanism_count) },
++        raw::CKR_OK
++    );
++    let expected_mechanisms = [
++        (raw::CKM_RSA_PKCS_KEY_PAIR_GEN, 1024, 8192, raw::CKF_GENERATE_KEY_PAIR),
++        (raw::CKM_RSA_PKCS, 1024, 8192, raw::CKF_SIGN | raw::CKF_VERIFY),
++        (raw::CKM_SHA256_HMAC, 0, 0, raw::CKF_SIGN | raw::CKF_VERIFY),
++        (raw::CKM_GENERIC_SECRET_KEY_GEN, 8, 65536, raw::CKF_GENERATE),
++        (
++            raw::CKM_EC_KEY_PAIR_GEN,
++            256,
++            256,
++            raw::CKF_GENERATE_KEY_PAIR | raw::CKF_EC_F_P | raw::CKF_EC_NAMEDCURVE | raw::CKF_EC_UNCOMPRESS,
++        ),
++        (
++            raw::CKM_ECDSA,
++            256,
++            256,
++            raw::CKF_SIGN | raw::CKF_VERIFY | raw::CKF_EC_F_P | raw::CKF_EC_NAMEDCURVE | raw::CKF_EC_UNCOMPRESS,
++        ),
++        (raw::CKM_AES_KEY_GEN, 16, 32, raw::CKF_GENERATE),
++        (raw::CKM_AES_ECB, 16, 32, raw::CKF_ENCRYPT | raw::CKF_DECRYPT),
++        (raw::CKM_AES_CBC, 16, 32, raw::CKF_ENCRYPT | raw::CKF_DECRYPT),
++        (raw::CKM_AES_CBC_PAD, 16, 32, raw::CKF_ENCRYPT | raw::CKF_DECRYPT),
++        (raw::CKM_AES_GCM, 16, 32, raw::CKF_ENCRYPT | raw::CKF_DECRYPT),
++        (raw::CKM_AES_KEY_WRAP_PAD, 32, 32, raw::CKF_WRAP | raw::CKF_UNWRAP),
++    ];
++    assert_eq!(mechanism_count as usize, expected_mechanisms.len());
++    let mut short_mechanisms = [0; 1];
++    let mut short_count = short_mechanisms.len() as raw::CK_ULONG;
++    assert_eq!(
++        unsafe { c_get_mechanism_list(0, short_mechanisms.as_mut_ptr(), &mut short_count) },
++        raw::CKR_BUFFER_TOO_SMALL
++    );
++    assert_eq!(short_count as usize, expected_mechanisms.len());
++    let mut mechanisms = [0; 12];
++    let mut mechanism_count = mechanisms.len() as raw::CK_ULONG;
++    assert_eq!(
++        unsafe { c_get_mechanism_list(0, mechanisms.as_mut_ptr(), &mut mechanism_count) },
++        raw::CKR_OK
++    );
++    for (actual, expected) in mechanisms.iter().zip(expected_mechanisms.iter()) {
++        assert_eq!(*actual, expected.0);
++    }
++
++    assert_eq!(
++        unsafe { c_get_mechanism_info(0, raw::CKM_AES_GCM, ptr::null_mut()) },
++        raw::CKR_ARGUMENTS_BAD
++    );
++    for &(mechanism, min_key_size, max_key_size, flags) in &expected_mechanisms {
++        let mut info = raw::CK_MECHANISM_INFO {
++            ulMinKeySize: 0,
++            ulMaxKeySize: 0,
++            flags: 0,
++        };
++        assert_eq!(unsafe { c_get_mechanism_info(0, mechanism, &mut info) }, raw::CKR_OK);
++        assert_eq!(info.ulMinKeySize, min_key_size);
++        assert_eq!(info.ulMaxKeySize, max_key_size);
++        assert_eq!(info.flags, flags);
++    }
++    let mut invalid_info = raw::CK_MECHANISM_INFO {
++        ulMinKeySize: 0,
++        ulMaxKeySize: 0,
++        flags: 0,
++    };
++    assert_eq!(
++        unsafe { c_get_mechanism_info(0, raw::CKM_VENDOR_DEFINED, &mut invalid_info) },
++        raw::CKR_MECHANISM_INVALID
++    );
++
+     // --- slot list via the two-call length protocol ---------------------
+     let mut slot_count: raw::CK_ULONG = 0;
+     assert_eq!(
+@@ -445,6 +537,32 @@ fn pkcs11_end_to_end() {
+         pParameter: &gcm_params as *const raw::CK_GCM_PARAMS as *mut c_void,
+         ulParameterLen: size_of::<raw::CK_GCM_PARAMS>() as raw::CK_ULONG,
+     };
++    let aes_key_type: raw::CK_KEY_TYPE = raw::CKK_AES;
++    let aes_24_len: raw::CK_ULONG = 24;
++    let aes_24_template = [
++        attr(raw::CKA_CLASS, &class_secret, size_of::<raw::CK_OBJECT_CLASS>()),
++        attr(raw::CKA_KEY_TYPE, &aes_key_type, size_of::<raw::CK_KEY_TYPE>()),
++        attr(raw::CKA_VALUE_LEN, &aes_24_len, size_of::<raw::CK_ULONG>()),
++    ];
++    let aes_keygen = no_param(raw::CKM_AES_KEY_GEN);
++    let mut aes_24_key: raw::CK_OBJECT_HANDLE = 0;
++    assert_eq!(
++        unsafe {
++            c_generate_key(
++                session,
++                &aes_keygen as *const _ as *mut _,
++                aes_24_template.as_ptr() as *mut _,
++                aes_24_template.len() as raw::CK_ULONG,
++                &mut aes_24_key,
++            )
++        },
++        raw::CKR_OK
++    );
++    assert_eq!(
++        unsafe { c_encrypt_init(session, &gcm as *const _ as *mut _, aes_24_key) },
++        raw::CKR_KEY_SIZE_RANGE,
++        "rustssm's AES-GCM implementation supports only 128/256-bit keys"
++    );
+     let plaintext = b"attack at dawn";
+     assert_eq!(
+         unsafe { c_encrypt_init(session, &gcm as *const _ as *mut _, sym_key) },
+@@ -596,6 +714,7 @@ fn pkcs11_end_to_end() {
+ 
+     // --- teardown -------------------------------------------------------
+     assert_eq!(unsafe { c_destroy_object(session, private_key) }, raw::CKR_OK);
++    assert_eq!(unsafe { c_destroy_object(session, aes_24_key) }, raw::CKR_OK);
+     assert_eq!(unsafe { c_close_session(session) }, raw::CKR_OK);
+     assert_eq!(unsafe { c_finalize(ptr::null_mut()) }, raw::CKR_OK);
+ 
+
