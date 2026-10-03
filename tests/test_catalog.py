@@ -232,6 +232,7 @@ def test_freehsm_declares_its_documented_nonsecret_env():
     'P11LAB_PIN', 'P11TEST_PIN', 'PYTEST_ADDOPTS', 'PKCS11_CHECK_FOO',
     'PKCS11_PROXY_ENDPOINT', 'LD_PRELOAD', 'PATH', 'LD_LIBRARY_PATH',
     'HOME', 'XDG_CONFIG_HOME', 'SYSTEMROOT', 'WINDIR',
+    'PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP',
     'lower', 'X-PIN', 'HAS SPACE', '9LIVES', '', 'A' * 65,
 ])
 def test_runtime_env_rejects_credential_reserved_and_malformed_names(name):
