@@ -174,6 +174,12 @@ jobs:
             Add-Content -Path NuGet.config -Value '<configuration>', '  <packageSources>', '    <clear />', '    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />', '  </packageSources>', '</configuration>'
             $env:NUGET_PACKAGES = "$env:GITHUB_WORKSPACE/nuget-packages"
             dotnet nuget locals global-packages -l
+            # Runs 5 and 10 failed with a lone NU1403 on the WASM pack despite
+            # fenced sources, original locks and a fresh package folder: the
+            # remaining suspect is the image's shared NuGet caches (the
+            # documented NU1403 remedy is clearing them).
+            dotnet nuget locals all --clear
+            if ($LASTEXITCODE) { throw "nuget cache clear failed" }
             foreach ($shadow in @("$env:ProgramFiles/dotnet/packs/Microsoft.NET.Sdk.WebAssembly.Pack",
                                   "$env:ProgramFiles/dotnet/metadata/workloads")) {
               if (Test-Path $shadow) { "removing shadow state: $shadow"; Remove-Item $shadow -Recurse -Force }
@@ -184,7 +190,7 @@ jobs:
             $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
             $env:DOTNET_NOLOGO = "1"
             $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
-            dotnet publish src/Src/BouncyHsm/BouncyHsm.csproj -c Release -m:2 -o ../payload/server /p:RestoreLockedMode=true /p:Deterministic=true /p:DebugSymbols=false /p:DebugType=None
+            dotnet publish src/Src/BouncyHsm/BouncyHsm.csproj -c Release -m:2 -o ../payload/server /p:RestoreLockedMode=true /p:Deterministic=true /p:DebugSymbols=false /p:DebugType=None /bl:msbuild.binlog
             if ($LASTEXITCODE) { throw "dotnet publish failed" }
           } finally { Pop-Location }
           msbuild upstream/src/Src/BouncyHsm.Pkcs11Lib/BouncyHsm.Pkcs11Lib.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v145 /p:OutDir="$PWD\payload\dll\"
@@ -208,6 +214,14 @@ jobs:
           print(json.dumps({"reference": artifact.reference, "digest": artifact.sha256}))
           '@ | Set-Content -Path build-rolling-bundle.py -Encoding utf8
           python build-rolling-bundle.py $clLine "dotnet 10.0.401 publish Release RestoreLockedMode Deterministic"
+
+      - name: Upload restore binlog on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rolling-msbuild-binlog
+          path: upstream/msbuild.binlog
+          if-no-files-found: ignore
 
       - name: Install checker at pin
         run: |
