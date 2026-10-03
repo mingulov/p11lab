@@ -23,9 +23,17 @@ typedef CK_ULONG CK_SESSION_HANDLE;
 typedef CK_ULONG CK_OBJECT_HANDLE;
 typedef CK_ULONG CK_MECHANISM_TYPE;
 
+#ifdef _WIN32
+/* BouncyHSM packs PKCS#11 structures to 1 byte on Windows only
+ * (its bouncy-pkcs11.h); default packing reads wrong offsets. */
+#pragma pack(push, cryptoki, 1)
+#endif
 typedef struct { CK_BYTE major; CK_BYTE minor; } CK_VERSION;
 typedef struct { CK_ULONG type; void *pValue; CK_ULONG ulValueLen; } CK_ATTRIBUTE;
 typedef struct { CK_MECHANISM_TYPE mechanism; void *pParameter; CK_ULONG ulParameterLen; } CK_MECHANISM;
+#ifdef _WIN32
+#pragma pack(pop, cryptoki)
+#endif
 
 typedef CK_RV (*FnInit)(void *);
 typedef CK_RV (*FnFinal)(void *);
@@ -38,6 +46,11 @@ typedef CK_RV (*FnGenPair)(CK_SESSION_HANDLE, CK_MECHANISM *, CK_ATTRIBUTE *, CK
                            CK_ATTRIBUTE *, CK_ULONG, CK_OBJECT_HANDLE *, CK_OBJECT_HANDLE *);
 typedef CK_RV (*FnGetList)(void *);
 
+#ifdef _WIN32
+/* BouncyHSM packs PKCS#11 structures to 1 byte on Windows only
+ * (its bouncy-pkcs11.h); default packing reads wrong offsets. */
+#pragma pack(push, cryptoki, 1)
+#endif
 typedef struct {
     CK_VERSION version;
     FnInit C_Initialize;
@@ -101,6 +114,9 @@ typedef struct {
     void *C_GenerateKey;
     FnGenPair C_GenerateKeyPair;
 } List;
+#ifdef _WIN32
+#pragma pack(pop, cryptoki)
+#endif
 
 #define CKO_PUBLIC_KEY 2UL
 #define CKO_PRIVATE_KEY 3UL

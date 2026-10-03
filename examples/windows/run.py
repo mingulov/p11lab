@@ -1,7 +1,7 @@
 """Minimal native BouncyHSM run on Windows (example, not a test harness).
 
 Installs nothing: takes an installed prefix, provisions one token under
-out/state (or reuses it), runs the independent C consumer, and prints the
+state/ (or reuses it), runs the independent C consumer, and prints the
 receipt summary. Usage:
     python run.py --prefix PREFIX --channel release|rolling --tools DIR
                   [--state DIR] [--http-port N] [--tcp-port N]
@@ -40,7 +40,7 @@ def main():
     (secrets / "pin").write_bytes(b"1234")
     (secrets / "so-pin").write_bytes(b"12345678")
     inputs = {}
-    state = Path(opts.state) if opts.state else out / "state"
+    state = Path(opts.state) if opts.state else Path("state")
     # Fresh state provisions (credentials required); completed state reuses
     # the token without provisioning credentials. The consumer still gets
     # its own PIN file either way.

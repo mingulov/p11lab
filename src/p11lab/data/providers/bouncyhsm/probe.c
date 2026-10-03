@@ -33,6 +33,11 @@ typedef unsigned char CK_BYTE;
 typedef CK_ULONG CK_RV;
 typedef CK_ULONG CK_SLOT_ID;
 
+#ifdef _WIN32
+/* BouncyHSM packs PKCS#11 structures to 1 byte on Windows only
+ * (its bouncy-pkcs11.h); default packing reads wrong offsets. */
+#pragma pack(push, cryptoki, 1)
+#endif
 typedef struct {
     CK_BYTE major;
     CK_BYTE minor;
@@ -51,6 +56,9 @@ typedef struct {
     void *C_GetFunctionList;
     C_GetSlotListFn C_GetSlotList;
 } CK_FUNCTION_LIST;
+#ifdef _WIN32
+#pragma pack(pop, cryptoki)
+#endif
 
 typedef CK_RV (*C_GetFunctionListFn)(CK_FUNCTION_LIST **function_list);
 
