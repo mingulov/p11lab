@@ -128,6 +128,19 @@ static int hexval(char c) {
     return -1;
 }
 
+/* MSVC deprecates fopen as C4996 (fatal under this repo's /WX Windows gate);
+ * fopen_s is behavior-identical for these fixed binary modes. */
+static FILE *open_binary(const char *path, const char *mode)
+{
+#ifdef _MSC_VER
+    FILE *file = NULL;
+    if (fopen_s(&file, path, mode) != 0) return NULL;
+    return file;
+#else
+    return fopen(path, mode);
+#endif
+}
+
 int main(int argc, char **argv) {
     const char *module = NULL, *label = NULL, *pin_file = NULL, *key_id = NULL;
     int i;
@@ -175,7 +188,7 @@ int main(int argc, char **argv) {
         }
         id_len = hexlen / 2;
     }
-    f = fopen(pin_file, "rb");
+    f = open_binary(pin_file, "rb");
     if (!f) { fprintf(stderr, "provision: cannot open pin file\n"); return 2; }
     {
         size_t r = fread(pin, 1, sizeof(pin), f);

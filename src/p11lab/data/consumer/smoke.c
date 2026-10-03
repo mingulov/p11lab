@@ -113,10 +113,23 @@ static int options(int argc, char **argv, Options *o)
     return 1;
 }
 
+/* MSVC deprecates fopen as C4996 (fatal under this repo's /WX Windows gate);
+ * fopen_s is behavior-identical for these fixed binary modes. */
+static FILE *open_binary(const char *path, const char *mode)
+{
+#ifdef _MSC_VER
+    FILE *file = NULL;
+    if (fopen_s(&file, path, mode) != 0) return NULL;
+    return file;
+#else
+    return fopen(path, mode);
+#endif
+}
+
 /* No path, content, or credential-derived value is echoed on read failures. */
 static int read_bounded(const char *path, unsigned char *buffer, size_t capacity, size_t *length)
 {
-    FILE *file = fopen(path, "rb");
+    FILE *file = open_binary(path, "rb");
     int extra, failed;
     if (!file) return error("cannot open input file");
     *length = fread(buffer, 1, capacity, file);
@@ -340,7 +353,7 @@ static int write_file(const char *directory, const char *name, const void *data,
     FILE *file;
     int ok;
     if (n < 0 || (size_t)n >= sizeof(path)) return error("output path exceeds bound");
-    file = fopen(path, "wb");
+    file = open_binary(path, "wb");
     if (!file) return error("cannot create output artifact");
     ok = fwrite(data, 1, length, file) == length;
     if (fclose(file) != 0) ok = 0;
