@@ -368,8 +368,8 @@ int main(int argc, char **argv)
     CK_SLOT_ID slot = 0;
     CK_TOKEN_INFO token = {0};
     CK_SLOT_INFO slot_info;
-    CK_SESSION_INFO session_info;
-    CK_INFO info;
+    CK_SESSION_INFO session_info = {0};
+    CK_INFO info = {0};
     CK_VERSION interface_version = {0, 0};
     CK_MECHANISM mechanism = {CKM_ECDSA, NULL, 0};
     unsigned char pin[MAX_PIN], point[65], signature[64], der[72], spki[91];
