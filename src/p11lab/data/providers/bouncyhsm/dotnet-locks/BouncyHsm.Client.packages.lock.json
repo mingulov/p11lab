@@ -6,13 +6,13 @@
         "type": "Direct",
         "requested": "[5.0.0, )",
         "resolved": "5.0.0",
-        "contentHash": "dMkqfy2el8A8/I76n2Hi1oBFEbG1SfxD2l5nhwXV3XjlnOmwxJlQbYpJH4W51odnU9sARCSAgv7S3CyAFMkpYg=="
+        "contentHash": "WJqsTGaXAc55EPGjJylPFXiNPs/x1t9dklVlHlIBxUEcIxIob6sRGm9Un7TehkyEFM+vKjZd7rbwaMH/znw1PA=="
       },
       "System.Text.Json": {
         "type": "Direct",
         "requested": "[10.0.12, )",
         "resolved": "10.0.12",
-        "contentHash": "AHlVpUiY96eC6Oar1Gf0YbafU7E2NUU9D80O2Xk5v7ryL3kpSsbI0EusJBE8kQfwPuDdUDoKUItArzXQHxomCg==",
+        "contentHash": "me8gnI4gU2dcn04i1l2CHmVHalUcKAlCjLQ3jOMVyaVEQpxSVBACYoZfhiTIM3cmFkBFpEIM1IaUsK/9rdWzpw==",
         "dependencies": {
           "Microsoft.Bcl.AsyncInterfaces": "10.0.12",
           "System.IO.Pipelines": "10.0.12",
@@ -23,22 +23,22 @@
       "Microsoft.Bcl.AsyncInterfaces": {
         "type": "Transitive",
         "resolved": "10.0.12",
-        "contentHash": "vHPomsJPqUvf1ExdzCCSEUMQqloONPTBMGqNqBUdr4UgSTs9bCzH1oLkuS6WgUgIu+xqWngQbjelUBNlDuzLWQ=="
+        "contentHash": "m2tUG+p7LlbW+o4iU7GchyFTqDBF+b4v0ByvD6+h1RtfXf6huewd+/au73Gjy0u4DENikSBd9EQ90YQkEI2biA=="
       },
       "System.IO.Pipelines": {
         "type": "Transitive",
         "resolved": "10.0.12",
-        "contentHash": "5e8M112rzbW5xKNXKipNFoTgM330QS6S6+UA6CaDyr/KDrow8bzfvOPFA4S05QC3n/m096oj+pfttvme6I0YyA=="
+        "contentHash": "xgigWTwGVnV66bxqWKXGp+YufWR5Zm/DTgV0jgBee9jD6HcimBlbAFfM55r7fs81AWjd3dHqtfqyWn4RsbU8EA=="
       },
       "System.Runtime.CompilerServices.Unsafe": {
         "type": "Transitive",
         "resolved": "6.1.2",
-        "contentHash": "2hBr6zdbIBTDE3EhK7NSVNdX58uTK6iHW/P/Axmm9sl1xoGSLqDvMtpecn226TNwHByFokYwJmt/aQQNlO5CRw=="
+        "contentHash": "t2aXWJZBkAkRrTOnw31OBELKEVSDD5YvC3O5dXaHFsR66/nRTKm1y3Iq6NwFI5u5IlKrWYfdan66V+GKKkY8hQ=="
       },
       "System.Text.Encodings.Web": {
         "type": "Transitive",
         "resolved": "10.0.12",
-        "contentHash": "5wdXVVbJ5TH6YdKJYM0CHvQOY6SiCCeQ3KyLRx9daWag0cT9g4FT5CGN2qCNWbHZkqaCOEPRiA0uCBARB5Vk7w==",
+        "contentHash": "7E/Xp7IC0Ph8vC1V1Hccetko5p8dsKEmJRyWA0Lugu8UC6raEQEnF6g3HBiw5SVwjM/vZjmc6srDQZGgJWHErA==",
         "dependencies": {
           "System.Runtime.CompilerServices.Unsafe": "6.1.2"
         }

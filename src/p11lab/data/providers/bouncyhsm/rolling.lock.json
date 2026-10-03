@@ -2662,31 +2662,31 @@
     {
       "role": "build-helper",
       "path": "dotnet-locks/BouncyHsm.packages.lock.json",
-      "sha256": "317b13cb9070f4268d42a82779dcbc5de5d181db40eca8138bd02a23cb6b45c2",
+      "sha256": "3b8532f6d013709fd2d61d6d96187fe48936e835bd0dd39364269351f59a809a",
       "context_path": "dotnet-locks/BouncyHsm.packages.lock.json"
     },
     {
       "role": "build-helper",
       "path": "dotnet-locks/BouncyHsm.Core.packages.lock.json",
-      "sha256": "8e75b66ef3592f336a9d11acd5f27de2a12361a0e923052eadcb3a738b6eeeef",
+      "sha256": "21f6f1f4c108e67dabfe9305818841942f8bc6d52bc65423815d4b8912b7e80f",
       "context_path": "dotnet-locks/BouncyHsm.Core.packages.lock.json"
     },
     {
       "role": "build-helper",
       "path": "dotnet-locks/BouncyHsm.Client.packages.lock.json",
-      "sha256": "fbafd6b10281da5d496c6a260b2dcad28af3b3f4c8712285a1d8f870d259de70",
+      "sha256": "be4e5e0c420da533e2cfe50beedde126fb3a22935fd06c975ef8d8be6c55cdb7",
       "context_path": "dotnet-locks/BouncyHsm.Client.packages.lock.json"
     },
     {
       "role": "build-helper",
       "path": "dotnet-locks/BouncyHsm.Infrastructure.packages.lock.json",
-      "sha256": "e476d07a58e4b54b2ebcc5add98e04db5b3f113e4fddcf2110763184d102057a",
+      "sha256": "0353be402a7509206583d3506a598b03e014083799e720c9f278881f62c27228",
       "context_path": "dotnet-locks/BouncyHsm.Infrastructure.packages.lock.json"
     },
     {
       "role": "build-helper",
       "path": "dotnet-locks/BouncyHsm.Spa.packages.lock.json",
-      "sha256": "15b3a611fecb6a8353537bec6e6bc88edb504da22c1cbc8946366bdd703427cc",
+      "sha256": "7a2559227ad46f831e1e38dae3d6356daf6d75f3e130e202b8288c0a6239ce4f",
       "context_path": "dotnet-locks/BouncyHsm.Spa.packages.lock.json"
     }
   ],

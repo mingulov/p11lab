@@ -6,19 +6,19 @@
         "type": "Direct",
         "requested": "[2.7.0, )",
         "resolved": "2.7.0",
-        "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
+        "contentHash": "Lys+dJthpD8quONaAkRV9ke8DgET0CwBW91NeJjMVHZGvRRNO8DkdReYFfCBOCcvMpzJeC3DuLrpRuntYnq9Iw=="
       },
       "Dunet": {
         "type": "Direct",
         "requested": "[1.16.2, )",
         "resolved": "1.16.2",
-        "contentHash": "R4PEZo50RK76wRW1kq4xiQqX/hnrx8Gn+8T1XIEYuigyjVh3Guhtt3+b4GG2j3h+E3VadLINtbV+Id79nsFy/Q=="
+        "contentHash": "sAm6hPTBhovz6mRkjWzfR+yasw8LY3Mg0wRJ5Gx667GwF+oolIQdHAYRrl+EeMHos32vgoK3UPuKCrRAvK9sSg=="
       },
       "MessagePack": {
         "type": "Direct",
         "requested": "[3.1.9, )",
         "resolved": "3.1.9",
-        "contentHash": "9IuUiOycxveb2R4RER5yQl7qYHMeRRMghOFuI/c+A8aX8j0zEzJ9QJD0u3Sr3MrNewUUkqOcTVLW9Zn6odZyIQ==",
+        "contentHash": "CSzZvOQvkOE0xK4T8yl6p7BjC0i0RAPkruTC0AOOaHmwwzzcyKfvbt4aZYQfytduG5wZnfY622sdoKMyrJ/E4A==",
         "dependencies": {
           "MessagePack.Annotations": "3.1.9",
           "MessagePackAnalyzer": "3.1.9",
@@ -29,7 +29,7 @@
         "type": "Direct",
         "requested": "[10.0.12, )",
         "resolved": "10.0.12",
-        "contentHash": "+24lC4plfbEDNfLAdTV/SWKS7dW+16X4HdydO3R++134kSNTzcbYA4KpR1Hdh6uWisB8Za3AzwyOn+K+NxWIug==",
+        "contentHash": "6U8g6MRgR1JhFCr4XnlPJIjgKh9Fhh30wwUnuFvnaeJqpgx6c1J4BA5RnPNaMm7vE1zN/QOR+nTSTNswgInX2w==",
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.12"
         }
@@ -38,27 +38,27 @@
         "type": "Direct",
         "requested": "[10.0.12, )",
         "resolved": "10.0.12",
-        "contentHash": "jDix4bBMYnpZdSPcnY+KDV6ik3SRMzpMKby/bZl/XUwIiflwRNAFZ0oOl61R/pSaveIJ8t1gs2BUlrGsPs/bcg=="
+        "contentHash": "ajmM3Pqdt5DORxLvDrTqIZUk2/bKW4Sk3NBZJp2ZPlE9vk3v2pWP4MDaEVfXQZv1OH1YdTkcwO9Ci+4dWp13Bw=="
       },
       "MessagePack.Annotations": {
         "type": "Transitive",
         "resolved": "3.1.9",
-        "contentHash": "bd+/udHmQECcfdcnlLHXR+/5Oc+UdQTEwZI5M1xw8Olymcb7SPXHleMxkkBkSLiK2+fpmY+0uAR7Jy3oiPPhKA=="
+        "contentHash": "7qLB+qioz6oXbzqjhrt1jzg6SnJU67m96UKzWoulEk0dkQwtAdwTnJGDN81VdvWcywUcI6HYjMa5rVql670f8w=="
       },
       "MessagePackAnalyzer": {
         "type": "Transitive",
         "resolved": "3.1.9",
-        "contentHash": "/nMSlVz4p8BjlPbgxgBfE9kHyObHvmjczShWp2rGeKMH7oVEyPd0a3Fcd6yO3Xf36Jsf2ax/VvhV28Z7F5ibmQ=="
+        "contentHash": "mYaky9gcLklLxTUSO91RIYm1R8TlUmlIJ9oFCmby9ussY/a9IkrP7ZLg9po/z/Ok96XLCGAiC+ghHq8dDmvq1A=="
       },
       "Microsoft.Extensions.DependencyInjection.Abstractions": {
         "type": "Transitive",
         "resolved": "10.0.12",
-        "contentHash": "9/qymSh7hVDMGTGwrLz8MRp5zRyXy9adGDOs4HwRdnLil3oZGYuWeZjbmHgCQ9BL1qBroVfgUK3U/nb61617Cw=="
+        "contentHash": "kTf3x6w7DOuNj6kS0kL8oEGSSXJnqiPm3G+ddUfVB743EaO5Np8CX3r9pQp0ovBY7/J+KY0JLbwuhC02nFQO1g=="
       },
       "Microsoft.NET.StringTools": {
         "type": "Transitive",
         "resolved": "17.11.4",
-        "contentHash": "mudqUHhNpeqIdJoUx2YDWZO/I9uEDYVowan89R6wsomfnUJQk6HteoQTlNjZDixhT2B4IXMkMtgZtoceIjLRmA=="
+        "contentHash": "W1fm31oOWwsv1ebAbaClBh4fNhJUbnRPZ4YAbqKG8yLJ98llEzHXnbRaQKerIuj9txziKndYtm+/JSE1pLmYkg=="
       }
     }
   }
