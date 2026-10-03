@@ -11,6 +11,16 @@ bytes are verified and exercised here, but whole-artifact licensing, source
 companion delivery, and digest-bound admission are separate requirements.
 No bundle, image, cache export, or release is published by these steps.
 
+Windows acquisition is not hermetic. The workflow uses action tags, a hosted
+runner image, the `10.0.x` runtime patch band, a pip upgrade, and unlocked
+Python test/checker dependencies. Exact resolved versions and bundle hashes
+identify an executed attempt; they do not pin all downloaded bytes or prove
+reproducible Windows builds. This remains a qualification limitation. The
+rolling build SDK stays fenced to 10.0.401; runtime preflight still requires
+both .NET runtimes at 10.0.12 or later within the 10.0 band, with `LatestPatch`
+roll-forward. Fully immutable acquisition and dependency locks are required
+before claiming hermetic Windows qualification.
+
 ## Prerequisites
 
 Host prerequisites (never bundled, always verified before use):
@@ -110,13 +120,16 @@ server and runs one application:
   exactly one labeled slot (LiteDB persistence); compatible state is
   reused without credentials; foreign, ambiguous, or partial state fails
   without reset and without touching other data.
+  An existing empty `bouncyhsm/` directory without a valid completion marker
+  is an incomplete attempt and is refused. Recovery requires explicit
+  replacement or removal of disposable state by its owner.
 - Readiness is HTTP health plus a native probe plus the provisioned slot
   at every stage. HTTP alone never qualifies.
 - The application inherits `P11LAB_MODULE`, `BOUNCY_HSM_CFG_STRING`, and
   `P11LAB_OUTPUT_DIR`; nothing else provider-specific leaks in.
-- Shutdown terminates only the owned server (terminate, bounded wait,
-  then kill) and verifies the endpoints are released. Foreign processes
-  are never signaled and foreign directories are never removed.
+- Shutdown stops owned server/application trees, finishes bounded log capture,
+  records straggler cleanup, and verifies the endpoints are released. Foreign
+  processes are never signaled and foreign directories are never removed.
 - Exit status keeps a completed application status even if a later check
   fails; timeouts report 124. Secrets are redacted from logs and the
   receipt records ports, slot, stages, and the resolved host runtimes.
@@ -185,3 +198,5 @@ C:\p11\prefix\payload\bin\bouncyhsm-probe.exe --module ... --server 127.0.0.1 --
   (frozen flags and validator); see the acceptance workflow.
 - Paths with spaces are supported; PIN material stays in files or
   explicit scalar inputs and never lands in logs, receipts, or artifacts.
+  PIN files contain one nonempty UTF-8 line with one optional trailing LF;
+  extra lines, CR, NUL and invalid UTF-8 are refused before provisioning.

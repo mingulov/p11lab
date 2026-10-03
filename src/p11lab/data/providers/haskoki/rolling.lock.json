@@ -2908,7 +2908,7 @@
     {
       "role": "adapter-common",
       "path": "common.sh",
-      "sha256": "af05f3e0b7774235f12ad8dc099694dec55cce25986d5ca53d0f9c96f32149a3",
+      "sha256": "fae86ad0063162d8490bdb60bdf0a3e2a2f1e70985ff3ada41f2e158272156d9",
       "scope": "runtime"
     },
     {

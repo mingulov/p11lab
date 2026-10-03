@@ -28,7 +28,9 @@ at `/workspace`, and the new output directory at `/p11lab-output`.
 are not forwarded to the application. Only declared `--input NAME=VALUE` entries
 reach the adapter; absent and empty inputs remain distinct. For SoftHSM prefer
 `P11LAB_PIN_FILE` and `P11LAB_SO_PIN_FILE`, pointing to private host files with
-single-line credentials. Credentials are bounded to 4096 bytes, copied into a
+one nonempty UTF-8 line with one optional trailing LF. Extra lines, CR, NUL
+and invalid UTF-8 are refused; the optional LF frames the file and is not
+part of the PIN. Credentials are bounded to 4096 bytes, copied into a
 private temporary directory, and individually mounted read-only at
 `/run/p11lab-input/NAME`. The temporary directory is removed after the run.
 The original credential files and permissions are preserved. PIN values, file

@@ -100,3 +100,85 @@ def test_fresh_freehsm_init_preserves_success_diagnostics(tmp_path):
     assert 'native diagnostic: init KAT FAIL:' in result.stderr
     assert 'native diagnostic:' not in result.stdout
     assert not list(control.glob('init.*'))
+
+
+@pytest.mark.parametrize('data,accepted', [
+    (b'1234', True), (b'1234\n', True), (b'1234\n\n', False),
+    (b'12\n34', False), (b'1234\r\n', False), (b'1234\0', False),
+])
+def test_secret_file_has_exactly_one_text_line(tmp_path, data, accepted):
+    source = tmp_path / 'pin'
+    source.write_bytes(data)
+    result = run_script(package_data('runtime/common.sh').read_text() +
+                        '\np11lab_secret P11LAB_PIN P11LAB_PIN_FILE\n'
+                        'printf "%s" "$credential"\n', tmp_path,
+                        P11LAB_PIN_FILE=str(source))
+    assert (result.returncode == 0) is accepted, result.stderr
+    if accepted:
+        assert result.stdout == '1234'
+    else:
+        assert 'credential' in result.stderr
+
+
+@pytest.mark.parametrize('operation', ['init', 'health', 'server', 'exec'])
+@pytest.mark.parametrize('damage', ['missing-db', 'db-link', 'log-link', 'marker-bytes', 'empty-owned'])
+def test_bouncy_container_rejects_state_before_open(tmp_path, operation, damage):
+    state, control = tmp_path / 'state', tmp_path / 'control'
+    owned = state / 'bouncyhsm'
+    owned.mkdir(parents=True)
+    control.mkdir()
+    runtime_id = tmp_path / 'runtime-id'
+    runtime_id.write_text('fixture\n')
+    (owned / 'complete').write_text('schema=1\nprovider=bouncyhsm\nartifact=fixture\nlabel=P11Lab\nslot=1\nbackend=litedb\n')
+    (owned / 'BouncyHsm.db').write_bytes(b'original-db')
+    outside = tmp_path / 'outside'
+    outside.write_bytes(b'original-outside')
+    if damage == 'missing-db':
+        (owned / 'BouncyHsm.db').unlink()
+    elif damage in ('db-link', 'log-link'):
+        path = owned / ('BouncyHsm.db' if damage == 'db-link' else 'BouncyHsm-log.db')
+        path.unlink(missing_ok=True)
+        path.symlink_to(outside)
+    elif damage == 'marker-bytes':
+        with (owned / 'complete').open('ab') as stream:
+            stream.write(b'\n')
+    else:
+        for path in owned.iterdir():
+            path.unlink()
+    server = tmp_path / 'dotnet'
+    server.write_text('#!/bin/sh\necho opened >> "$CALLS"\nprintf mutated > "$BouncyHsm_LiteDbPersistentRepositorySetup__DbFilePath"\nexit 7\n')
+    server.chmod(0o755)
+    text = package_data('providers/bouncyhsm/entrypoint.sh').read_text()
+    text = text.replace('. /usr/share/p11lab/common.sh', package_data('runtime/common.sh').read_text())
+    for original, redirect in [('/var/lib/p11lab', state), ('/run/p11lab', control),
+                               ('/usr/share/p11lab/runtime-id', runtime_id),
+                               ('/usr/share/dotnet/dotnet', server),
+                               ('/opt/bouncyhsm/server', tmp_path)]:
+        text = text.replace(original, str(redirect))
+    script = tmp_path / 'provider'
+    script.write_text(text)
+    def snapshot():
+        return {str(p.relative_to(state)): p.readlink().as_posix() if p.is_symlink()
+                else p.read_bytes() if p.is_file() else 'directory' for p in state.rglob('*')}
+    before = snapshot()
+    result = subprocess.run(['bash', str(script), operation, *(['--', 'true'] if operation == 'exec' else [])],
+                            env=os.environ | {'CALLS': str(tmp_path / 'calls')},
+                            capture_output=True, text=True, timeout=15)
+    assert result.returncode != 0
+    assert not (tmp_path / 'calls').exists(), 'rejected state reached the server'
+    assert snapshot() == before
+    assert outside.read_bytes() == b'original-outside'
+
+
+def test_bouncy_slot_dto_preserves_quotes_backslashes_and_unicode(tmp_path):
+    import json
+    text = package_data('providers/bouncyhsm/entrypoint.sh').read_text()
+    functions = text.split('case "${1-}" in', 1)[0]
+    functions = functions.replace('. /usr/share/p11lab/common.sh', package_data('runtime/common.sh').read_text())
+    dto = next(line.strip() for line in text.splitlines() if line.strip().startswith('dto='))
+    pin = 'quote"slash\\tab\t\u00e4'
+    result = run_script(functions + '\nlabel=P11Lab\nuser_credential=$TEST_PIN\ncredential=$TEST_PIN\n'
+                        + dto + '\nprintf "%s" "$dto"\n', tmp_path, TEST_PIN=pin)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload['Token']['UserPin'] == payload['Token']['SoPin'] == pin

@@ -16,6 +16,8 @@ from .catalog import load_environment
 from .docker import Docker, DockerError
 from .models import RunSpec, RunResult
 from .receipts import write_receipt
+from .secrets import snapshot_credentials
+from .process import supervised_exec, write_process_logs
 
 
 def _validate(spec):
@@ -71,6 +73,7 @@ def run_application(spec: RunSpec) -> RunResult:
     if spec.installed_prefix is not None:
         raise ValueError('installed-prefix requires native mode')
     descriptor = _validate(spec)
+    credentials, secrets = snapshot_credentials(spec.inputs, descriptor)
     engine = Docker()
     observed = engine.image(spec.artifact)  # no resource created before preflight
     output = spec.output_dir.resolve()
@@ -97,7 +100,6 @@ def run_application(spec: RunSpec) -> RunResult:
     if threading.current_thread() is threading.main_thread():
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             old_handlers[sig] = signal.signal(sig, receive)
-    secrets = []
     state_directory = None
     state_ownership = None
     try:
@@ -111,10 +113,7 @@ def run_application(spec: RunSpec) -> RunResult:
                 if descriptor['inputs'][key]['secret']:
                     if key.endswith('_FILE'):
                         source = Path(value).resolve(strict=True)
-                        with source.open('rb') as stream:
-                            secret = stream.read(4097)
-                        if len(secret) > 4096:
-                            raise ValueError('credential input exceeds 4096-byte bound')
+                        secret = credentials[key]
                         destination = '/run/p11lab-input/' + key
                         if ',' in str(source):
                             raise ValueError('Docker bind mount paths cannot contain commas')
@@ -126,8 +125,6 @@ def run_application(spec: RunSpec) -> RunResult:
                     else:
                         secret = value.encode()
                         inputs[key] = value
-                    if secret:
-                        secrets.append(secret.decode('utf-8', 'replace'))
                 else:
                     inputs[key] = value
             envfile.write_text(''.join(f'{k}={v}\n' for k, v in inputs.items()))
@@ -362,47 +359,10 @@ def _create_proxy_network(engine, name, labels):
 
 def _run_proxy_host_app(argv, *, cwd, env, output, timeout, interrupted, secrets):
     """Run the caller application on the host with bounded redacted logs."""
-    process = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, start_new_session=True)
-    logs = {}
-
-    def drain(stream, name):
-        retained = bytearray()
-        truncated = False
-        while chunk := stream.read(65536):
-            room = max(0, 1024 * 1024 - len(retained))
-            retained.extend(chunk[:room])
-            truncated |= len(chunk) > room
-        stream.close()
-        if truncated and secrets:
-            trim = max(len(secret.encode()) for secret in secrets) - 1
-            if trim:
-                del retained[-trim:]
-        text = retained.decode('utf-8', 'replace')
-        for secret in sorted(secrets, key=len, reverse=True):
-            text = text.replace(secret, '[REDACTED]')
-        (output / ('application.' + name + '.log')).write_text(text)
-        logs[name + '_truncated'] = truncated
-
-    readers = [threading.Thread(target=drain, args=(stream, name))
-               for stream, name in ((process.stdout, 'stdout'), (process.stderr, 'stderr'))]
-    for reader in readers:
-        reader.start()
-    deadline = time.monotonic() + timeout
-    while process.poll() is None and not interrupted() and time.monotonic() < deadline:
-        time.sleep(0.02)
-    stage_timeout = process.poll() is None and not interrupted()
-    if process.poll() is None:
-        os.killpg(process.pid, signal.SIGTERM)
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=2)
-    for reader in readers:
-        reader.join(timeout=2)
-    status = 124 if stage_timeout else process.returncode if process.returncode >= 0 else 128 - process.returncode
-    return status, stage_timeout, logs
+    status, timed_out, owner, evidence = supervised_exec(
+        argv, cwd=cwd, env=env, timeout=timeout, interrupted=interrupted)
+    evidence.update(write_process_logs(owner, output, 'application', secrets))
+    return status, timed_out, evidence
 
 
 def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
@@ -410,6 +370,7 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
     from . import tls as proxy_tls
     from .native import CLIENT_MODULE, install_native_client_bundle, load_client_installation, preflight_native_client, staging_parent
     descriptor, host = plan['descriptor'], plan['host']
+    credentials, secrets = snapshot_credentials(spec.inputs, descriptor)
     engine = Docker()
     observed_daemon = engine.image(spec.artifact)  # no resource created before preflight
     observed_consumer = engine.image(spec.consumer_artifact) if not host else None
@@ -417,6 +378,14 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
     cwd = spec.cwd.resolve()
     if any(',' in str(path) for path in (output, cwd)):
         raise ValueError('Docker bind mount paths cannot contain commas')
+    verified_client = None
+    if spec.installed_prefix is not None:
+        from .bundle import validate_writable_paths
+        validate_writable_paths(spec.installed_prefix, (output, Path(spec.inputs.get('P11LAB_STATE_DIR', output / 'state'))))
+        verified_client = load_client_installation(spec.installed_prefix, environment=spec.environment,
+                                                  channel=spec.channel, platform=spec.client_artifact.platform)
+        if verified_client.artifact != spec.client_artifact:
+            raise ValueError('run client artifact differs from installed client')
     output.mkdir(parents=True)
     run_id, attempt_id = uuid4().hex, uuid4().hex
     labels = {'org.p11lab.run': run_id, 'org.p11lab.attempt': attempt_id}
@@ -437,7 +406,6 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
     if threading.current_thread() is threading.main_thread():
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             old_handlers[sig] = signal.signal(sig, receive)
-    secrets = []
     state_directory = None
     state_ownership = None
     network = None
@@ -450,10 +418,7 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
         with tempfile.TemporaryDirectory(prefix='p11lab-proxy-', dir=staging_parent(output)) as workspace:
             work = Path(workspace)
             if spec.installed_prefix is not None:
-                installed = load_client_installation(spec.installed_prefix, environment=spec.environment,
-                                                     channel=spec.channel, platform=spec.client_artifact.platform)
-                if installed.artifact != spec.client_artifact:
-                    raise ValueError('run client artifact differs from installed client')
+                installed = verified_client
             else:
                 installed = install_native_client_bundle(spec.client_artifact, work / 'client-prefix',
                                                          environment=spec.environment, channel=spec.channel)
@@ -493,10 +458,7 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
                 if descriptor['inputs'][key]['secret']:
                     if key.endswith('_FILE'):
                         source = Path(value).resolve(strict=True)
-                        with source.open('rb') as stream:
-                            secret = stream.read(4097)
-                        if len(secret) > 4096:
-                            raise ValueError('credential input exceeds 4096-byte bound')
+                        secret = credentials[key]
                         destination = '/run/p11lab-input/' + key
                         if ',' in str(source):
                             raise ValueError('Docker bind mount paths cannot contain commas')
@@ -508,8 +470,6 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
                     else:
                         secret = value.encode()
                         inputs[key] = value
-                    if secret:
-                        secrets.append(secret.decode('utf-8', 'replace'))
                 else:
                     inputs[key] = value
             envfile.write_text(''.join(f'{k}={v}\n' for k, v in inputs.items()))
@@ -617,15 +577,19 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
                     time.sleep(1)
                 stages.append({'phase': 'proxy-health', 'container_id': health_id, 'attempts': attempts,
                                'returncode': health.returncode if health else None,
-                               'timed_out': health.timed_out if health else False})
-                (output / 'proxy-health.stdout.log').write_text(health.stdout if health else '')
-                (output / 'proxy-health.stderr.log').write_text(health.stderr if health else '')
+                               'timed_out': health.timed_out if health else False,
+                               'stdout_truncated': health.stdout_truncated if health else False,
+                               'stderr_truncated': health.stderr_truncated if health else False})
+                (output / 'proxy-health.stdout.log').write_text(redact(health.stdout, health.stdout_truncated) if health else '')
+                (output / 'proxy-health.stderr.log').write_text(redact(health.stderr, health.stderr_truncated) if health else '')
                 if health is None or health.returncode:
                     lifecycle.append('proxy health failed')
                     proceed = False
                     diagnosis = engine.command(['logs', daemon_id], timeout=10, check=False)
-                    (output / 'daemon.stdout.log').write_text(diagnosis.stdout)
-                    (output / 'daemon.stderr.log').write_text(diagnosis.stderr)
+                    (output / 'daemon.stdout.log').write_text(redact(diagnosis.stdout, diagnosis.stdout_truncated))
+                    (output / 'daemon.stderr.log').write_text(redact(diagnosis.stderr, diagnosis.stderr_truncated))
+                    stages.append({'phase': 'daemon-diagnosis', 'stdout_truncated': diagnosis.stdout_truncated,
+                                   'stderr_truncated': diagnosis.stderr_truncated})
                 elif interrupted_signal or time.monotonic() >= deadline:
                     timed_out = not bool(interrupted_signal)
                     proceed = False
@@ -679,6 +643,10 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
                 timed_out = timed_out or stage_timeout
                 stages.append({'phase': 'application', 'host': True, 'returncode': status,
                                'timed_out': stage_timeout, **logs})
+                if not logs['drain_complete'] or logs['stragglers_remaining'] or logs['supervision_errors']:
+                    app_completed = False
+                    lifecycle.append('application supervision incomplete')
+                    proceed = False
                 if stage_timeout or interrupted_signal:
                     proceed = False
             if proceed:
@@ -739,7 +707,7 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
                         'client': installed.manifest['source']['proxy'] if installed else None,
                         'client_manifest_sha256': installed.manifest_sha256 if installed else None,
                         'installation': ({'prefix': str(installed.prefix), 'temporary': spec.installed_prefix is None,
-                                          'receipt_sha256': installed.receipt_sha256, 'retained': False}
+                                          'receipt_sha256': installed.receipt_sha256, 'retained': installed.prefix.exists()}
                                          if installed else None),
                         'client_preflight': ({'loader': client_preflight['loader'],
                                               'architecture': client_preflight['architecture'],

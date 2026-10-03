@@ -13,10 +13,10 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import threading
 from uuid import uuid4
 
 from .models import RunResult, RunSpec
+from .process import supervised_exec, write_process_logs
 from .receipts import write_receipt
 
 SOURCE = 'de4db3d2ee738a9f99d0654e4baf568cdbd4774a'
@@ -190,64 +190,21 @@ def execute_checker(*, installed_root: Path, module: Path, slot: int,
             '--key-inject', 'off', '--recover-mode', 'off', '--output', 'json',
             '--output-file', str(output_dir / 'results.json'), '--state-file', str(output_dir / 'state.json'),
             '--policy-file', str(output_dir / 'policy.json'), *targets]
-    # Drain both streams while retaining a bounded prefix; a noisy provider must
-    # not grow durable diagnostic logs without limit or deadlock a full pipe.
-    process = subprocess.Popen(argv, cwd=output_dir, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    logs = {}
-    def drain(stream, name):
-        retained = bytearray()
-        truncated = False
-        while chunk := stream.read(65536):
-            room = 1024 * 1024 - len(retained)
-            retained.extend(chunk[:room])
-            truncated |= len(chunk) > room
-        stream.close()
-        if truncated and (pin or so_pin):
-            trim = max(len(pin.encode()), len(so_pin.encode())) - 1
-            if trim:
-                del retained[-trim:]
-        log = retained.decode('utf-8', 'replace')
-        for secret in sorted({pin, so_pin} - {''}, key=len, reverse=True):
-            log = log.replace(secret, '[REDACTED]')
-        if truncated:
-            log += '\n[TRUNCATED]\n'
-        logs[name] = truncated
-        (output_dir / name).write_text(log)
-    readers = [threading.Thread(target=drain, args=(stream, name)) for stream, name in
-               ((process.stdout, 'checker.stdout.log'), (process.stderr, 'checker.stderr.log'))]
-    for reader in readers:
-        reader.start()
-    timed_out = False
-    # The host library boundary has no outer Docker runner deadline. Bound the
-    # entire selected run independently, including hung checker/provider children.
-    try:
-        process.wait(timeout=900)
-    except subprocess.TimeoutExpired:
-        import signal
-        timed_out = True
-        os.killpg(process.pid, signal.SIGTERM)
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=5)
-    for reader in readers:
-        reader.join(timeout=2)
-    if any(reader.is_alive() for reader in readers):
-        import signal
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        for reader in readers:
-            reader.join(timeout=5)
+    status, timed_out, owner, supervision = supervised_exec(
+        argv, cwd=output_dir, env=env, timeout=900)
+    log_evidence = write_process_logs(owner, output_dir, 'checker', (pin, so_pin), marker=True)
+    logs = {'checker.' + name + '.log': log_evidence[name + '_truncated'] for name in ('stdout', 'stderr')}
+    supervision.update(log_evidence)
     record = {'schema_version': 1, 'attempt_id': uuid4().hex, 'nodes': nodes, 'sources': sources,
-              'checker': identity, 'slot_index': slot, 'returncode': 124 if timed_out else process.returncode, 'timeout': timed_out, 'logs_truncated': logs,
+              'checker': identity, 'slot_index': slot, 'returncode': status, 'timeout': timed_out, 'logs_truncated': logs, 'supervision': supervision,
               'settings': {'interface': 'auto', 'isolation': 'file', 'timeout': 180,
                            'key_inject': 'off', 'recover_mode': 'off', 'ignore_disabled_tests': True,
                            'pytest_addopts': '-v'}}
     write_receipt(output_dir / 'checker-receipt.json', record)
     assessment = validate_results(output_dir, nodes, installed_root)
+    if not supervision['drain_complete'] or supervision['stragglers_remaining'] or supervision['supervision_errors']:
+        assessment['complete'] = False
+        assessment['errors'] = [*assessment.get('errors', []), 'checker supervision incomplete']
     record['evidence'] = assessment
     write_receipt(output_dir / 'checker-receipt.json', record)
     return record

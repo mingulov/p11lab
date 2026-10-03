@@ -29,7 +29,15 @@ p11lab_secret() {
     if [ "$file_set" = x ]; then
         eval 'credential_file=${'"$2"'}'
         [ -n "$credential_file" ] && [ -f "$credential_file" ] && [ -r "$credential_file" ] || p11lab_die "credential file is not readable"
-        credential=$(cat -- "$credential_file") || p11lab_die "cannot read credential file"
+        [ "$(wc -c < "$credential_file")" -le 4096 ] || p11lab_die "credential input exceeds 4096-byte bound"
+        # A sentinel preserves ALL trailing LFs through command substitution.
+        # Compare the retained byte count so shells cannot silently discard NUL.
+        credential=$(cat -- "$credential_file" && printf '.') || p11lab_die "cannot read credential file"
+        credential=${credential%.}
+        [ "$(printf '%s' "$credential" | wc -c)" = "$(wc -c < "$credential_file")" ] || p11lab_die "credential file contains unsupported bytes"
+        case "$credential" in *'
+') credential=${credential%'
+'} ;; esac
     elif [ "$scalar_set" = x ]; then
         eval 'credential=${'"$1"'}'
     else
@@ -38,6 +46,7 @@ p11lab_secret() {
     [ -n "$credential" ] || p11lab_die "credential input is empty"
     case "$credential" in *'
 '*) p11lab_die "credential input must be a single line" ;; esac
+    case "$credential" in *"$(printf '\r')"*) p11lab_die "credential input must be a single line" ;; esac
 }
 
 p11lab_writable_directory() {

@@ -29,6 +29,8 @@ from .identity import artifact_key, public_identity
 from .models import ArtifactRef, RunSpec, RunResult
 from .receipts import write_receipt
 from .sources import checksum
+from .secrets import credential_text, snapshot_credentials
+from .process import SupervisedProcess, bounded_redacted, supervised_exec, write_process_logs
 
 TARGET = "debian13-amd64"
 MODULE = "lib/libsofthsm2.so"
@@ -460,20 +462,7 @@ def run_native_softhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult:
     if "P11LAB_STATE_DIR" in spec.inputs and not state.is_dir():
         raise ValueError("explicit persistent state directory must already exist")
     # Validate credentials before resource creation; snapshot private file inputs.
-    credentials = {}
-    secrets = []
-    for key, value in spec.inputs.items():
-        if descriptor["inputs"].get(key, {}).get("secret"):
-            if key.endswith("_FILE"):
-                with Path(value).open("rb") as stream:
-                    data = stream.read(4097)
-            else:
-                data = value.encode()
-            if len(data) > 4096:
-                raise ValueError("credential input exceeds 4096-byte bound")
-            credentials[key] = data
-            if data:
-                secrets.append(data.decode("utf-8", "replace"))
+    credentials, secrets = snapshot_credentials(spec.inputs, descriptor)
     runtime = preflight_native(installed.prefix, installed.manifest)
     output.mkdir(parents=True, mode=0o700)
     lifecycle = []
@@ -534,74 +523,14 @@ def run_native_softhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult:
                     timed_out = not bool(interrupted)
                     lifecycle.append("interrupted" if interrupted else "timeout")
                     break
-                process = subprocess.Popen(
-                    [*adapter, *args],
-                    cwd=cwd,
-                    env=env,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    start_new_session=True,
-                )
-                logs = {}
-
-                def drain(stream, name):
-                    retained = bytearray()
-                    truncated = False
-                    while chunk := stream.read(65536):
-                        room = max(0, 1024 * 1024 - len(retained))
-                        retained.extend(chunk[:room])
-                        truncated |= len(chunk) > room
-                    stream.close()
-                    if truncated and secrets:
-                        trim = max(len(s.encode()) for s in secrets) - 1
-                        if trim:
-                            del retained[-trim:]
-                    text = retained.decode("utf-8", "replace")
-                    for secret in sorted(secrets, key=len, reverse=True):
-                        text = text.replace(secret, "[REDACTED]")
-                    (output / (phase + "." + name + ".log")).write_text(text)
-                    logs[name + "_truncated"] = truncated
-
-                readers = [
-                    threading.Thread(target=drain, args=(stream, name))
-                    for stream, name in [
-                        (process.stdout, "stdout"),
-                        (process.stderr, "stderr"),
-                    ]
-                ]
-                for reader in readers:
-                    reader.start()
-                while (
-                    process.poll() is None
-                    and not interrupted
-                    and time.monotonic() < deadline
-                ):
-                    time.sleep(0.02)
-                stage_timeout = process.poll() is None and not interrupted
-                if process.poll() is None:
-                    os.killpg(process.pid, signal.SIGTERM)
-                    try:
-                        process.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(process.pid, signal.SIGKILL)
-                        process.wait(timeout=2)
-                # Bound pipe drainage if an application leaves descendants holding pipes.
-                for reader in readers:
-                    reader.join(timeout=1)
-                if any(reader.is_alive() for reader in readers):
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    for reader in readers:
-                        reader.join(timeout=2)
-                status = (
-                    124
-                    if stage_timeout
-                    else process.returncode
-                    if process.returncode >= 0
-                    else 128 - process.returncode
-                )
+                status, stage_timeout, owner, logs = supervised_exec(
+                    [*adapter, *args], cwd=cwd, env=env,
+                    timeout=max(.01, deadline - time.monotonic()), interrupted=lambda: interrupted)
+                process = owner.process
+                logs.update(write_process_logs(owner, output, phase, secrets))
+                supervision_complete = logs['drain_complete'] and not logs['stragglers_remaining'] and not logs['supervision_errors']
+                if not supervision_complete:
+                    lifecycle.append(phase + ' supervision incomplete')
                 timed_out |= stage_timeout
                 stages.append(
                     {
@@ -614,11 +543,11 @@ def run_native_softhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult:
                 )
                 if phase == "application":
                     app = status
-                    completed = not stage_timeout and not interrupted
+                    completed = not stage_timeout and not interrupted and supervision_complete
                 elif status:
                     lifecycle.append(phase + " failed")
                     break
-                if stage_timeout or interrupted:
+                if stage_timeout or interrupted or not supervision_complete:
                     break
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         lifecycle.append(
@@ -1579,24 +1508,22 @@ def build_bouncyhsm_bundle(
             or re.fullmatch(r"[0-9a-f]{40}", entry.get("revision", ""))
         )
     ]
-    key = artifact_key(
-        "native",
-        {
-            "sources": [lock["source"]],
-            "binaries": binaries,
-            "dependencies": [],
-            "toolchain": identity_toolchain,
-            "recipe": hashlib.sha256(implementation).hexdigest(),
-            "platform": lock["platform"],
-            "features": {
-                "target": target,
-                "acquisition": acquisition,
-                "host_requirements": lock["host_requirements"],
-                "target_lock": f"{channel}.{target}.lock.json",
-                "notice_provenance": lock["notice_provenance"],
-            },
+    identity_inputs = {
+        "sources": [lock["source"]],
+        "binaries": binaries,
+        "dependencies": [],
+        "toolchain": identity_toolchain,
+        "recipe": hashlib.sha256(implementation).hexdigest(),
+        "platform": lock["platform"],
+        "features": {
+            "target": target,
+            "acquisition": acquisition,
+            "host_requirements": lock["host_requirements"],
+            "target_lock": f"{channel}.{target}.lock.json",
+            "notice_provenance": lock["notice_provenance"],
         },
-    )
+    }
+    key = artifact_key("native", identity_inputs)
     add_payload("share/p11lab/native-id", key.encode(), 0o644)
     manifest = {
         "schema_version": 1,
@@ -1618,18 +1545,7 @@ def build_bouncyhsm_bundle(
         "tested_prerequisites": lock["tested_prerequisites"],
         "build": {
             "key": key,
-            "identity": public_identity(
-                "native",
-                {
-                    "sources": [lock["source"]],
-                    "binaries": binaries,
-                    "dependencies": [],
-                    "toolchain": identity_toolchain,
-                    "recipe": hashlib.sha256(implementation).hexdigest(),
-                    "platform": lock["platform"],
-                    "features": {"target": target},
-                },
-            ),
+            "identity": public_identity("native", identity_inputs),
         },
         "licenses": [
             "share/licenses/p11lab/LICENSE",
@@ -1690,9 +1606,7 @@ def build_bouncyhsm_bundle(
                 "sha256": checksum(archive_path),
                 "platform": lock["platform"],
             },
-            "manifest_sha256": hashlib.sha256(
-                json.dumps(manifest, sort_keys=True).encode()
-            ).hexdigest(),
+            "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
             "payload_files": len(payload),
             "payload_bytes": sum(len(data) for _, data, _ in payload),
         },
@@ -1785,7 +1699,7 @@ def _bouncy_probe_slots(
             env=env,
         )
     except subprocess.TimeoutExpired as error:
-        raise ValueError("native slot probe timed out") from error
+        raise NativeStageTimeout("native slot probe timed out") from error
     if completed.returncode:
         detail = (completed.stderr.strip() or completed.stdout.strip())[:500]
         raise ValueError("native slot probe failed: " + detail)
@@ -1829,6 +1743,44 @@ def _bouncy_marker(manifest_sha256: str, label: str, slot: int) -> str:
     )
 
 
+class NativeStageTimeout(TimeoutError):
+    """The lifecycle deadline expired; preserve stage and exit 124."""
+
+
+def _bouncy_static_state(state: Path, manifest_sha256: str, label: str) -> int | None:
+    """Validate the original state before LiteDB can open or create anything."""
+    if state.is_symlink() or (state.exists() and not state.is_dir()):
+        raise ValueError('partial or unsafe state')
+    if not state.exists() or not any(state.iterdir()):
+        return None
+    if {p.name for p in state.iterdir()} != {'bouncyhsm'}:
+        raise ValueError('partial state: unknown files or initialization lock')
+    owned = state / 'bouncyhsm'
+    if owned.is_symlink() or not owned.is_dir():
+        raise ValueError('partial or unsafe state')
+    if hasattr(os, 'getuid') and owned.stat().st_uid != os.getuid():
+        raise ValueError('state directory ownership mismatch')
+    names = {p.name for p in owned.iterdir()}
+    if not {'complete', 'BouncyHsm.db'} <= names or names - {'complete', 'BouncyHsm.db', 'BouncyHsm-log.db'}:
+        raise ValueError('partial state: missing or unknown owned files')
+    for path in owned.iterdir():
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('partial state: database and marker must be regular files')
+    marker = _read_bouncy_marker(owned / 'complete')
+    match = re.fullmatch(rb'schema=1\nprovider=bouncyhsm\nartifact=[0-9a-f]{64}\nlabel=[^\r\n]*\nslot=([0-9]+)\nbackend=litedb\n', marker)
+    if match is None:
+        raise ValueError('incompatible non-secret initialization configuration')
+    slot = int(match[1])
+    if marker != _bouncy_marker(manifest_sha256, label, slot).encode():
+        raise ValueError('incompatible non-secret initialization configuration')
+    return slot
+
+
+def _read_bouncy_marker(path: Path) -> bytes:
+    with path.open('rb') as stream:
+        return stream.read(4097)
+
+
 def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult:
     """Supervise an owned BouncyHSM server and run one application against it.
 
@@ -1837,7 +1789,7 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
     state directory: existing compatible state is reused without credentials,
     anything foreign, ambiguous, or partial fails without reset. HTTP health
     alone is never readiness: every stage requires a native probe plus the
-    provisioned slot. Only the owned server process is ever signaled.
+    provisioned slot. Only owned server/application trees are signaled.
     """
     if (
         spec.mode != "native"
@@ -1925,20 +1877,8 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
     if "P11LAB_STATE_DIR" in spec.inputs and not state.is_dir():
         raise ValueError("explicit persistent state directory must already exist")
     # Validate credentials before resource creation; snapshot private file inputs.
-    credentials = {}
-    secrets = []
-    for key, value in spec.inputs.items():
-        if descriptor["inputs"].get(key, {}).get("secret"):
-            if key.endswith("_FILE"):
-                with Path(value).open("rb") as stream:
-                    data = stream.read(4097)
-            else:
-                data = value.encode()
-            if len(data) > 4096:
-                raise ValueError("credential input exceeds 4096-byte bound")
-            credentials[key] = data
-            if data:
-                secrets.append(data.decode("utf-8", "replace"))
+    credentials, secrets = snapshot_credentials(spec.inputs, descriptor)
+    original_slot = _bouncy_static_state(state, installed.manifest_sha256, label)
     runtime = preflight_bouncyhsm(installed.prefix, installed.manifest)
     output.mkdir(parents=True, mode=0o700)
     module = installed.prefix / "payload" / installed.manifest["module"]
@@ -1972,11 +1912,16 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
             text = text.replace(secret, "[REDACTED]")
         return text
 
+    active_phase = 'server-start'
+
     def remaining() -> float:
-        return max(1, int(deadline - time.monotonic()))
+        if time.monotonic() >= deadline:
+            raise NativeStageTimeout('native lifecycle deadline expired')
+        return max(.01, deadline - time.monotonic())
 
     server = None
     server_log = None
+    server_capture = None
     try:
         with tempfile.TemporaryDirectory(prefix="p11lab-bouncy-input-") as private:
             env = {
@@ -2025,17 +1970,13 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
                 owned.mkdir(parents=True, mode=0o700, exist_ok=True)
             except OSError as error:
                 raise ValueError("partial or unsafe state") from error
-            server_log = (control / "server.log").open("ab")
+            # Keep the opened descriptor; an application cannot redirect final capture.
+            fd = os.open(control / 'server.log', os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+            server_log = os.fdopen(fd, 'wb')
             start = time.monotonic()
             try:
-                server = subprocess.Popen(
-                    server_argv,
-                    cwd=server_file.parent,
-                    env=server_env,
-                    stdout=server_log,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=(platform.system() != "Windows"),
-                )
+                server_capture = SupervisedProcess(server_argv, cwd=server_file.parent, env=server_env)
+                server = server_capture.process
             except OSError as error:
                 raise ValueError("owned server launch failed") from error
             stages.append(
@@ -2049,7 +1990,7 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
             )
 
             def server_alive() -> bool:
-                return server is not None and server.poll() is None
+                return server_capture is not None and server_capture.poll() is None
 
             def await_health() -> None:
                 """Bounded HTTP wait; native proof always follows separately."""
@@ -2058,14 +1999,14 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
                         raise ValueError("owned server exited before becoming ready")
                     try:
                         _bouncy_http(
-                            "GET", base + "/health", None, 5, expect_json=False
+                            "GET", base + "/health", None, min(5, remaining()), expect_json=False
                         )
                         return
                     except ValueError:
                         time.sleep(0.3)
                 if interrupted:
                     raise ValueError("interrupted")
-                raise ValueError("owned server HTTP health did not become ready")
+                raise NativeStageTimeout("owned server HTTP health did not become ready")
 
             def live_slot() -> int | None:
                 """Single-slot policy: exactly our labeled slot, else refuse."""
@@ -2088,16 +2029,15 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
                     raise ValueError("slot listing returned an unexpected shape")
                 return found
 
+            def native_counts(expected):
+                counts = _bouncy_probe_slots(probe, module, ports['tcp'], timeout=remaining())
+                stages.append({'phase': active_phase + '-probe', 'native_probe': {'slots': counts[0], 'present': counts[1]}})
+                if counts != expected:
+                    raise ValueError('native slot counts contradict the single-token state contract')
+                return counts
+
             def verify_state(expect: int | None) -> int:
-                if owned.is_symlink() or (owned / "complete").is_symlink():
-                    raise ValueError("partial or unsafe state")
-                names = {p.name for p in owned.iterdir()} if owned.is_dir() else set()
-                if names - {"complete", "BouncyHsm.db", "BouncyHsm-log.db"}:
-                    raise ValueError("partial state: unknown owned files")
-                top = {p.name for p in state.iterdir()} if state.is_dir() else set()
-                if top - {"bouncyhsm", ".init-lock"}:
-                    raise ValueError("partial state: unknown files")
-                _bouncy_probe_slots(probe, module, ports["tcp"], timeout=remaining())
+                native_counts((1, 1))
                 found = live_slot()
                 if found is None:
                     raise ValueError("partial state: expected slot is absent")
@@ -2106,9 +2046,9 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
                         "incompatible non-secret initialization configuration"
                     )
                 marker = owned / "complete"
-                if not marker.is_file() or marker.read_text() != _bouncy_marker(
+                if not marker.is_file() or marker.is_symlink() or _read_bouncy_marker(marker) != _bouncy_marker(
                     installed.manifest_sha256, label, found
-                ):
+                ).encode():
                     raise ValueError(
                         "incompatible non-secret initialization configuration"
                     )
@@ -2116,31 +2056,19 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
 
             # init: reuse compatible state without credentials, else provision.
             state.mkdir(parents=True, mode=0o700, exist_ok=True)
-            if (owned / "complete").exists():
+            active_phase = 'init'
+            if original_slot is not None:
                 await_health()
-                slot = verify_state(None)
+                slot = verify_state(original_slot)
             else:
-                # The owned directory above is ours; anything else, or any
-                # content in it from an earlier attempt, still refuses.
-                entries = {p.name for p in state.iterdir()}
-                if (
-                    entries - {"bouncyhsm"}
-                    or not owned.is_dir()
-                    or any(owned.iterdir())
-                ):
-                    raise ValueError(
-                        "partial state: refusing to initialize nonempty volume"
-                    )
                 pin = credentials.get("P11LAB_PIN_FILE", credentials.get("P11LAB_PIN"))
                 so_pin = credentials.get(
                     "P11LAB_SO_PIN_FILE", credentials.get("P11LAB_SO_PIN")
                 )
                 if pin is None or so_pin is None:
                     raise ValueError("required credential input is absent")
-                if not pin or not so_pin:
-                    raise ValueError("credential input is empty")
-                if b"\n" in pin or b"\r" in pin or b"\n" in so_pin or b"\r" in so_pin:
-                    raise ValueError("credential input must be a single line")
+                pin_text = credential_text(pin, file='P11LAB_PIN_FILE' in credentials)
+                so_pin_text = credential_text(so_pin, file='P11LAB_SO_PIN_FILE' in credentials)
                 try:
                     (state / ".init-lock").mkdir(exist_ok=False)
                 except FileExistsError:
@@ -2149,9 +2077,7 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
                     ) from None
                 try:
                     await_health()
-                    _bouncy_probe_slots(
-                        probe, module, ports["tcp"], timeout=remaining()
-                    )
+                    native_counts((0, 0))
                     if live_slot() is not None:
                         raise ValueError(
                             "partial state: refusing to provision over existing slots"
@@ -2171,8 +2097,8 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
                                 "SimulateQualifiedArea": False,
                                 "SimulateProtectedAuthPath": False,
                                 "SpeedMode": "WithoutRestriction",
-                                "UserPin": pin.decode("utf-8", "replace"),
-                                "SoPin": so_pin.decode("utf-8", "replace"),
+                                "UserPin": pin_text,
+                                "SoPin": so_pin_text,
                             },
                         },
                         remaining(),
@@ -2182,13 +2108,14 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
                         raise ValueError("slot provisioning failed")
                     owned.mkdir(mode=0o700, exist_ok=True)
                     staging = owned / ".complete.staging"
-                    staging.write_text(
-                        _bouncy_marker(installed.manifest_sha256, label, slot)
+                    staging.write_bytes(
+                        _bouncy_marker(installed.manifest_sha256, label, slot).encode()
                     )
                     staging.replace(owned / "complete")
                 finally:
                     (state / ".init-lock").rmdir()
             stages.append({"phase": "init", "slot": slot})
+            active_phase = 'ready'
             # ready: HTTP health, native operation, provisioned slot.
             _bouncy_http("GET", base + "/health", None, remaining(), expect_json=False)
             slot = verify_state(slot)
@@ -2200,80 +2127,16 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
                 P11LAB_MODULE=str(module),
                 BOUNCY_HSM_CFG_STRING=f"Server=127.0.0.1;Port={ports['tcp']};",
             )
-            process = subprocess.Popen(
-                list(spec.argv),
-                cwd=cwd,
-                env=app_env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                start_new_session=(platform.system() != "Windows"),
-            )
-            logs = {}
-
-            def drain(stream, name):
-                retained = bytearray()
-                truncated = False
-                while chunk := stream.read(65536):
-                    room = max(0, 1024 * 1024 - len(retained))
-                    retained.extend(chunk[:room])
-                    truncated |= len(chunk) > room
-                stream.close()
-                if truncated and secrets:
-                    trim = max(len(s.encode()) for s in secrets) - 1
-                    if trim:
-                        del retained[-trim:]
-                (output / ("application." + name + ".log")).write_text(
-                    redact(retained.decode("utf-8", "replace"))
-                )
-                logs[name + "_truncated"] = truncated
-
-            readers = [
-                threading.Thread(target=drain, args=(stream, name))
-                for stream, name in [
-                    (process.stdout, "stdout"),
-                    (process.stderr, "stderr"),
-                ]
-            ]
-            for reader in readers:
-                reader.start()
-            while (
-                process.poll() is None
-                and not interrupted
-                and time.monotonic() < deadline
-            ):
-                time.sleep(0.02)
-            stage_timeout = process.poll() is None and not interrupted
-            if process.poll() is None:
-                try:
-                    if platform.system() == "Windows":
-                        process.terminate()
-                    else:
-                        os.killpg(process.pid, signal.SIGTERM)
-                except (OSError, ProcessLookupError):
-                    pass
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    try:
-                        if platform.system() == "Windows":
-                            process.kill()
-                        else:
-                            os.killpg(process.pid, signal.SIGKILL)
-                    except (OSError, ProcessLookupError):
-                        pass
-                    process.wait(timeout=2)
-            for reader in readers:
-                reader.join(timeout=2)
-            status = (
-                124
-                if stage_timeout
-                else process.returncode
-                if process.returncode >= 0
-                else 128 - process.returncode
-            )
+            active_phase = 'application'
+            status, stage_timeout, owner, logs = supervised_exec(
+                list(spec.argv), cwd=cwd, env=app_env, timeout=remaining(), interrupted=lambda: interrupted)
+            process = owner.process
+            logs.update(write_process_logs(owner, output, 'application', secrets))
+            if not logs['drain_complete'] or logs['stragglers_remaining'] or logs['supervision_errors']:
+                lifecycle.append('application supervision incomplete')
             timed_out |= stage_timeout
             app = status
-            completed = not stage_timeout and not interrupted
+            completed = not stage_timeout and not interrupted and logs['drain_complete'] and not logs['stragglers_remaining'] and not logs['supervision_errors']
             stages.append(
                 {
                     "phase": "application",
@@ -2286,12 +2149,17 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
             if stage_timeout or interrupted:
                 lifecycle.append("interrupted" if interrupted else "timeout")
             else:
+                active_phase = 'post-health'
                 # post-health: the provisioned slot survives the application.
                 _bouncy_http(
                     "GET", base + "/health", None, remaining(), expect_json=False
                 )
                 verify_state(slot)
                 stages.append({"phase": "post-health", "slot": slot})
+    except NativeStageTimeout as error:
+        timed_out = True
+        lifecycle.append(redact(str(error)))
+        stages.append({'phase': active_phase, 'timed_out': True, 'returncode': 124})
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         lifecycle.append(
             "native runner operation failed ("
@@ -2302,26 +2170,21 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
     finally:
         for number, handler in handlers.items():
             signal.signal(number, handler)
-        if server is not None:
-            if server.poll() is None:
-                server.terminate()
-                try:
-                    server.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    server.kill()
-                    try:
-                        server.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        cleanup.append("owned server stop timed out")
-            if server.poll() is None:
-                cleanup.append("owned server is still running")
-            elif _bouncy_port_occupied(ports["tcp"]) or _bouncy_port_occupied(
-                ports["http"]
-            ):
-                cleanup.append("owned server endpoints are still occupied")
-            else:
-                stages.append({"phase": "server-stop", "pid": server.pid})
+        if server_capture is not None:
+            server_evidence = server_capture.finish(stop=True)
+            if not server_evidence['drain_complete'] or server_evidence['stragglers_remaining'] or server_evidence['supervision_errors']:
+                cleanup.append('owned server supervision incomplete')
+            if _bouncy_port_occupied(ports['tcp']) or _bouncy_port_occupied(ports['http']):
+                cleanup.append('owned server endpoints are still occupied')
+            stages.append({'phase': 'server-stop', 'pid': server.pid, **server_evidence})
         if server_log is not None:
+            if server_capture is not None:
+                # Combined durable bound is one MiB, not one MiB per stream.
+                captured = bytes(server_capture.capture.buffers[0]) + bytes(server_capture.capture.buffers[1])
+                truncated = any(server_capture.capture.truncated) or len(captured) > 1024 * 1024
+                text, truncated = bounded_redacted(captured[:1024 * 1024], secrets, truncated)
+                server_log.write(text.encode())
+                stages[-1]['server_log_truncated'] = truncated
             server_log.close()
     code = (
         app

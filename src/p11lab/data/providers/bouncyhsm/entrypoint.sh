@@ -35,7 +35,7 @@ server_env() {
 }
 
 http_request() { # $1 = METHOD, $2 = path, $3 = body or empty
-    local status header body_file=$control/http.$$
+    local status header body_file=$control/http.$$ LC_ALL=C
     exec 3<>"/dev/tcp/$http_host/$http_port" || return 1
     {
         printf '%s %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n' "$1" "$2" "$http_host"
@@ -136,6 +136,56 @@ expected_marker() {
     printf '%s\n' 'schema=1' 'provider=bouncyhsm' "artifact=$(cat /usr/share/p11lab/runtime-id)" "label=$label" "slot=$1" 'backend=litedb'
 }
 
+static_state() { # $1: fresh allowed only for init; never opens LiteDB
+    local slot marker=$owned/complete
+    [ ! -L "$state" ] && [ ! -L "$owned" ] || p11lab_die "partial or unsafe state"
+    if [ ! -e "$owned" ]; then
+        [ "$1" = fresh ] || p11lab_die "partial state: missing owned directory"
+        if [ -e "$state" ]; then
+            p11lab_check_find empty "partial state: refusing to initialize nonempty volume" "$state" -mindepth 1 -maxdepth 1 -print -quit
+        fi
+        return 0
+    fi
+    [ -d "$owned" ] && [ "$(stat -c %u "$owned")" = "$(id -u)" ] || p11lab_die "partial or unsafe state ownership"
+    p11lab_check_find empty "partial state: unknown files" "$state" -mindepth 1 -maxdepth 1 ! -name bouncyhsm -print -quit
+    p11lab_check_find empty "partial state: unknown owned files" "$owned" -mindepth 1 -maxdepth 1 ! -name complete ! -name BouncyHsm.db ! -name BouncyHsm-log.db -print -quit
+    for file in "$marker" "$owned/BouncyHsm.db"; do
+        [ -f "$file" ] && [ ! -L "$file" ] || p11lab_die "partial state: missing or unsafe marker/database"
+    done
+    if [ -e "$owned/BouncyHsm-log.db" ] || [ -L "$owned/BouncyHsm-log.db" ]; then
+        [ -f "$owned/BouncyHsm-log.db" ] && [ ! -L "$owned/BouncyHsm-log.db" ] || p11lab_die "partial state: unsafe log database"
+    fi
+    slot=$(sed -n 's/^slot=\([0-9][0-9]*\)$/\1/p' "$marker")
+    [[ "$slot" =~ ^(0|[1-9][0-9]*)$ ]] || p11lab_die "incompatible non-secret initialization configuration"
+    cmp -s -- "$marker" <(expected_marker "$slot") || p11lab_die "incompatible non-secret initialization configuration"
+}
+
+json_string() { # Encode an accepted UTF-8 PIN without a runtime JSON dependency.
+    local value=$1 char index escaped='' LC_ALL=C
+    printf '%s' "$value" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 || p11lab_die "credential input must be valid UTF-8"
+    for ((index=0; index<${#value}; index++)); do
+        char=${value:index:1}
+        case "$char" in
+            '"') escaped+='\"' ;;
+            \\) escaped+="\\\\" ;;
+            *)
+                if [[ "$char" < ' ' ]]; then
+                    printf -v char '\\u%04x' "'$char"
+                fi
+                escaped+=$char
+                ;;
+        esac
+    done
+    printf '"%s"' "$escaped"
+}
+
+slot_dto() {
+    local user_json so_json
+    user_json=$(json_string "$user_credential") || return 1
+    so_json=$(json_string "$credential") || return 1
+    printf '{"IsHwDevice":false,"IsRemovableDevice":false,"Description":"%s","Token":{"Label":"%s","SerialNumber":"0001","SimulateHwRng":true,"SimulateHwMechanism":true,"SimulateQualifiedArea":false,"SimulateProtectedAuthPath":false,"SpeedMode":"WithoutRestriction","UserPin":%s,"SoPin":%s}}' "$label" "$label" "$user_json" "$so_json"
+}
+
 complete() { # server must already run; verifies marker, files and live slot
     local slot counts
     [ ! -L "$owned" ] && [ ! -L "$owned/complete" ] && [ ! -L "$owned/BouncyHsm.db" ] || p11lab_die "partial or unsafe state"
@@ -164,6 +214,7 @@ case "${1-}" in
         # Foreground server for supervision (proxy-daemon composition). The
         # state must already be provisioned; nothing is initialized here.
         [ "$#" -eq 1 ] || p11lab_die "server takes no arguments"
+        static_state complete
         p11lab_writable_directory "$owned"
         p11lab_writable_directory "$control"
         server_env
@@ -175,6 +226,7 @@ case "${1-}" in
         # the provisioned labeled slot. Used by external supervisors.
         [ "$#" -eq 1 ] || p11lab_die "server-ready takes no arguments"
         validate_label
+        static_state complete
         server_pid=$(cat "$control/server.pid" 2>/dev/null || true)
         [ -n "$server_pid" ] || p11lab_die "server-ready requires a supervised server pid file"
         kill -0 "$server_pid" 2>/dev/null || p11lab_die "supervised server is not running"
@@ -187,6 +239,7 @@ case "${1-}" in
         validate_label
         p11lab_no_credential_conflict P11LAB_PIN P11LAB_PIN_FILE
         p11lab_no_credential_conflict P11LAB_SO_PIN P11LAB_SO_PIN_FILE
+        static_state fresh
         p11lab_writable_directory "$state"
         p11lab_writable_directory "$control"
         if [ -e "$owned/complete" ]; then
@@ -199,12 +252,12 @@ case "${1-}" in
         p11lab_secret P11LAB_PIN P11LAB_PIN_FILE
         user_credential=$credential
         p11lab_secret P11LAB_SO_PIN P11LAB_SO_PIN_FILE
+        dto=$(slot_dto) || p11lab_die "credential JSON encoding failed"
+        unset user_credential credential
         mkdir "$state/.init-lock" || p11lab_die "state initialization is already in progress"
         trap 'stop_server; rmdir "$state/.init-lock" 2>/dev/null || :; rm -f "$control/marker.$$" "$control/slot.$$"' EXIT HUP INT TERM
         ready_server || exit 1
         [ "$(slot_json)" = "[]" ] || p11lab_die "partial state: refusing to provision over existing slots"
-        dto=$(printf '{"IsHwDevice":false,"IsRemovableDevice":false,"Description":"%s","Token":{"Label":"%s","SerialNumber":"0001","SimulateHwRng":true,"SimulateHwMechanism":true,"SimulateQualifiedArea":false,"SimulateProtectedAuthPath":false,"SpeedMode":"WithoutRestriction","UserPin":"%s","SoPin":"%s"}}' "$label" "$label" "$user_credential" "$credential")
-        unset user_credential credential
         http_request POST /Slot "$dto" >"$control/slot.$$" || p11lab_die "slot provisioning failed; partial state retained"
         slot=$(selected_slot "$(slot_json)")
         [ -n "$slot" ] || p11lab_die "slot provisioning failed; partial state retained"
@@ -215,6 +268,7 @@ case "${1-}" in
     health)
         [ "$#" -eq 1 ] || p11lab_die "health takes no arguments"
         validate_label
+        static_state complete
         p11lab_writable_directory "$control"
         ready_server || exit 1
         trap stop_server EXIT HUP INT TERM
@@ -227,6 +281,7 @@ case "${1-}" in
         shift
         [ "$#" -gt 0 ] || p11lab_die "exec requires an application"
         validate_label
+        static_state complete
         p11lab_writable_directory "$control"
         ready_server || exit 1
         complete

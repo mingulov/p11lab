@@ -625,8 +625,9 @@ def test_host_shim_smoke_temporary_client(channel, image, tmp_path):
 class ManualDaemon:
     """Direct Docker orchestration for negative lanes; proves artifact behavior.
 
-    Each case gets a fresh network, token state, TLS set and daemon. Attempts
-    are counted so the no-replay property is explicit, not incidental.
+    Each case gets a fresh network, token state, TLS set and daemon. Readiness
+    setup has its own counter; attempts counts calls after authorized setup,
+    so exactly one negative/consumer attempt proves the no-replay property.
     """
 
     def __init__(self, root, channel, tag):
@@ -637,6 +638,8 @@ class ManualDaemon:
         self.nonce = uuid4().hex[:12]
         self.owned = []
         self.attempts = 0
+        self.setup_attempts = 0
+
 
     def __enter__(self):
         return self
@@ -664,7 +667,7 @@ class ManualDaemon:
         material = tls_module.create_test_tls(work / tls_dir, ('provider-daemon',))
         (work / 'proxy.toml').write_text(render_proxy_toml(module_path='/usr/local/lib/p11lab/libsofthsm2.so'))
         (work / 'proxy.toml').chmod(0o644)  # daemon refuses group/world-writable config
-        (work / 'env').write_text('P11LAB_PIN=1234\nP11LAB_SO_PIN=12345678\nP11LAB_LABEL=P11Lab\n')
+        (work / 'env').write_text('P11LAB_PIN=1234\nP11LAB_SO_PIN=12345678\nP11LAB_LABEL=P11Lab\nRUST_LOG=info,rustls=debug,tonic=debug\n')
         (work / 'state').mkdir(mode=0o700, exist_ok=True)
         network, volume = 't6neg-' + self.nonce, 't6neg-' + self.nonce
         docker('network', 'create', '--driver', 'bridge', '--label', 'org.p11lab.negative=' + self.nonce, network)
@@ -693,6 +696,19 @@ class ManualDaemon:
         self.owned.append(('container', daemon))
         docker('start', daemon)
         self.network, self.material, self.daemon = network, material, daemon
+        import time
+        deadline = time.monotonic() + 30
+        authorized = None
+        while time.monotonic() < deadline:
+            authorized = self.health_once(material, setup=True)
+            if authorized.returncode == 0 and 'SERVING' in authorized.stdout:
+                break
+            time.sleep(.25)
+        assert authorized is not None and authorized.returncode == 0 and 'SERVING' in authorized.stdout, (
+            'authorized readiness failed', authorized.stderr if authorized else '')
+        self.authorized_health = {'setup_attempts': self.setup_attempts, 'returncode': authorized.returncode,
+                                  'stdout': authorized.stdout.strip()}
+        (work / 'authorized-health.json').write_text(json.dumps(self.authorized_health, indent=2))
         return self
 
     def _client_mounts(self, material):
@@ -700,19 +716,27 @@ class ManualDaemon:
                 '--mount', f'type=bind,src={material["client_cert"]},dst=/run/p11lab-client-tls/client.crt,readonly',
                 '--mount', f'type=bind,src={material["client_key"]},dst=/run/p11lab-client-tls/client.key,readonly']
 
-    def health_once(self, material):
-        name = self.network + f'-health-{self.attempts}'
+    def health_once(self, material, *, setup=False):
+        before = docker('logs', self.daemon, check=False)
+        name = self.network + f'-health-setup-{self.setup_attempts}' if setup else self.network + f'-health-{self.attempts}'
         cid = docker('create', '--name', name, '--label', 'org.p11lab.negative=' + self.nonce,
                      '--user', f'{os.getuid()}:{os.getgid()}', '--network', self.network, '--read-only',
                      '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
                      '--tmpfs', '/tmp:rw,nosuid,nodev', *self._client_mounts(material),
-                     self.image, 'cli', '--endpoint', 'https://provider-daemon:7512',
+                     self.image, 'cli', '--verbose', '--endpoint', 'https://provider-daemon:7512',
                      '--tls-ca-cert', '/run/p11lab-client-tls/ca.crt',
                      '--tls-client-cert', '/run/p11lab-client-tls/client.crt',
                      '--tls-client-key', '/run/p11lab-client-tls/client.key', 'health').stdout.strip()
         self.owned.append(('container', cid))
-        self.attempts += 1
-        return docker('start', '--attach', cid, check=False)
+        if setup:
+            self.setup_attempts += 1
+        else:
+            self.attempts += 1
+        result = docker('start', '--attach', cid, check=False)
+        after = docker('logs', self.daemon, check=False)
+        assert after.stdout.startswith(before.stdout) and after.stderr.startswith(before.stderr)
+        self.last_tls_diagnosis = after.stdout[len(before.stdout):] + after.stderr[len(before.stderr):]
+        return result
 
     def smoke_once(self, host_shim, outdir, pinfile):
         outdir.mkdir(parents=True, exist_ok=True)
@@ -738,7 +762,7 @@ class ManualDaemon:
 
 
 @needs_docker
-@pytest.mark.parametrize('channel,image', list(IMAGES.items())[:1])
+@pytest.mark.parametrize('channel,image', list(IMAGES.items()))
 def test_unauthorized_client_and_wrong_ca_refused(channel, image, tmp_path):
     from p11lab import tls as tls_module
     root = evidence_root(tmp_path, 'negatives-' + channel)
@@ -752,8 +776,10 @@ def test_unauthorized_client_and_wrong_ca_refused(channel, image, tmp_path):
                                     'client_key': foreign['client_key']})
         assert lane.attempts == 1
         assert attempt.returncode == 2 and 'SERVING' not in attempt.stdout, (attempt.returncode, attempt.stderr)
+        assert_authentication_rejection(attempt, lane.last_tls_diagnosis)
         outcomes['unauthorized_client'] = {'attempts': lane.attempts, 'returncode': attempt.returncode,
-                                           'stderr': attempt.stderr.strip()}
+                                           'stderr': attempt.stderr.strip(), 'daemon_tls_diagnosis': lane.last_tls_diagnosis,
+                                           'authorized_health': lane.authorized_health}
     with ManualDaemon(root, channel, 'wrong-ca') as lane:
         lane.start('tls-a')
         foreign = tls_module.create_test_tls(root / 'manual-wrong-ca' / 'tls-b', ('provider-daemon',))
@@ -762,9 +788,18 @@ def test_unauthorized_client_and_wrong_ca_refused(channel, image, tmp_path):
                                     'client_key': lane.material['client_key']})
         assert lane.attempts == 1
         assert attempt.returncode == 2 and 'SERVING' not in attempt.stdout, (attempt.returncode, attempt.stderr)
+        assert_authentication_rejection(attempt, lane.last_tls_diagnosis)
         outcomes['wrong_ca'] = {'attempts': lane.attempts, 'returncode': attempt.returncode,
-                                'stderr': attempt.stderr.strip()}
+                                'stderr': attempt.stderr.strip(), 'daemon_tls_diagnosis': lane.last_tls_diagnosis,
+                                'authorized_health': lane.authorized_health}
     (root / 'outcomes.json').write_text(json.dumps(outcomes, indent=2))
+
+
+def assert_authentication_rejection(attempt, daemon_diagnosis):
+    text = (attempt.stdout + '\n' + attempt.stderr + '\n' + daemon_diagnosis).lower()
+    assert not any(error in text for error in ('connection refused', 'connection reset', 'timed out', 'dns error')), text
+    assert any(error in text for error in ('fatal alert', 'invalid peer certificate', 'unknownissuer',
+                                          'unknown ca', 'certificate verify failed')), text
 
 
 @needs_docker
@@ -853,3 +888,16 @@ def test_proxy_state_isolation(channel, image, tmp_path):
     finally:
         (caller / 'pin').unlink(missing_ok=True)
         (caller / 'so-pin').unlink(missing_ok=True)
+
+
+@needs_docker
+@pytest.mark.parametrize('channel,image', list(IMAGES.items())[:1])
+def test_mtls_negative_cannot_accept_dead_daemon(channel, image, tmp_path, monkeypatch):
+    original = ManualDaemon.start
+    def start_then_die(lane, tls_dir):
+        result = original(lane, tls_dir)
+        docker('kill', lane.daemon)
+        return result
+    monkeypatch.setattr(ManualDaemon, 'start', start_then_die)
+    with pytest.raises(AssertionError):
+        test_unauthorized_client_and_wrong_ca_refused(channel, image, tmp_path)

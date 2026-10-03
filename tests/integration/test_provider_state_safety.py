@@ -37,6 +37,39 @@ def initialize(image, state, target=None, so_pin='12345678', operation='init'):
     return subprocess.run(argv + [image, *phase], capture_output=True, text=True, timeout=180)
 
 
+@pytest.mark.parametrize('channel,image', list(IMAGES.get('bouncyhsm', {}).items()) or
+                         [pytest.param('', '', marks=pytest.mark.skip(reason='explicit BouncyHSM images required'))])
+@pytest.mark.parametrize('kind', ['missing-db', 'db-link', 'log-link', 'marker-bytes', 'empty-owned'])
+@pytest.mark.parametrize('operation', ['init', 'health', 'exec'])
+def test_bouncy_rejected_state_bytes_survive_server_refusal(tmp_path, channel, image, kind, operation):
+    import shutil
+    state, target = tmp_path / 'state', tmp_path / 'target'
+    state.mkdir()
+    target.mkdir()
+    provision = initialize(image, state)
+    assert provision.returncode == 0, provision.stderr
+    owned = state / 'bouncyhsm'
+    if kind == 'missing-db':
+        (owned / 'BouncyHsm.db').unlink()
+    elif kind in ('db-link', 'log-link'):
+        shutil.copyfile(owned / 'BouncyHsm.db', target / 'database')
+        path = owned / ('BouncyHsm.db' if kind == 'db-link' else 'BouncyHsm-log.db')
+        path.unlink(missing_ok=True)
+        path.symlink_to('/foreign-target/database')
+    elif kind == 'marker-bytes':
+        with (owned / 'complete').open('ab') as stream:
+            stream.write(b'\n')
+    else:
+        for path in owned.iterdir():
+            path.unlink()
+    before, target_before = snapshot(state), snapshot(target)
+    result = initialize(image, state, target, operation=operation)
+    assert result.returncode != 0, (kind, operation, result.stdout, result.stderr)
+    assert snapshot(state) == before
+    assert snapshot(target) == target_before
+    assert 'APP-RAN' not in result.stdout
+
+
 @pytest.mark.parametrize('provider,channel,image', CASES or [pytest.param('', '', '', marks=pytest.mark.skip(reason='explicit state images required'))])
 def test_unreadable_nonempty_state_is_refused_without_provisioning(tmp_path, provider, channel, image):
     state = tmp_path / 'state'

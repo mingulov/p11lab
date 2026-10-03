@@ -155,6 +155,7 @@ def step_run_app(args, extra):
         "cleanup_errors": list(result.cleanup_errors),
         "slot": receipt["state"]["slot"],
         "stages": [s["phase"] for s in receipt["stages"]],
+        "native_probes": {s["phase"]: s["native_probe"] for s in receipt["stages"] if "native_probe" in s},
         "http_port": receipt["execution"]["http_port"],
         "tcp_port": receipt["execution"]["tcp_port"],
     }
@@ -862,6 +863,29 @@ def _phase(image, state, secrets, args, output=None, env=(), user=None):
     return _docker(*cmd[1:], image, *args, timeout=300)
 
 
+@pytest.mark.parametrize('channel', CHANNELS)
+@pytest.mark.parametrize('terminator', [b'', b'\n'])
+def test_container_pin_json_round_trip(tmp_path, channel, terminator):
+    image = _direct_images()[channel]
+    state, secrets, output = tmp_path / 'state', tmp_path / 'secrets', tmp_path / 'output'
+    for directory in (state, secrets, output):
+        directory.mkdir()
+    pin = 'quote"slash\\utf8\u00e4'.encode()
+    (secrets / 'pin').write_bytes(pin + terminator)
+    (secrets / 'so-pin').write_bytes(b'so"slash\\12345678' + terminator)
+    # This C consumer explicitly takes raw bytes; provider files use text framing.
+    (secrets / 'consumer-pin').write_bytes(pin)
+    env = (('P11LAB_PIN_FILE', '/run/secrets/pin'), ('P11LAB_SO_PIN_FILE', '/run/secrets/so-pin'))
+    initialized = _phase(image, state, secrets, ['init'], env=env)
+    assert initialized.returncode == 0, initialized.stderr
+    result = _phase(image, state, secrets, ['exec', '--', 'p11lab-smoke', '--module',
+                    '/usr/local/lib/p11lab/libBouncyHsm.Pkcs11.so', '--token-label', 'P11Lab',
+                    '--pin-file', '/run/secrets/consumer-pin', '--output', '/p11lab-output/smoke',
+                    '--key-mode', 'generated'], output=output, env=env)
+    assert result.returncode == 0, result.stderr
+    _oracle(output / 'smoke')
+
+
 def test_direct_existing_key_persistence(tmp_path):
     """Linux direct lane: persistent token object survives container restarts."""
     images = _direct_images()
@@ -1094,6 +1118,7 @@ def test_direct_lifecycle_negatives(tmp_path):
         ),
     )
     assert completed.returncode == 0, completed.stderr
+    before = {str(p.relative_to(state3)): p.read_bytes() for p in state3.rglob('*') if p.is_file()}
     completed = _phase(
         image,
         state3,
@@ -1106,7 +1131,8 @@ def test_direct_lifecycle_negatives(tmp_path):
         ),
     )
     assert completed.returncode == 1
-    assert "foreign or ambiguous slots" in completed.stderr
+    assert "incompatible non-secret initialization configuration" in completed.stderr
+    assert {str(p.relative_to(state3)): p.read_bytes() for p in state3.rglob('*') if p.is_file()} == before
     assert (state3 / "bouncyhsm" / "complete").read_text().splitlines()[
         3
     ] == "label=P11Lab"
@@ -1193,12 +1219,20 @@ def test_native_crypto_persistence(tmp_path, channel):
     assert result["exit_code"] == 0, result
     assert result["stages"] == [
         "server-start",
+        "init-probe",
         "init",
+        "ready-probe",
         "ready",
         "application",
+        "post-health-probe",
         "post-health",
         "server-stop",
     ]
+    assert result["native_probes"] == {
+        "init-probe": {"slots": 0, "present": 0},
+        "ready-probe": {"slots": 1, "present": 1},
+        "post-health-probe": {"slots": 1, "present": 1},
+    }
     assert result["slot"] == 1
     # Runs 2 and 3 reuse the persistent key across restarts; run 3 has no creds.
     pubs = []
@@ -1230,6 +1264,10 @@ def test_native_crypto_persistence(tmp_path, channel):
         )
         assert result["exit_code"] == 0, result
         assert result["slot"] == 1
+        assert result["native_probes"] == {
+            phase: {"slots": 1, "present": 1}
+            for phase in ("init-probe", "ready-probe", "post-health-probe")
+        }
         _oracle(out / "smoke")
         pubs.append((out / "smoke" / "public-key.der").read_bytes())
     assert pubs[0] == pubs[1] and len(pubs[0]) == 91

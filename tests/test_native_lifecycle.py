@@ -355,7 +355,8 @@ def test_cli_excludes_archive_and_installed_prefix_before_routing(tmp_path):
     assert error.value.code == 2 and not (tmp_path / "output").exists()
 
 
-def test_host_checker_kills_hung_process_and_records_timeout(tmp_path, monkeypatch):
+@pytest.mark.parametrize('termination_race', [False, True])
+def test_host_checker_kills_hung_process_and_records_timeout(tmp_path, monkeypatch, termination_race):
     import sys
     import types
     import subprocess
@@ -389,19 +390,26 @@ def test_host_checker_kills_hung_process_and_records_timeout(tmp_path, monkeypat
 
     def launch(*args, **kwargs):
         process = real(["sh", "-c", "printf started; sleep 30"], **kwargs)
-        wait = process.wait
-
-        def bounded_wait(timeout=None):
-            assert timeout is not None, (
-                "host execution must never wait without a deadline"
-            )
-            return wait(timeout=0.05 if timeout == 900 else timeout)
-
-        process.wait = bounded_wait
+        if not hasattr(checker, 'supervised_exec'):
+            wait = process.wait
+            process.wait = lambda timeout=None: wait(timeout=.05 if timeout == 900 else timeout)
         launched.append(process)
         return process
 
     monkeypatch.setattr(checker.subprocess, "Popen", launch)
+    if hasattr(checker, 'supervised_exec'):
+        original_execute = checker.supervised_exec
+        monkeypatch.setattr(checker, "supervised_exec", lambda *a, **k: original_execute(*a, **(k | {'timeout': 0.05})))
+    if termination_race:
+        import os
+        killpg = os.killpg
+        def concurrent_exit(pid, number):
+            try:
+                killpg(pid, number)
+            except ProcessLookupError:
+                pass
+            raise ProcessLookupError('checker exited concurrently')
+        monkeypatch.setattr(os, 'killpg', concurrent_exit)
     identity = {
         "source_revision": checker.SOURCE,
         "wheel_sha256": checker.WHEEL,
@@ -683,7 +691,7 @@ def test_bouncy_reject_installed_damage_before_provisioning(
     assert not run.output_dir.exists()
 
 
-def _bouncy_fakes(monkeypatch, tmp_path, slots=(), probe=(0, 0)):
+def _bouncy_fakes(monkeypatch, tmp_path, slots=(), probe=None):
     import subprocess
     from p11lab import native
 
@@ -706,33 +714,18 @@ def _bouncy_fakes(monkeypatch, tmp_path, slots=(), probe=(0, 0)):
         raise AssertionError(url)
 
     monkeypatch.setattr(native, "_bouncy_http", fake_http)
-    monkeypatch.setattr(native, "_bouncy_probe_slots", lambda *a, **k: probe)
-
-    class FakeServer:
-        def __init__(self):
-            self.pid = 4242
-            self.stopped = []
-
-        def poll(self):
-            return None if "kill" not in self.stopped else 0
-
-        def terminate(self):
-            self.stopped.append("terminate")
-
-        def kill(self):
-            self.stopped.append("kill")
-
-        def wait(self, timeout=None):
-            if "kill" not in self.stopped and "terminate" not in self.stopped:
-                raise subprocess.TimeoutExpired("server", timeout)
-            self.stopped.append("kill")
+    monkeypatch.setattr(native, "_bouncy_probe_slots", lambda *a, **k: probe if probe is not None else (len(state['slots']), len(state['slots'])))
 
     servers = []
     real_popen = native.subprocess.Popen
 
     def launch(argv, **kwargs):
         if argv and argv[0] == "dotnet-fixture":
-            proc = FakeServer()
+            # The fixture server has the real pipe/process interface and creates
+            # a regular DB, matching LiteDB's accepted fresh-state side effect.
+            import sys
+            Path(kwargs['env']['BouncyHsm_LiteDbPersistentRepositorySetup__DbFilePath']).touch(exist_ok=True)
+            proc = real_popen([sys.executable, '-c', 'import time; time.sleep(30)'], **kwargs)
             servers.append(proc)
             return proc
         return real_popen(argv, **kwargs)
@@ -749,7 +742,7 @@ def test_bouncy_provision_then_reuse_without_credentials(
     import sys
     from p11lab.native import run_native_bouncyhsm
 
-    calls, servers, _ = _bouncy_fakes(monkeypatch, tmp_path, probe=(1, 1))
+    calls, servers, _ = _bouncy_fakes(monkeypatch, tmp_path)
     state = tmp_path / "token state"
     state.mkdir()
     common = {
@@ -771,9 +764,12 @@ def test_bouncy_provision_then_reuse_without_credentials(
     receipt = json.loads(Path(result.receipt_path).read_text())
     assert [s["phase"] for s in receipt["stages"]] == [
         "server-start",
+        "init-probe",
         "init",
+        "ready-probe",
         "ready",
         "application",
+        "post-health-probe",
         "post-health",
         "server-stop",
     ]
@@ -888,3 +884,261 @@ def test_bouncy_dotnet_floor_parsing():
     )
     assert versions["Microsoft.NETCore.App"] == [(9, 0, 0), (10, 0, 12)]
     assert versions["Microsoft.AspNetCore.App"] == [(10, 0, 13)]
+
+
+def _state_snapshot(root):
+    import stat
+    return {
+        str(p.relative_to(root)): (stat.S_IFMT(p.lstat().st_mode),
+                                  p.readlink().as_posix() if p.is_symlink()
+                                  else p.read_bytes() if p.is_file() else None)
+        for p in root.rglob('*')
+    }
+
+
+@pytest.mark.parametrize('damage', ['empty-owned', 'missing-db', 'db-link',
+                                   'log-link', 'marker-bytes', 'owned-link', 'foreign-top'])
+def test_bouncy_static_refusal_precedes_server_open(tmp_path, bouncy_installed, monkeypatch, damage):
+    from p11lab.native import _bouncy_marker, run_native_bouncyhsm
+    calls, servers, _ = _bouncy_fakes(monkeypatch, tmp_path, slots=(1,), probe=(1, 1))
+    state = tmp_path / 'state'
+    owned = state / 'bouncyhsm'
+    owned.mkdir(parents=True)
+    (owned / 'complete').write_text(_bouncy_marker(bouncy_installed.manifest_sha256, 'P11Lab', 1))
+    (owned / 'BouncyHsm.db').write_bytes(b'original-db')
+    outside = tmp_path / 'outside'
+    outside.write_bytes(b'untouched')
+    if damage == 'empty-owned':
+        for p in owned.iterdir():
+            p.unlink()
+    elif damage == 'missing-db':
+        (owned / 'BouncyHsm.db').unlink()
+    elif damage in ('db-link', 'log-link'):
+        path = owned / ('BouncyHsm.db' if damage == 'db-link' else 'BouncyHsm-log.db')
+        path.unlink(missing_ok=True)
+        path.symlink_to(outside)
+    elif damage == 'marker-bytes':
+        with (owned / 'complete').open('ab') as stream:
+            stream.write(b'\n')
+    elif damage == 'owned-link':
+        owned.rename(state / 'target')
+        owned.symlink_to(state / 'target', target_is_directory=True)
+    else:
+        (state / 'foreign').write_bytes(b'foreign')
+    before = _state_snapshot(state)
+    spec = replace(bouncy_spec(tmp_path), artifact=bouncy_installed.artifact,
+                   inputs={'P11LAB_STATE_DIR': str(state), 'P11LAB_PIN': '1234', 'P11LAB_SO_PIN': '12345678'})
+    try:
+        result = run_native_bouncyhsm(spec, bouncy_installed)
+        assert result.exit_code != 0
+    except ValueError:
+        pass
+    assert servers == [], 'rejected state was opened by the server'
+    assert calls['posts'] == []
+    assert _state_snapshot(state) == before
+    assert outside.read_bytes() == b'untouched'
+
+
+@pytest.mark.parametrize('data,accepted', [(b'1234\n', True), (b'1234\n\n', False),
+                                         (b'123\xff', False)])
+def test_bouncy_pin_file_round_trip_before_init(tmp_path, bouncy_installed, monkeypatch, data, accepted):
+    import sys
+    from p11lab.native import run_native_bouncyhsm
+    calls, servers, _ = _bouncy_fakes(monkeypatch, tmp_path)
+    pin = tmp_path / 'pin'
+    pin.write_bytes(data)
+    spec = replace(bouncy_spec(tmp_path), artifact=bouncy_installed.artifact,
+                   argv=(sys.executable, '-c', 'pass'),
+                   inputs={'P11LAB_PIN_FILE': str(pin), 'P11LAB_SO_PIN': '12345678'})
+    if accepted:
+        result = run_native_bouncyhsm(spec, bouncy_installed)
+        assert result.exit_code == 0, result
+        assert calls['posts'][0]['Token']['UserPin'] == '1234'
+    else:
+        with pytest.raises(ValueError, match='credential'):
+            run_native_bouncyhsm(spec, bouncy_installed)
+        assert not spec.output_dir.exists()
+        assert servers == [] and calls['posts'] == []
+
+
+@pytest.mark.parametrize('probe', [(0, 0), (1, 0), (2, 1), (2, 2), (0, 1)])
+def test_bouncy_probe_counts_must_match_live_token(tmp_path, bouncy_installed, monkeypatch, probe):
+    import sys
+    from p11lab.native import _bouncy_marker, run_native_bouncyhsm
+    _bouncy_fakes(monkeypatch, tmp_path, slots=(1,), probe=probe)
+    state = tmp_path / 'state'
+    owned = state / 'bouncyhsm'
+    owned.mkdir(parents=True)
+    (owned / 'complete').write_text(_bouncy_marker(bouncy_installed.manifest_sha256, 'P11Lab', 1))
+    (owned / 'BouncyHsm.db').write_bytes(b'db')
+    spec = replace(bouncy_spec(tmp_path), artifact=bouncy_installed.artifact,
+                   argv=(sys.executable, '-c', 'pass'), inputs={'P11LAB_STATE_DIR': str(state)})
+    result = run_native_bouncyhsm(spec, bouncy_installed)
+    assert result.exit_code != 0
+    import json
+    receipt = json.loads(result.receipt_path.read_text())
+    assert receipt['app_returncode'] is None
+    evidence = [stage for stage in receipt['stages'] if stage.get('native_probe')]
+    assert evidence and evidence[-1]['native_probe'] == {'slots': probe[0], 'present': probe[1]}
+
+
+def test_bouncy_probe_timeout_is_124(tmp_path, monkeypatch):
+    import subprocess
+    from p11lab.native import _bouncy_probe_slots
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired('probe', 1)
+    monkeypatch.setattr(subprocess, 'run', timeout)
+    with pytest.raises(TimeoutError):
+        _bouncy_probe_slots(tmp_path / 'probe', tmp_path / 'module', 8765, timeout=1)
+
+
+@pytest.mark.skipif(not hasattr(__import__('os'), 'mkfifo'), reason='requires FIFO')
+@pytest.mark.parametrize('provider', ['softhsm2', 'bouncyhsm'])
+def test_native_fifo_pin_refuses_without_output(tmp_path, request, provider):
+    import multiprocessing
+    import os
+    from p11lab.native import run_native_bouncyhsm
+    fifo = tmp_path / 'fifo'
+    os.mkfifo(fifo)
+    chosen = request.getfixturevalue('installed' if provider == 'softhsm2' else 'bouncy_installed')
+    base = spec(tmp_path) if provider == 'softhsm2' else bouncy_spec(tmp_path)
+    run = replace(base, artifact=chosen.artifact, inputs={'P11LAB_PIN_FILE': str(fifo)})
+    def attempt():
+        try:
+            (run_native_softhsm if provider == 'softhsm2' else run_native_bouncyhsm)(run, chosen)
+        except ValueError as error:
+            assert 'regular' in str(error)
+            return
+        raise AssertionError('FIFO accepted')
+    child = multiprocessing.get_context('fork').Process(target=attempt)
+    child.start()
+    child.join(1)
+    blocked = child.is_alive()
+    if blocked:
+        child.terminate()
+        child.join(2)
+        if child.is_alive():
+            child.kill()
+            child.join(2)
+    assert not blocked, 'credential open blocked on a FIFO'
+    assert child.exitcode == 0
+    assert not run.output_dir.exists()
+
+
+def test_bouncy_server_log_is_bounded_redacted_and_sealed(tmp_path, bouncy_installed, monkeypatch):
+    import json
+    import sys
+    from p11lab import native
+    real = native.subprocess.Popen
+    _bouncy_fakes(monkeypatch, tmp_path, slots=(1,))
+    wrapper = native.subprocess.Popen
+    def launch(argv, **kwargs):
+        if argv[0] == 'dotnet-fixture':
+            Path(kwargs['env']['BouncyHsm_LiteDbPersistentRepositorySetup__DbFilePath']).touch()
+            return real([sys.executable, '-c',
+                         'import os,time; print((os.environ["P11LAB_PIN"]+"\\n")*100000,flush=True); time.sleep(30)'], **kwargs)
+        return wrapper(argv, **kwargs)
+    monkeypatch.setattr(native.subprocess, 'Popen', launch)
+    state = tmp_path / 'state'
+    owned = state / 'bouncyhsm'
+    owned.mkdir(parents=True)
+    (owned / 'BouncyHsm.db').write_bytes(b'db')
+    (owned / 'complete').write_bytes(native._bouncy_marker(bouncy_installed.manifest_sha256, 'P11Lab', 1).encode())
+    selected = replace(bouncy_spec(tmp_path), artifact=bouncy_installed.artifact,
+                       argv=(sys.executable, '-c', 'import time; time.sleep(.3)'),
+                       inputs={'P11LAB_STATE_DIR': str(state), 'P11LAB_PIN': 'credential-log-test', 'P11LAB_SO_PIN': 'so-log-test'})
+    result = native.run_native_bouncyhsm(selected, bouncy_installed)
+    assert result.exit_code == 0, result
+    content = (selected.output_dir / 'control/server.log').read_bytes()
+    assert 0 < len(content) <= 1024 * 1024
+    assert b'credential-log-test' not in content and b'[REDACTED]' in content
+    receipt = json.loads(result.receipt_path.read_text())
+    assert any(stage.get('server_log_truncated') for stage in receipt['stages'])
+
+
+def test_bouncy_server_log_symlink_refused(tmp_path, bouncy_installed, monkeypatch):
+    from p11lab.native import run_native_bouncyhsm
+    calls, servers, _ = _bouncy_fakes(monkeypatch, tmp_path)
+    control = tmp_path / 'control'
+    outside = tmp_path / 'outside-log'
+    outside.write_bytes(b'unchanged')
+    original_mkdir = Path.mkdir
+    def race_log_creation(path, *args, **kwargs):
+        result = original_mkdir(path, *args, **kwargs)
+        if path == control:
+            (control / 'server.log').symlink_to(outside)
+        return result
+    # Existing control already refused on BASE. Exercise insertion between
+    # creation of a fresh control directory and the opened log descriptor.
+    monkeypatch.setattr(Path, 'mkdir', race_log_creation)
+    selected = replace(bouncy_spec(tmp_path), artifact=bouncy_installed.artifact,
+                       inputs={'P11LAB_CONTROL_DIR': str(control), 'P11LAB_PIN': '1234', 'P11LAB_SO_PIN': '12345678'})
+    result = run_native_bouncyhsm(selected, bouncy_installed)
+    assert result.exit_code != 0 and not servers and not calls['posts']
+    assert outside.read_bytes() == b'unchanged'
+
+
+@pytest.mark.parametrize('timeout_stage', ['http', 'probe'])
+def test_bouncy_timeout_stage_is_retained(tmp_path, bouncy_installed, monkeypatch, timeout_stage):
+    import json
+    from p11lab import native
+    _bouncy_fakes(monkeypatch, tmp_path, slots=(1,))
+    state = tmp_path / 'state'
+    owned = state / 'bouncyhsm'
+    owned.mkdir(parents=True)
+    (owned / 'BouncyHsm.db').write_bytes(b'db')
+    (owned / 'complete').write_bytes(native._bouncy_marker(bouncy_installed.manifest_sha256, 'P11Lab', 1).encode())
+    if timeout_stage == 'http':
+        original = native._bouncy_http
+        def http(method, url, *args, **kwargs):
+            if url.endswith('/health'):
+                raise ValueError('not ready')
+            return original(method, url, *args, **kwargs)
+        monkeypatch.setattr(native, '_bouncy_http', http)
+    else:
+        def probe(*args, **kwargs):
+            raise native.NativeStageTimeout('native slot probe timed out')
+        monkeypatch.setattr(native, '_bouncy_probe_slots', probe)
+    selected = replace(bouncy_spec(tmp_path), artifact=bouncy_installed.artifact, timeout_seconds=.1,
+                       inputs={'P11LAB_STATE_DIR': str(state)})
+    result = native.run_native_bouncyhsm(selected, bouncy_installed)
+    assert result.exit_code == 124
+    record = json.loads(result.receipt_path.read_text())
+    assert record['timeout'] and any(stage.get('timed_out') for stage in record['stages'])
+
+
+@pytest.mark.skipif(__import__('os').name != 'posix', reason='POSIX native application tree')
+@pytest.mark.parametrize('provider', ['softhsm2', 'bouncyhsm'])
+@pytest.mark.parametrize('hang', [False, True])
+def test_native_application_reaps_escaped_descendants(tmp_path, request, monkeypatch, provider, hang):
+    import json
+    import os
+    import signal
+    import sys
+    from test_process_supervision import alive
+    from p11lab.native import run_native_bouncyhsm
+    chosen = request.getfixturevalue('installed' if provider == 'softhsm2' else 'bouncy_installed')
+    if provider == 'bouncyhsm':
+        _bouncy_fakes(monkeypatch, tmp_path)
+    base = spec(tmp_path) if provider == 'softhsm2' else bouncy_spec(tmp_path)
+    child_code = 'import time; print("child",flush=True); time.sleep(30)'
+    pidfile = tmp_path / 'descendant'
+    app = ('import subprocess,sys,time; from pathlib import Path; '
+           f'p=subprocess.Popen([sys.executable,"-c",{child_code!r}],start_new_session=True); '
+           f'Path({str(pidfile)!r}).write_text(str(p.pid)); time.sleep(.1); '
+           + ('time.sleep(30)' if hang else 'sys.exit(0)'))
+    selected = replace(base, artifact=chosen.artifact, argv=(sys.executable, '-c', app),
+                       timeout_seconds=.5 if hang else 5,
+                       inputs={'P11LAB_PIN': '1234', 'P11LAB_SO_PIN': '12345678'})
+    try:
+        result = (run_native_softhsm if provider == 'softhsm2' else run_native_bouncyhsm)(selected, chosen)
+        pid = int(pidfile.read_text())
+        assert not alive(pid)
+        assert result.exit_code == (124 if hang else 0), result
+        receipt = json.loads(result.receipt_path.read_text())
+        app_stage = next(stage for stage in receipt['stages'] if stage['phase'] == 'application')
+        assert app_stage['drain_complete'] and app_stage['stragglers_detected']
+        assert not app_stage['stragglers_remaining']
+    finally:
+        if pidfile.exists() and alive(int(pidfile.read_text())):
+            os.kill(int(pidfile.read_text()), signal.SIGKILL)
