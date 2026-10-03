@@ -392,3 +392,150 @@ mechanisms, export/import variants, discovery PINs, PIN changes, concurrency,
 crashes, hardware/virtual devices, broader checker matrices, proxy-host checker,
 other platforms and public distribution remain unqualified. These observations
 do not certify the provider.
+
+## M6: pkcs11-to-cmd release and rolling file signers
+
+| Channel | Recipe | Local usability | Application qualification | Distribution |
+| --- | --- | --- | --- | --- |
+| release | Verified upstream `v1.0.0`, frozen revision below | Runtime-generated private file keys, persistent certificates, native readiness, arbitrary application argv | Narrow explicit-mechanism RSA/P-256 signing and independent verification; common `signing` baseline falsified | Unreviewed; actual-content and source-delivery admission required |
+| rolling | Verified `main`, currently the same upstream revision | Same contract, separate selector/build identity and local image | Same bounded native observations; discovery and token-label defects retained | Unreviewed; no public qualification claim |
+
+Build either local candidate with
+`p11lab build pkcs11-to-cmd --channel release --output-dir NEW_DIRECTORY` or
+`p11lab build pkcs11-to-cmd --channel rolling --output-dir NEW_DIRECTORY`.
+Each output retains original Git archives, source/license evidence, the sealed
+context, actual package/index inventories, an exact local Docker engine image ID
+and measured size. Builds are local and do not authorize distribution. The
+[upstream release](https://github.com/siemens/pkcs11-to-cmd/releases/tag/v1.0.0)
+was published on 18 March 2026; older reference material saying there are no
+releases is stale. Both its tag and the acquired default branch resolve to
+`8fddf3b4cec6bf5d4287f71f5c3c4a7cfc9c7aa3`. Their equality is verified,
+while tag and branch selector identities remain distinct.
+
+## Appendix: pkcs11-to-cmd
+
+The Linux amd64/glibc 2.41 module is
+`/usr/local/lib/p11lab/libpkcs11-to-cmd.so`. It dynamically links the pinned
+Debian system OpenSSL `libcrypto.so.3` and the base's C++/libc closure. The
+runtime additionally bundles the hash-frozen Debian OpenSSL CLI, its default
+configuration and `xxd`, needed by the signing command. Build readbacks identify
+those files and their dependencies separately from the 78 registered base
+packages. The basic image contains no checker, Python, datasets, OpenSC tool,
+tracing, compiler or build system. Compilation uses C++17, CMake Release,
+`COVERAGE=OFF` and `cmake --build -j2` without network access. Upstream's default
+coverage instrumentation is disabled to keep test instrumentation and writes out
+of the runtime; no provider patches change its native API behavior.
+
+**This provider has no authentication. Possession of the private key files and
+permission to execute the command confer signing authority.** Token metadata
+omits `CKF_LOGIN_REQUIRED`, and minimum/maximum PIN lengths are both zero.
+Native `C_Login` and `C_Logout` return success unconditionally, including calls
+with absent/arbitrary PINs and invalid session handles or roles. They do not
+check credentials. `C_InitToken`, `C_InitPIN` and `C_SetPIN` return
+`CKR_FUNCTION_NOT_SUPPORTED` (`0x54`). The descriptor declares no PIN inputs;
+the adapter rejects supplied PIN controls instead of suggesting they protect
+keys. There is no PIN parser or native credential-provisioning path.
+
+The managed sparse layout has RSA-2048 in slot ID `0`, an empty slot `1`, and
+P-256 in slot ID `2`. The native labels are immutable `pkcs11-to-cmd-0` and
+`pkcs11-to-cmd-2`. Upstream fills their unused bytes with NULs, contrary to the
+standard space-filled label representation. Its `C_GetSlotList(CK_TRUE)` also
+returns the empty slot, so token-present indices are not assumed to equal a
+filtered roster. P11Lab preserves both observations and supports one native
+session per process. It does not provide a general token.
+
+First `init` requires an empty caller-owned writable `/var/lib/p11lab`, takes
+`.init-lock`, and generates fresh RSA-2048/P-256 keys and self-signed certificates
+at runtime. The image ships no generated key or upstream test key fixture.
+Runtime generation is the managed provisioning mode; arbitrary caller-supplied
+keys are not admitted by this recipe. The owned `pkcs11-to-cmd` directory is
+`0700`; `rsa.key`, `rsa.pem`, `ec.key`, `ec.pem`, `wiring.env` and `complete` are
+`0600`. Key files are sealed before OpenSSL writes private material, including
+under inherited filesystem ACLs. The completion marker binds the artifact and
+exact non-secret layout/wiring. Repeated compatible initialization validates and
+preserves all key material. No silent reset occurs.
+
+`health` validates the exact state roster, ownership, modes, link counts, size
+bounds, marker and wiring before parsing the key/certificate pairs and opening
+the real module. It checks key/certificate equality, RSA size, P-256 curve and
+native key types/slot readiness. The small helper named `provision.c` is used
+only for actual native readiness; it has no login or token-initialization calls.
+Readiness is distinct from a successful signing operation or certificate trust.
+`exec -- ARGV...` applies the same readiness and preserves application argv,
+working directory and exit status. Partial, corrupt, linked, foreign-owned,
+occupied or mismatched state is refused and retained. There is no card or daemon
+to supervise and no provider `server`/`server-ready` operation.
+
+`P2C_SLOT_CERT_0` and `P2C_SLOT_CERT_2` name the managed certificate files.
+`P2C_CMD=/usr/local/bin/p11lab-p2c-sign` selects the signing-directory wrapper;
+`P2C_DEBUG=0` is fixed. Equal wiring overrides are accepted; unequal controls,
+extra slot certificates or supplied data/signature paths fail before opening
+persistent state. Native `P2C_CERT` and `P2C_MECHANISM` are outputs selected by
+the module. Each invocation reserves a distinct private directory under
+`/run/p11lab`, with its own `P2C_DATA` and `P2C_SIG`. Use private writable tmpfs
+there, independent of persistent keys. The wrapper runs upstream's unchanged
+[sign-cmd-pkeyutl.sh](https://github.com/siemens/pkcs11-to-cmd/blob/8fddf3b4cec6bf5d4287f71f5c3c4a7cfc9c7aa3/tests/cmds/sign-cmd-pkeyutl.sh)
+in that directory because its EC conversion additionally uses relative
+`r.bin`/`s.bin`. All DigestInfo and ASN.1 conversion bytes remain upstream MIT
+bytes, installed at `/usr/local/libexec/p11lab/pkcs11-to-cmd-sign`, SHA-256
+`966f6fba1869f40f9249b5b6ab39bb98a33d9f6d8a97f9faddde8e31a43929eb`.
+The command, key-file permissions and private data/signature paths are the trust
+boundary. Trusted applications can still choose native controls themselves;
+this is not an authentication service or key-access policy enforcement layer.
+
+Serialize consumers of each key store and use separate state, processes and
+control tmpfs for independent shards/clients. Close sessions, finalize the
+module and stop all consumers before explicitly removing/replacing the entire
+owned state to reset. Temporary signing files are scoped to the invocation and
+cleared with its container/tmpfs; long-lived application processes must manage
+their temporary-file lifetime. Concurrent consumers, crash durability and
+hostile applications with key-file access remain unqualified.
+
+The declared PKCS#11 2.40 function list returns `0x54` for mechanism discovery,
+encryption, decryption, digesting, object creation/destruction, key generation,
+wrapping/unwrapping, derivation, verification and RNG. These are adversarial
+capability-honesty observations, preserved with the native errors and checker
+classification. A low pass count or completed negative observation does not
+become a runtime initialization failure; missing evidence is never a pass.
+
+The common `signing` baseline requires mechanism discovery, native token/session
+use and independently verified crypto. It is falsified here: the ordinary
+P11Lab consumer cannot select the NUL-filled token label, and direct mechanism
+discovery independently returns `0x54`. The provider-local
+`pkcs11-to-cmd-signing` profile note records this supported-operation exception:
+explicit native P-256 raw-digest signing works without login and passes an
+independent OpenSSL original/altered-message oracle. RSA observations preserve
+the upstream raw-digest `pkeyutl` behavior; standard DigestInfo/`dgst` RSA
+compatibility is unqualified. These narrow observations do not qualify the
+common consumer, fix discovery or normalize provider behavior.
+
+Optional installed checker and preferred `pkcs11-proxy-ng` derivatives/client
+bundles are separate artifacts. The shared `run_checker` launcher assumes a
+selectable label and two PINs, and cannot launch this no-auth provider through
+that path; its failed attempt and incomplete observation receipt remain explicit.
+The explicit-index installed checker attempt freezes the 23-node smoke selection
+but aborts in preflight on C_GetMechanismList returning 0x54: zero completed test
+observations, exit 2, and evidence marked incomplete. This is a precise blocker
+for the checker component, with no provider-local fallback or fabricated pass. Remote
+applications need the compatible daemon and client shim; a Docker network alone
+cannot make the native module loadable remotely. Proxy observations inherit the
+selected version's isolation limits; wider transport/provider qualification is
+not claimed.
+
+The selected proxy successfully carries explicit P-256 signing and preserves
+mechanism-discovery `0x54`, but it changes native NUL-filled token-label tails
+to spaces. This metadata difference belongs to the proxy component and limits
+direct/proxy equivalence. P11Lab does not use the proxy to qualify the common
+label-selection baseline or repair the native labels. Returned proxy slot
+handles are opaque and need not equal native numeric slot IDs.
+
+The module and unchanged signing script are upstream MIT, Copyright 2025
+Siemens; their license text, script headers and REUSE evidence are retained.
+Original P11Lab wiring remains Apache-2.0. The ABI header, OpenSSL/`xxd` package
+copyrights and all base package notices retain their own terms. See
+[FILE-NOTICES.txt](../src/p11lab/data/providers/pkcs11-to-cmd/FILE-NOTICES.txt).
+The locks identify exact Debian binary/source archives and signed indexes;
+actual layers, compiler runtime/header content and corresponding-source delivery
+still require admission. Other curves/mechanisms, broad PKCS#11 compliance,
+certificate trust/expiry, full checker matrices, other architecture/libc,
+concurrency/crash behavior and public qualification remain unqualified.
