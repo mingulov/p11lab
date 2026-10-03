@@ -83,14 +83,15 @@ jobs:
 
       - name: Diagnose NuGet restore inputs
         run: |
-          # Non-fatal pre-build dump: run 5 failed with a lone NU1403 on the
-          # Blazor WASM pack, so record every local state that can shadow the
-          # nuget.org feed before the rolling step fences the restore.
+          # Non-fatal pre-build dump: the run-11 binlog proved the lone
+          # WASM-pack NU1403 comes from a stale copy in the image's
+          # dotnet/library-packs, so record it (and its bytes) before the
+          # rolling step removes it.
+          Get-ChildItem "$env:ProgramFiles/dotnet/library-packs/*Sdk.WebAssembly.Pack*" -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty FullName
+          $staleNupkg = "$env:ProgramFiles/dotnet/library-packs/microsoft.net.sdk.webassembly.pack.10.0.12.nupkg"
+          if (Test-Path $staleNupkg) { "stale library-pack bytes: " + (Get-FileHash $staleNupkg -Algorithm SHA256).Hash.ToLower() }
           Get-ChildItem "$env:ProgramFiles/dotnet/packs/Microsoft.NET.Sdk.WebAssembly.Pack" -ErrorAction SilentlyContinue |
-            Select-Object -ExpandProperty Name
-          Get-ChildItem "${env:ProgramFiles(x86)}/Microsoft SDKs/NuGetPackages/microsoft.net.sdk.webassembly.pack.*" -ErrorAction SilentlyContinue |
-            Select-Object -ExpandProperty Name
-          Get-ChildItem "$env:USERPROFILE/.nuget/packages/microsoft.net.sdk.webassembly.pack" -ErrorAction SilentlyContinue |
             Select-Object -ExpandProperty Name
           dotnet workload list
           dotnet nuget list source
@@ -161,11 +162,12 @@ jobs:
             foreach ($p in "BouncyHsm", "BouncyHsm.Client", "BouncyHsm.Core", "BouncyHsm.Infrastructure", "BouncyHsm.Spa") {
               Copy-Item "../src/p11lab/data/providers/bouncyhsm/dotnet-locks/$p.packages.lock.json" "src/Src/$p/packages.lock.json"
             }
-            # Fence the restore to the nuget.org feed: run 5 showed a lone
-            # NU1403 on the Blazor WASM pack when image-local state (installed
-            # packs, offline feed, extra sources) shadowed the feed. The Blazor
-            # build needs no installed workload: the pack restores as a plain
-            # package, verified with SDK 10.0.401 in a clean container.
+            # Fence the restore to the nuget.org feed. The run-11 binlog proved
+            # the lone WASM-pack NU1403: the SDK resolves that tool pack from
+            # the image's dotnet/library-packs (bypassing NuGet sources) and
+            # the copy there is stale bytes (hash u1Xr vs locked MIeB), while
+            # the feed bytes match the lock. Remove the stale copy so the
+            # pack downloads from the feed like the other 94 packages.
             # (Plain Add-Content lines: an indented here-string closer fails
             # to parse inside this try block. Paths are relative to the
             # pushed upstream/ location; the package cache stays at the
@@ -174,19 +176,13 @@ jobs:
             Add-Content -Path NuGet.config -Value '<configuration>', '  <packageSources>', '    <clear />', '    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />', '  </packageSources>', '</configuration>'
             $env:NUGET_PACKAGES = "$env:GITHUB_WORKSPACE/nuget-packages"
             dotnet nuget locals global-packages -l
-            # Runs 5 and 10 failed with a lone NU1403 on the WASM pack despite
-            # fenced sources, original locks and a fresh package folder: the
-            # remaining suspect is the image's shared NuGet caches (the
-            # documented NU1403 remedy is clearing them).
             dotnet nuget locals all --clear
             if ($LASTEXITCODE) { throw "nuget cache clear failed" }
-            foreach ($shadow in @("$env:ProgramFiles/dotnet/packs/Microsoft.NET.Sdk.WebAssembly.Pack",
-                                  "$env:ProgramFiles/dotnet/metadata/workloads")) {
-              if (Test-Path $shadow) { "removing shadow state: $shadow"; Remove-Item $shadow -Recurse -Force }
-              else { "absent (ok): $shadow" }
+            foreach ($stale in @("$env:ProgramFiles/dotnet/library-packs/microsoft.net.sdk.webassembly.pack.10.0.12.nupkg",
+                                  "$env:ProgramFiles/dotnet/library-packs/microsoft.net.sdk.webassembly.pack")) {
+              if (Test-Path $stale) { "removing stale library-pack: $stale"; Remove-Item $stale -Force -Recurse }
+              else { "absent (ok): $stale" }
             }
-            Get-ChildItem "${env:ProgramFiles(x86)}/Microsoft SDKs/NuGetPackages/microsoft.net.sdk.webassembly.pack.*" -ErrorAction SilentlyContinue |
-              ForEach-Object { "removing offline copy: $($_.FullName)"; Remove-Item $_.FullName -Force }
             $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
             $env:DOTNET_NOLOGO = "1"
             $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
