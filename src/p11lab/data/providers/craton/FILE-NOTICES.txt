@@ -38,8 +38,9 @@ this bypass only while the embedded key is all zeros; it skips module integrity
 authentication and emits a warning. Algorithm POST still runs. This runtime is
 not for production and makes no FIPS, security-validation or certification claim.
 
-Native PIN policy is preserved: default length 8..64 bytes, at least three
-distinct bytes and two ASCII character classes. Digit-only PINs are rejected.
+Native PIN policy is preserved: default length 8..64 bytes and at least three
+distinct bytes. Printable ASCII PINs additionally need two character classes;
+upstream exempts binary PINs from that class check. Digit-only PINs are rejected.
 Test fixtures use SoPin1234/UserPin1; no test credentials are baked in the image.
 Secrets travel through private inherited pipes, never config/argv/markers/logs.
 PIN hashes and wrapped object key remain sensitive mode-0600 provider state.
