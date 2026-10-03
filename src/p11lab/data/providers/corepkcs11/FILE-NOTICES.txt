@@ -1,0 +1,119 @@
+P11Lab corePKCS11 process-local port -- LOCAL-ONLY / UNREVIEWED
+
+P11Lab original Dockerfile, entrypoint.sh, probe.c and integration tests:
+Apache-2.0 (root LICENSE). These files do not relicense migrated material.
+Upstream corePKCS11: https://github.com/FreeRTOS/corePKCS11.git
+Release v3.6.4: ccc78afee1716436cca832dd3d9388ead2ba05b0
+Rolling main snapshot: 2dca34ec803850aae02de5df158dcb259da7fddf
+LICENSE: MIT, SHA-256 508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1.
+Keep Amazon's MIT copyright/permission notice, including for upstream-derived
+patch context. The original config notice removed by patch 0001 remains in the
+retained original source and patch, and the upstream LICENSE ships in the image.
+
+Migrated exact bytes from mingulov/pkcs11-check-ws, docker/corepkcs11/:
+Files authored by Denis Mingulov; last-change revision for PAL, allocator and
+config: 9e6fca8c1a951c02efb33a9c733092ab4063ad11.
+corepkcs11_pal_generic.c: 2abc691e50c6be3e15d75f1158d4bf85a59a9edc2973530d3d4359d087a255f2
+corepkcs11_malloc.c: 0d74bcbcaf14c6f991e4c2666e129064226a3d6edb3aaa0cba771c4afd2bc779
+core_pkcs11_config.h: f4e4997be3e7dc8fc5989b7cfe11dc094502c7400f9b9b55822e495b7cc4db25
+corepkcs11_adapter.c: 6bec55b188bcbd28e7f13ae2cd91f8ac4c285e449be72cecd45f7de2b2d2900f
+The adapter is retained ONLY as audited source, not compiled or installed.
+Its exact last-change revision and file evidence are in each channel lock.
+These files have no SPDX/copyright/permission grant; their workspace has no
+root LICENSE. Authorship and provenance are not permission. Grants remain
+ambiguous/missing; all corresponding source/binary distribution is blocked.
+No Apache-2.0 grant is assumed for them. Migration is for local research only.
+
+Ordered patch 0001-generic-process-local-pal.patch:
+SHA-256 4ae87789e185d58adbbf1c8b43fdb6ebff2035f5e8a976cae3bd0834eeed9611.
+Exact prepared patch bytes, identical for both pinned corePKCS11 revisions;
+reproduces the reference Dockerfile's port/config edits. Upstream context is MIT;
+new reference-workspace contributions require a license grant. Not blanket
+relicensed by P11Lab. Failed application aborts shared source acquisition/build.
+Ordered patch 0002-freeze-fetchcontent.patch: upstream context MIT; P11Lab new
+edits Apache-2.0. Replaces Git FetchContent selectors with fixed archive URLs
+and SHA-256. Exact patched-source archives and ordered hashes are retained.
+
+PAL/config deltas (PKCS#11 semantic changes, not mere provisioning):
+- Replaces POSIX current-working-directory files and fixed configured labels
+  with heap copies in one static store per loaded library instance. State is
+  shared across sessions and survives C_Finalize/C_Initialize in that instance;
+  process exit or unload destroys access. Fresh independent exec/process starts
+  empty. Fork could inherit a memory snapshot; it is not an independent token.
+  No shared-memory, database, persistent token or restart-reopen claim.
+- Exact byte labels of length 1..32 (including embedded NULs at the PAL boundary)
+  replace stock NUL-terminated configured-label matching. Same label overwrites
+  data and reuses its PAL handle, regardless of object class. Different labels
+  take the first free handle. Label remains required; upstream label-only search,
+  token-only object handling and template parsing remain unchanged.
+- 256 PAL entries (2 * 128) versus eight fixed stock mappings; upstream object
+  list capacity 128 (previous config 6), max sessions 32 (previous config 10).
+  Allocation/full-store/invalid SaveObject returns invalid handle, propagated
+  by upstream as native errors, including CKR_DEVICE_MEMORY. No retries.
+- Mutex-protected PAL operations; value reads return allocated snapshots, not
+  borrowed storage. Destroy frees and zeros the entry, permits handle reuse;
+  PAL_DESTROY_SUPPORTED=1 replaces stock destroy-via-zeroing fallback. Heap data
+  is not securely erased before free. The PAL is not an authentication boundary.
+- Privacy is inferred from DER first child tag (INTEGER => private); stock PAL
+  instead used fixed key labels. This changes CKA_CLASS/CKA_VALUE visibility.
+  The heuristic is not a complete ASN.1 parser; do not claim arbitrary private
+  object protection. All sessions share the store and upstream ignores PINs.
+- Allocator uses calloc(1,size)/free; logging is disabled; import-private-key
+  support is set to 1 (upstream default), OTA/JITP settings remain disabled.
+  Default PIN is the reference config's interoperability constant, not a real
+  access control or a credential provisioned by init.
+- RNG is unchanged: upstream Mbed TLS CTR-DRBG with platform entropy. On Linux,
+  Mbed TLS uses getrandom when available, falling back to /dev/urandom; no
+  deterministic or simulated RNG, and no generic-PAL random source.
+
+Shipped module: /usr/local/lib/p11lab/libcore_pkcs.so, raw upstream function table
+plus the declared PAL/config port, NOT an unpatched stock POSIX artifact. The
+stock eight-label restriction is deliberately extended and disclosed above.
+corepkcs11_adapter.c is rejected in full: fabricated C_GetInfo/C_GetSlotInfo/
+C_GetTokenInfo, constructed C_GetMechanismList, added HMAC/CMAC advertisement,
+RSA CKF_VERIFY normalization, swallowed mechanism errors and C_Digest emulation
+(including synthetic size-query success) are not shipped. Non-overridden
+functions would pass through, but do not justify these changed observations.
+Raw NULL functions, metadata stubs, native errors and ignored/wrong-PIN success
+are preserved. Do not report PIN rejection, general-token compatibility or
+checker/proxy completion without actual matching evidence.
+
+FetchContent closure (both channels):
+Mbed TLS 3.6.5 official release archive, including framework/generated files:
+https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.5/mbedtls-3.6.5.tar.bz2
+SHA-256 4a11f1777bb95bf4ad96721cac945a26e04bf19f57d905f241fe77ebeddf46d8
+LICENSE declares Apache-2.0 OR GPL-2.0-or-later; Apache-2.0 choice recorded,
+license text retained. Static mbedtls/mbedx509/mbedcrypto code is incorporated
+in the shipped .so even though ldd cannot enumerate it. Retain exact archive,
+configuration and notices; this is not separate shared-library license review.
+OASIS PKCS#11 headers 478bfc5077901865993e3a193777c1a9f6516cdf:
+https://codeload.github.com/oasis-tcs/pkcs11/tar.gz/478bfc5077901865993e3a193777c1a9f6516cdf
+SHA-256 5d6c66a84c610ff12348f94a96e90a3627b199e97dc92a4646d3786d1caa2423
+Header copyright: OASIS Open 2016, OASIS IPR Policy, AS-IS. LICENSE.md retains
+OASIS policy links, RF on RAND Terms Mode and declarations; the exact text and
+headers are retained as notice evidence. Exact grant/IPR review remains pending.
+Configure/build use pre-extracted sources, FetchContent disconnected controls,
+and RUN --network=none; no dependency resolution/network during compilation.
+
+Debian base/runtime: digest and signed snapshot indexes, complete exact binary
+package archive URLs/hashes and source archive closure in each channel lock.
+Base copyright texts remain installed. Copyleft base/runtime obligations and
+compiler-runtime content still require actual-content and source-delivery review.
+THIRD-PARTY-NOTICES.txt/SOURCE-ACCESS.md are supplements, not admission receipts.
+
+Lifecycle: init validates optional credential syntax and object-label hint only;
+no token is provisioned. health opens a fresh standalone module/session/RNG and
+claims only that process's module usability. exec performs no module preflight:
+the app initializes and uses its own in-process token. Checker file subprocesses
+have independent stores; a proxy token belongs to the daemon's loaded backend,
+not the health/client process. Pinned proxy a348a5f59b535b1ca309ea9f0a722e3bec692f72
+requires one logical client/trusted domain and one managed provider chain per
+daemon process. max_contexts=1 is admission, not isolation. Independent shards,
+clients and domains need independent daemon/provider processes. Close/finalize
+and process termination are owned by the application;
+fresh exec/process resets volatile state. No separate service/server-ready op.
+
+POLICY: Runtime, sources and every optional consumer/checker/proxy derivative
+remain UNREVIEWED and LOCAL-ONLY. Missing migrated-file grants, OASIS review,
+actual layer/source/notice review and digest-bound source delivery block public
+distribution. No image, source, cache, release or tag publication is authorized.

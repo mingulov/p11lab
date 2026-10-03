@@ -1,0 +1,25 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -26,8 +26,8 @@
+     include(FetchContent)
+ 
+     FetchContent_Declare( pkcs11
+-        GIT_REPOSITORY https://github.com/oasis-tcs/pkcs11.git
+-        GIT_TAG        478bfc5077901865993e3a193777c1a9f6516cdf
++        URL https://codeload.github.com/oasis-tcs/pkcs11/tar.gz/478bfc5077901865993e3a193777c1a9f6516cdf
++        URL_HASH SHA256=5d6c66a84c610ff12348f94a96e90a3627b199e97dc92a4646d3786d1caa2423
+     )
+     FetchContent_MakeAvailable( pkcs11 )
+ 
+@@ -35,8 +35,8 @@
+     set( ENABLE_TESTING OFF CACHE BOOL "" FORCE )
+ 
+     FetchContent_Declare( mbedtls
+-        GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
+-        GIT_TAG        mbedtls-3.6.5
++        URL https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.5/mbedtls-3.6.5.tar.bz2
++        URL_HASH SHA256=4a11f1777bb95bf4ad96721cac945a26e04bf19f57d905f241fe77ebeddf46d8
+     )
+     FetchContent_MakeAvailable( mbedtls )
+ 
