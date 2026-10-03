@@ -186,8 +186,15 @@ jobs:
             $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
             $env:DOTNET_NOLOGO = "1"
             $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
+            # msvc-dev-cmd exports Platform=x64, which MSBuild would take as
+            # the .NET PlatformTarget and reject against the Spa project's
+            # browser-wasm RID (NETSDK1032). Drop it for the publish only.
+            $msvcPlatform = $env:Platform
+            Remove-Item Env:\Platform -ErrorAction SilentlyContinue
             dotnet publish src/Src/BouncyHsm/BouncyHsm.csproj -c Release -m:2 -o ../payload/server /p:RestoreLockedMode=true /p:Deterministic=true /p:DebugSymbols=false /p:DebugType=None /bl:msbuild.binlog
-            if ($LASTEXITCODE) { throw "dotnet publish failed" }
+            $publishRc = $LASTEXITCODE
+            if ($null -ne $msvcPlatform) { $env:Platform = $msvcPlatform }
+            if ($publishRc) { throw "dotnet publish failed" }
           } finally { Pop-Location }
           msbuild upstream/src/Src/BouncyHsm.Pkcs11Lib/BouncyHsm.Pkcs11Lib.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v145 /p:OutDir="$PWD\payload\dll\"
           if ($LASTEXITCODE) { throw "msbuild failed" }
