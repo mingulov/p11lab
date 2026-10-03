@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# A blank unified-diff context line is one space. The first patch also retains a terminal blank line. Preserve the exact audited
+# patch bytes; source-code whitespace checks keep their normal settings.
+patches/0001-seed-user-so-pin-fnord.patch whitespace=-blank-at-eol,-blank-at-eof
+patches/0002-include-stddef-for-offsetof-in-core.c.patch whitespace=-blank-at-eol

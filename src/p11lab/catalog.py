@@ -126,6 +126,9 @@ def _lock(lock, root, environment):
         _source(source)
         _require("revision" in source if source["kind"] == "git" else "sha256" in source,
                  "locked source requires immutable revision or sha256")
+    source_ids = [s["id"] for s in lock["sources"] + lock["dependencies"] if "id" in s]
+    _require(all(isinstance(s, str) and re.fullmatch(r"[a-z][a-z0-9_-]*", s) for s in source_ids)
+             and len(source_ids) == len(set(source_ids)), "source IDs must be unique canonical names")
     _require(lock["base_images"], "lock requires immutable base_images")
     for base in lock["base_images"]:
         _require(isinstance(base, str) and re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", base),
@@ -147,6 +150,8 @@ def _lock(lock, root, environment):
     for patch in lock["patches"]:
         _require(isinstance(patch, dict) and _enum(patch.get("license_status"), _LICENSE_STATUSES), "patch requires license_status")
         _require(_text(patch.get("origin")) and _text(patch.get("license")), "patch requires provenance and license")
+        if "target_source" in patch:
+            _require(patch["target_source"] in source_ids, "patch target_source must name a locked source")
         target = _asset(root, patch.get("path"))
         _require(hashlib.sha256(target.read_bytes()).hexdigest() == patch.get("sha256"), "patch sha256 mismatch")
 

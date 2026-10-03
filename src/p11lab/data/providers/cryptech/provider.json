@@ -24,6 +24,19 @@
     "P11LAB_SO_PIN_FILE": {
       "secret": true,
       "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "Cryptech Token"
+    },
+    "P11LAB_PIN": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN": {
+      "secret": true,
+      "required": false
     }
   },
   "services": [],
@@ -33,27 +46,21 @@
       "reason": "No refs/tags in any of three official simulator repository snapshots"
     },
     "rolling": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://git.cryptech.is/sw/pkcs11",
-        "selector": {
-          "kind": "branch",
-          "value": "master"
-        },
-        "license_status": "unreviewed",
-        "revision": "a0a7d907c4ea47e3a3a963bb765a81b41294dd0d",
-        "license_observation": "BSD-3-Clause (module source header)"
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "rolling.lock.json"
     }
   },
-  "application_profile": "general-token",
+  "application_profile": "cryptech-fixed-credential-simulator",
   "distribution": {
-    "status": "unreviewed",
-    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+    "status": "blocked",
+    "reason": "Migrated credential/build/lifecycle patches and NOR/platform stub have no verified grant (NOASSERTION); actual-content/source-delivery and crypto qualification pending. Local research only."
   },
   "constraints": [
-    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+    "Linux amd64/glibc 2.41; one in-process statically linked module; no FPGA/HSM or network peer. UDP loopback port 17425 is unused on RPC_CLIENT_LOCAL.",
+    "SO and user PINs are fixed to fnord, PBKDF2-HMAC-SHA256 with all-zero 16-byte salt and 2000 iterations. Not a general credential store. Optional caller PIN controls must match; C_InitToken/C_InitPIN/C_SetPIN remain unsupported.",
+    "Persistent 512-KiB file NOR simulator under /var/lib/p11lab/cryptech; no hardware protection, atomicity, concurrency or wear claims. Bad-PIN delay is disabled by the migrated stub; native hardware-I/O errors remain visible.",
+    "Native slot 0/token-present index 0; label fixed to Cryptech Token. Independent processes and directories required per shard/client; explicit operator reset only.",
+    "general-token application profile falsified by preserved RNG failure CKR_FUNCTION_FAILED; key generation/import/signing/persistent-key paths are unqualified. No hardware fallback or provider normalization.",
+    "Release permanently unavailable: no release tags. Rolling inputs frozen; random WHEEL salt prevents a bit-for-bit reproducibility claim."
   ]
 }

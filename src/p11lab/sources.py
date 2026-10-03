@@ -85,9 +85,11 @@ def resolve_sources(spec: dict, *, output_dir: Path | None = None) -> dict:
     acquired = [acquire_source(source, output_dir / f'source-{index}')
                 for index, source in enumerate(lock['sources'] + lock['dependencies'])]
     with ExitStack() as stack:
-        patches = [stack.enter_context(as_file(locked_asset(spec['id'], patch))) for patch in lock['patches']]
-        if patches:
-            apply_patches(Path(acquired[0]['checkout']), patches)
+        targets = {record['source']['id']: record for record in acquired if 'id' in record['source']}
+        for patch in lock['patches']:
+            path = stack.enter_context(as_file(locked_asset(spec['id'], patch)))
+            target = targets[patch['target_source']] if 'target_source' in patch else acquired[0]
+            apply_patches(Path(target['checkout']), [path])
     result = {'schema_version': 1, 'sources': acquired[:len(lock['sources'])],
               'dependencies': acquired[len(lock['sources']):], 'patches': lock['patches']}
     (output_dir / 'resolved-sources.json').write_text(json.dumps(result, indent=2) + '\n')
@@ -294,7 +296,6 @@ def collect_source_bundle(artifact, inventory: dict, output_dir: Path) -> Path:
     Hashes and source closure are mandatory; URLs alone never count as sources.
     A fresh output directory preserves prior attempts. No public write occurs.
     """
-    from dataclasses import asdict
     from .licenses import inspect_artifact, validate_inventory, spdx_inventory, relative_path
     reasons = validate_inventory(artifact, inventory)
     actual = inspect_artifact(artifact)

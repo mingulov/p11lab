@@ -1,0 +1,12 @@
+diff --git a/core.c b/core.c
+index 6d7c4d9..0f4e9c5 100644
+--- a/core.c
++++ b/core.c
+@@ -36,6 +36,7 @@
+  */
+ 
+ #include <stdio.h>
++#include <stddef.h>
+ #include <stdlib.h>
+ #include <stdint.h>
+ #include <string.h>

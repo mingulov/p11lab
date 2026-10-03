@@ -60,15 +60,17 @@ def runtime_inputs(spec: dict) -> dict:
 
 def prepare_context(spec: dict, resolved: dict, context: Path) -> dict[str, str]:
     """Generate only a closed list of sealed assets and explicit build inputs."""
-    import io
     import json
     import tarfile
     from .catalog import locked_asset, packaged_asset, validate_build_inputs, _relative
     from .identity import artifact_key, public_identity
     validate_build_inputs(spec)
     lock = spec['lock']
-    if len(resolved['sources']) != 1 or resolved['dependencies']:
-        raise BuildError('this runtime recipe requires exactly one primary source and no source dependencies')
+    if len(resolved['sources']) != 1:
+        raise BuildError('this runtime recipe requires exactly one primary source')
+    if ([r['source'] for r in resolved['sources']] != lock['sources'] or
+            [r['source'] for r in resolved['dependencies']] != lock['dependencies']):
+        raise BuildError('resolved source roster differs from locked inputs')
     context.mkdir(parents=True, exist_ok=False)
     declared = {}
     for asset in lock['assets']:
@@ -80,15 +82,26 @@ def prepare_context(spec: dict, resolved: dict, context: Path) -> dict[str, str]
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(locked_asset(spec['id'], asset).read_bytes())
         declared[name] = asset['sha256']
-    acquired = resolved['sources'][0]
-    if checksum(acquired['archive']) != acquired['sha256']:
-        raise BuildError('acquired source archive checksum mismatch')
-    # Keep the original upstream archive; the build tar contains the patch result.
-    # Sources are freshly acquired and patched by resolve_sources for each build.
-    source_tar = context / 'source.tar'
-    with tarfile.open(source_tar, 'w') as out:
-        for path in sorted(Path(acquired['checkout']).iterdir()):
-            out.add(path, arcname=path.name)
+    # Keep every original archive in acquisition evidence. Each build tar holds
+    # that source's patch result; dependency archives remain separate, so their
+    # extraction layout belongs to the recipe rather than a workspace mount.
+    source_files = {}
+    acquired_sources = [('source', resolved['sources'][0])] + [
+        (f'dependency-{index}', acquired) for index, acquired in enumerate(resolved['dependencies'])]
+    for name, acquired in acquired_sources:
+        actual_hash = checksum(acquired['archive'])
+        source = acquired['source']
+        expected_hash = source.get('archive_sha256', source.get('sha256'))
+        if actual_hash != acquired['sha256'] or (expected_hash and actual_hash != expected_hash):
+            raise BuildError('acquired source archive checksum mismatch: ' + name)
+        source_tar = context / (name + '.tar')
+        if source_tar.exists() or context.joinpath(name + '.sha256').exists():
+            raise BuildError('generated source input conflicts with package asset')
+        with tarfile.open(source_tar, 'w') as out:
+            for path in sorted(Path(acquired['checkout']).iterdir()):
+                out.add(path, arcname=path.name)
+        declared[name + '.tar'] = checksum(source_tar)
+        source_files[name + '.sha256'] = (checksum(source_tar) + '  ' + name + '.tar\n').encode()
     inputs = runtime_inputs(spec)
     identity = public_identity('runtime', inputs)
     key = artifact_key('runtime', inputs)
@@ -98,18 +111,16 @@ def prepare_context(spec: dict, resolved: dict, context: Path) -> dict[str, str]
         'provider.json': packaged_asset(spec['id'], 'provider.json').read_bytes(),
         'runtime-id': (key + '\n').encode(),
         'build-inputs.json': (json.dumps(identity, sort_keys=True, indent=2) + '\n').encode(),
-        'source.sha256': (checksum(source_tar) + '  source.tar\n').encode(),
         'builder-requested.txt': ('\n'.join(lock['builder_requested']) + '\n').encode(),
         'base-packages.tsv': inventory_text([p for p in lock['packages'] if p['phase'] == 'runtime']).encode(),
         'builder-packages.tsv': inventory_text(lock['packages']).encode(),
         'snapshot.sources': (f'Types: deb deb-src\nURIs: http://snapshot.debian.org/archive/debian/{snapshot}/\nSuites: trixie trixie-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.pgp\nCheck-Valid-Until: no\n\nTypes: deb deb-src\nURIs: http://snapshot.debian.org/archive/debian-security/{snapshot}/\nSuites: trixie-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.pgp\nCheck-Valid-Until: no\n').encode(),
-    }
+    } | source_files
     for name, content in generated.items():
         if name in declared:
             raise BuildError('generated context input conflicts with package asset')
         (context / name).write_bytes(content)
         declared[name] = checksum(context / name)
-    declared['source.tar'] = checksum(source_tar)
     validate_context(context, declared)
     return declared
 
