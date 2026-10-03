@@ -692,7 +692,6 @@ def test_bouncy_reject_installed_damage_before_provisioning(
 
 
 def _bouncy_fakes(monkeypatch, tmp_path, slots=(), probe=None):
-    import subprocess
     from p11lab import native
 
     calls = {"posts": []}

@@ -1,5 +1,4 @@
 """Host supervision contains descendants and finishes logs before returning."""
-import json
 import os
 from pathlib import Path
 import signal
