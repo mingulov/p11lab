@@ -851,3 +851,109 @@ notices, corresponding-source/relinking obligations and anonymous source-first
 delivery still require review. See
 [FILE-NOTICES.txt](../src/p11lab/data/providers/nethsm/FILE-NOTICES.txt).
 Distribution remains blocked independently of local runtime or crypto results.
+
+## M6: Siguldry release and rolling signing services with PKCS#11 module
+
+| Channel | Frozen source | Runtime contract | Application qualification | Distribution |
+| --- | --- | --- | --- | --- |
+| release | tag `siguldry-pkcs11-2.2.0`, `43a7acf3fa898e22ffd935c0a641bbae68e98363` | Co-located supervised bridge/signer/server/client-proxy, persistent state, amd64/glibc | `signing` holds narrowly: single P-256 key, caller-PIN unlock, ECDSA sign-only with independent oracles; `general-token` falsified natively | BLOCKED: linked LGPL crates have no source companion, notice or relinking delivery |
+| rolling | `main` tip `8f22c77b26bf5bbdf81049fb100c05e2395d1c64` | Same supervised stack and platform; distinct source/artifact | Same narrow observation, without error normalization | Same independent source/license blocks |
+
+The release selector is an annotated tag: tag object
+`673d6ac6fb7d99eddbf1e8633508a93188766cb6` peels to the recorded release commit.
+The rolling pin is the tip of upstream `main` at acquisition. The reference
+workspace pins `d0f8cccf37257842cc3f43a16a1b8e9059ef9a4d`, which matches neither
+channel and was not adopted. Both channels retain MIT workspace/crate manifests
+and ship both crate LICENSE texts. There are no upstream patches and no
+simulation.
+
+The module authenticates with the caller key-access password (the PKCS#11 PIN).
+There is no security-officer role: native `C_Login(CKU_SO)` is
+`CKR_USER_TYPE_INVALID`, and `C_InitToken`/`C_InitPIN`/`C_GenerateKeyPair` are
+native `0x54`, so SO credential inputs are refused and `general-token` is
+falsified. The installed checker lane builds but its shared runner requires an
+SO credential unconditionally; the proxy lane serves and transports the native
+observation faithfully while the shared post-health check holds the known
+live-daemon volume-lease ordering limit. Those runner limits stay separate from
+the completed provider observations.
+
+### Appendix: Siguldry source, platform, credential and lifecycle boundary
+
+**Frozen source and build.** The workspace builds
+`cargo build --locked --offline --release --package siguldry --package
+siguldry-pkcs11 --jobs 2` with the digest-pinned Rust 1.98.1 toolchain. Both
+channels keep an upstream `Cargo.lock`, verified byte-equal before the freeze;
+479 registry archives per channel are hash-verified and reconstructed into a
+sealed directory source with no build-time resolution. Binaries
+`siguldry-bridge`, `siguldry-client`, `siguldry-server`, `siguldry-signer` and
+module `/usr/local/lib/p11lab/libsiguldry_pkcs11.so` run on Linux amd64/glibc
+from the digest-pinned Debian base. OpenSSL and SQLite link the frozen system
+libraries (`libcrypto.so.3`, `libssl.so.3` at OpenSSL 3.5.7,
+`libsqlite3.so.0` at SQLite 3.46.1 via the sqlx `sqlite-unbundled` feature);
+no source-built crypto, openssl CLI, compiler, Cargo, checker, Python, dataset
+or tracing ships in the basic runtime.
+
+**Service topology and mTLS.** The four services run as direct supervisor
+children for the operation/application lifetime: bridge, signer, server and
+client proxy in bind mode. The bridge listens on `127.0.0.1:44333` (servers)
+and `127.0.0.1:44334` (clients); the signer and proxy use private sockets
+under `/run/p11lab/siguldry`. A P11Lab-owned libcrypto helper in the supervisor
+bootstraps mTLS at runtime (RSA-2048, SHA-256, 3650-day validity, SAN+EKU leaf
+extensions, `v3_ca` CA), mirroring the vetted upstream devel script semantics
+without shipping that script. Fixed internal identities are server
+`siguldry-server`, bridge `localhost` and user `siguldry-client` (the client
+certificate CN must equal the username). No baked credentials or initialized
+state ship, and the CA private key is never written.
+
+**PIN, label and database.** First init requires caller key-password input of
+32..200 printable ASCII characters via `P11LAB_PIN_FILE` or `P11LAB_PIN`; the
+32-character lower bound is native (`user_password_length=32`), while the token
+64..128 PIN-length display is informational and unenforced. The password travels
+by anonymous pipe and a private unlinked control file, never argv, logs or
+markers. `P11LAB_LABEL` (1..32 ASCII letters/digits/spaces/dot/underscore/
+hyphen) names the single server-side P-256 signing key and therefore the single
+token at slot 0, token-present index 0. Exactly one key exists. Server state is
+SQLite at `state/siguldry.sqlite` (the native stack sets mode 0640 explicitly;
+0600/0640 are accepted for that file only behind the 0700 directory boundary).
+A wrong PIN returns native `0xA0`. A failed unlock, or a sign without login
+(`C_SignInit` OK then `C_Sign` `0x06`), breaks that process proxy connection
+natively; fresh processes are unaffected and there is no server lockout. No
+retry, PIN replacement, error translation or semantic patch is added.
+
+**Readiness, supervision and reset.** Supply caller-owned mode-0700 writable
+`/var/lib/p11lab` and a private mode-0700 `/run/p11lab`. Each shard/client owns
+its own volume, container, PID namespace and network namespace; no host/shared
+networking is used, and a second stack cannot share the loopback ports (native
+bind refusal). `init`, `health` and `exec -- ARGV...` use the same C
+supervisor: exclusive volume lease and private control lock, static ownership/
+mode/link/roster/SQLite-magic checks and exact-byte marker/config validation
+before any native launch, then real readiness gating on owned PIDs, both unix
+sockets, both TCP ports, a bounded native `whoami` and a native slot/label/
+flags/ECDSA check that never logs in. Startup is bounded, each service log sink
+stores at most 64 KiB, required-service death fails the operation, and signal
+forwarding with TERM/KILL escalation plus subreaper adoption/reaping cleans up
+owned processes. The preferred proxy daemon uses the same supervised `exec`
+lifetime, so no permanent `server`/`server-ready` operation exists. Repeated
+compatible init preserves credentials and keys and ignores changed input files.
+Reset is explicit caller removal/replacement of disposable state after all
+operations stop; crash/power-loss recovery is unqualified.
+
+**Qualification limits.** `signing` means exactly the proven narrow
+observation: pre-provisioned single P-256 key, caller-PIN unlock, ECDSA
+sign-only, with independent oracle verification of original signatures and
+rejection of altered messages plus restart/isolation evidence. The unchanged
+stock consumer cannot parse the native double-wrapped `CKA_EC_POINT`; that
+interop observation is retained, never normalized, and the signing oracle below
+it is the qualified crypto evidence. Wider mechanisms, key types, session
+objects, concurrent clients, other architectures/libcs, hardware security and
+production mTLS practices (systemd credentials, rotation/revocation) are
+unqualified. Optional checker/consumer/proxy artifacts have separate provenance
+and admission.
+
+Twelve locked crates declare a license only in their manifest, and linked
+LGPL-2.0-or-later code (`sequoia-openpgp`, `buffered-reader`) has no completed
+corresponding-source, notice or relinking delivery. Base-package source
+obligations, Rust standard-library reachability, generated layers and
+digest-bound source delivery remain incomplete. See
+[FILE-NOTICES.txt](../src/p11lab/data/providers/siguldry/FILE-NOTICES.txt).
+Distribution remains blocked independently of local runtime or crypto results.

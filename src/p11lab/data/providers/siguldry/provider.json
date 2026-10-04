@@ -21,52 +21,54 @@
       "secret": true,
       "required": false
     },
-    "P11LAB_SO_PIN_FILE": {
-      "secret": true,
-      "required": false
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
     }
   },
   "services": [
-    "siguldry-services"
+    "siguldry-bridge",
+    "siguldry-signer",
+    "siguldry-server",
+    "siguldry-client"
   ],
   "channels": {
     "release": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/fedora-infra/siguldry.git",
-        "selector": {
-          "kind": "tag",
-          "value": "siguldry-pkcs11-2.2.0"
-        },
-        "license_status": "unreviewed",
-        "revision": "43a7acf3fa898e22ffd935c0a641bbae68e98363",
-        "license_observation": "MIT (workspace and crate manifests)"
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "release.lock.json"
     },
     "rolling": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/fedora-infra/siguldry.git",
-        "selector": {
-          "kind": "branch",
-          "value": "main"
-        },
-        "license_status": "unreviewed",
-        "revision": "8f22c77b26bf5bbdf81049fb100c05e2395d1c64",
-        "license_observation": "MIT (workspace and crate manifests)"
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "rolling.lock.json"
     }
   },
   "application_profile": "signing",
   "distribution": {
-    "status": "unreviewed",
-    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+    "status": "blocked",
+    "reason": "LGPL-2.0-or-later crates (sequoia-openpgp, buffered-reader) are linked into the shipped module/binaries without completed corresponding-source, notice or relinking delivery; whole-image licensing, Rust runtime/source reachability, generated layers and digest-bound source delivery remain incomplete. No publication authorized."
   },
   "constraints": [
-    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+    "Linux amd64/glibc 2.41. Both channels build cargo build --locked --offline --release --package siguldry --package siguldry-pkcs11 --jobs 2 with Rust 1.98.1 from the digest-pinned toolchain image and 479 hash-verified registry crates reconstructed into a sealed directory source. No patches, no simulation.",
+    "Dynamic system OpenSSL and SQLite: the module, binaries and supervisor use Debian base libcrypto.so.3, libssl.so.3 and libsqlite3.so.0 (OpenSSL 3.5.7, SQLite 3.46.1; sqlx sqlite-unbundled). No source-built crypto, no openssl CLI and no legacy provider module in the runtime; ldd receipts identify actual usage.",
+    "Co-located supervised signing stack: siguldry-bridge, siguldry-signer, siguldry-server and siguldry-client proxy (bind mode) run as direct supervisor children for the operation/application lifetime. No permanent server/server-ready operation is needed; the preferred proxy daemon runs through the same exec.",
+    "Fixed loopback topology: bridge listens on 127.0.0.1:44333 (servers) and 127.0.0.1:44334 (clients); signer and proxy use private sockets under /run/p11lab/siguldry. Each independent shard/client owns its volume, container, PID namespace and network namespace. A second stack cannot share the ports (native bind refusal); no host/shared networking.",
+    "mTLS is bootstrapped at runtime by a P11Lab-owned libcrypto helper in the supervisor (RSA-2048, SHA-256, 3650-day validity, SAN+EKU leaves, v3_ca CA), mirroring the vetted upstream devel script semantics without shipping it. Fixed internal identities: server siguldry-server, bridge localhost, user siguldry-client (client CN must equal the username). No baked credentials or initialized state ship; the CA private key is never written.",
+    "P11LAB_LABEL defaults to P11Lab, 1..32 ASCII letters/digits/spaces/dot/underscore/hyphen. The label names the single server-side P-256 signing key and therefore the single token (slot 0, token-present index 0). Exactly one key exists; native readiness requires exactly one token-present slot.",
+    "First init requires caller key-password input of 32..200 printable ASCII characters via P11LAB_PIN_FILE or P11LAB_PIN (single-line/4096-byte common checks run first). The lower bound is native (user_password_length=32); the token 64..128 PIN-length claim is informational and unenforced. The PIN unlocks the server key through C_Login; the key password travels by anonymous pipe and a private unlinked control file, never argv, logs or markers.",
+    "No security-officer input exists: native C_Login(CKU_SO) is CKR_USER_TYPE_INVALID and C_InitToken/C_InitPIN/C_SetPIN are CKR_FUNCTION_NOT_SUPPORTED (0x54). P11LAB_SO_PIN/P11LAB_SO_PIN_FILE inputs are refused when set. C_GenerateKeyPair/C_GenerateKey/C_CreateObject/C_DestroyObject are likewise 0x54; general-token is falsified.",
+    "Native connection behavior is preserved: a failed unlock or a sign without login (C_SignInit OK then C_Sign CKR_FUNCTION_FAILED 0x06) breaks that process proxy connection, so later calls in the same process keep failing; fresh processes are unaffected and there is no server lockout. A wrong PIN returns CKR_PIN_INCORRECT (0xA0). No retry, PIN replacement, error translation or semantic patch is added.",
+    "Existing init validates static state and native readiness and ignores changed input credential files. Static exact-byte marker/config checks, .init-lock, an exclusive volume lease, private control lock, credential roster, SQLite magic, ownership/mode/link checks run before any native process. The native stack sets the database mode 0640 explicitly (umask-independent); 0600/0640 are accepted for that file only and the 0700 directory remains the boundary. Missing, partial, foreign, incompatible and occupied state is refused. No reset, reprovisioning or state-changing retry is implicit.",
+    "init/health/exec use the P11Lab C supervisor: direct service children, real readiness gating (owned PIDs, both sockets, both TCP ports, bounded native whoami, native slot/label/flags/ECDSA check), bounded startup and 64-KiB log sinks, required-service death monitoring, signal forwarding, TERM/KILL escalation and subreaper/adopted-child cleanup. Readiness never logs in; unlocking stays caller authentication.",
+    "Persistent keys and key passwords survive clean restart; unlock state does not (each process logs in again). Reset is explicit caller removal/replacement of disposable state after all operations stop. Crash/power-loss recovery is unqualified.",
+    "Basic runtime contains no checker, Python, datasets, tracing, compiler, Cargo, OpenSC/pkcs11-tool, openssl CLI or upstream administration scripts. Consumer/checker/proxy derivatives are separate test artifacts with independent identity and admission. A shared network never makes the native module remotely loadable.",
+    "signing means exactly the proven narrow observation: pre-provisioned single P-256 key, caller-PIN unlock, ECDSA sign-only with independent OpenSSL original/altered-message oracles. Wider mechanisms, key types, session objects, concurrent clients, other architectures/libcs, hardware security and production mTLS practices (systemd-creds, cert rotation/revocation) are unqualified.",
+    "Distribution is blocked independently of crypto or lifecycle outcomes. Linked LGPL-2.0-or-later code (sequoia-openpgp 2.4.1, buffered-reader 1.4.1) has no completed corresponding-source, notice or relinking delivery; twelve locked crates carry manifest-only license declarations; base-package source obligations, Rust standard-library and actual-layer review remain pending."
+  ],
+  "runtime_env": [
+    {
+      "name": "LIBSIGULDRY_PKCS11_PROXY_PATH",
+      "value": "/run/p11lab/siguldry/client-proxy.socket"
+    }
   ]
 }
