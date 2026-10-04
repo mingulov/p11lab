@@ -1199,3 +1199,125 @@ reachability and actual-layer review remain pending. See
 [FILE-NOTICES.txt](../src/p11lab/data/providers/softkms/FILE-NOTICES.txt).
 Distribution remains blocked independently of local runtime or crypto
 results.
+
+## M6: tpm2 release and rolling emulated-TPM tokens
+
+| Channel | Frozen source | Runtime contract | Application qualification | Distribution |
+| --- | --- | --- | --- | --- |
+| release | Tag `1.10.1`, revision `9a3bfbd6b9e20513cbf5413b395ba1fe8b23ef0c` | Source-built unpatched `libtpm2_pkcs11.so` over supervised swtpm plus tpm2-abrmd on a private anonymous D-Bus, persistent emulator state and sqlite store, amd64/glibc | `general-token` retained: slot 1 token with native flags `0x40d`, P-256 sign/verify with independent OpenSSL oracle and altered-message rejection, persistence and isolation across resumes | BLOCKED: closure flags (GPL-3 packaging stanzas, LGPL glib, CPL swtpm sources, IBM-Custom libtpms) with no completed corresponding-source, notice or actual-layer review |
+| rolling | `master` revision `d8375fa68e4ce8a477f7f5953511711e500e4143` (`1.10.1-21-gd8375fa`) | Same contract, same Debian trixie platform and frozen package roster | Same `general-token` evidence, same checker outcome | Same blockers |
+
+Both channels source-build the unpatched module with
+`--prefix=/usr --with-fapi=no --disable-ptool-checks` and `make -j2`
+against Debian system OpenSSL 3.5.7 (`libcrypto.so.3`, no legacy
+provider, no from-source OpenSSL). The single Python runtime dependency
+is the frozen tpm2-pytss 2.3.0 sdist installed offline; the test-only
+python-pkcs11 client is not installed and the argv-taking `tpm2_ptool`
+console script is excluded from the runtime. Provisioning calls the
+frozen `tpm2_ptool` commandlets as a library through an argv-free driver
+(`tpm2_ptool init` plus `addtoken --pid=1`, persistent primary
+`0x81000001`) with secrets on a bounded private stdin pipe, then sets
+the emulator dictionary-attack parameters (max 64 tries; recovery and
+lockout-recovery at the observed swtpm defaults). No P11Lab patches
+exist and none are needed: native behavior, native errors and the
+first-authentication TPM_RC_RETRY drawn after each daemon bring-up are
+preserved, and the DA budget that retry spend requires is explicit
+provisioning, not a workaround.
+
+The caller user/SO PINs (each non-empty through 4096 bytes,
+single-line) provision exactly one token at slot 1, token-present
+index 0; `P11LAB_LABEL` (1..32 ASCII letters/digits/spaces/dot/
+underscore/hyphen) names it. Generated-mode keygen stays native
+`0x13`, wrong PINs stay native `0xa0`, and hammering the 64-try budget
+locks the token with native `0xa4`, after which the correct PIN is
+also rejected. The installed checker lane completes with full
+observations in both channels (smoke-v1, 23 nodes: 13 passed, 5
+skipped, 5 xfailed, 0 failed); the proxy lane serves remote P-256
+crypto verified by the independent oracle while the shared post-health
+check holds the known live-daemon volume-lease ordering limit. Those
+runner outcomes stay separate from the completed provider
+observations. Acceptance is 78 passed with the 2 documented proxy
+lifecycle xfails.
+
+### Appendix: tpm2 source, platform, credential and lifecycle boundary
+
+**Frozen source and build.** The builder compiles the module from the
+pinned git archive with the pinned arguments above; the daemon closure
+(swtpm 0.7.1-1.5, tpm2-abrmd 3.0.0-1.2, tpm2-tools 5.7-1, libtss2
+4.1.3-1.2, python3, D-Bus) comes from the frozen Debian trixie roster
+(base `debian@sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c`,
+snapshot `20260918T000000Z`). The basic runtime ships the module, the
+tpm2_pytss/tpm2_pkcs11 Python trees, the argv-free wrapper, the daemons,
+the private bus, the tpm2 multicall with its invoked symlinks,
+dbus-send, base libraries and the exact extracted closure (60 whole
+packages plus picks, audited with `ldd` receipts); no build tools,
+checker, datasets or tracing ship. Runtime images measure about 206 MB
+(release) and 209 MB (rolling).
+
+**Service topology and provisioning.** swtpm, a private anonymous
+dbus-daemon and tpm2-abrmd run as supervised children for the
+operation/application lifetime only; each shard/client owns a separate
+volume, container, daemon set and private network namespace. The
+supervisor gates readiness on TCP accept plus bus-name ownership plus
+a native pre-login token round-trip, never ports alone. Daemons, bus
+socket, logs and pid files live under ephemeral `/run/p11lab/tpm2`;
+the emulator state (`tpm2-00.permall` plus the swtpm lock), the sqlite
+store, the lease and the marker persist under `/var/lib/p11lab/tpm2`
+and resume across operations. The canonical bus address is guidless
+and static because the daemon config pins the socket path; the
+per-boot guid is discarded after readiness, and the provider
+descriptor declares the same store path, TCTI and bus address for
+checker grandchildren, which otherwise run scrubbed. Resource-manager
+capacities are the re-derived native bounds: 100 transient objects
+and 4 sessions. No baked credentials or initialized state ship.
+
+**PIN, label, token and DA budget.** First init requires both caller
+PINs and provisions the store, token and DA parameters; compatible
+repeated init preserves state and ignores changed credential files.
+The token reports native flags `0x40d` with pin lengths 0..128 and a
+34-mechanism roster. Every operation that performs PKCS#11
+authentication draws one counted TPM_RC_RETRY (silently resubmitted
+by libtss2, accounted by swtpm at emulator save), and every wrong-PIN
+attempt burns one try natively, so the 64-try budget covers the
+acceptance suite about tenfold while keeping lockout reachable and
+observable. No silent reset or retry of native state-changing calls
+exists.
+
+**Readiness, supervision and reset.** Supply caller-owned mode-0700
+writable `/var/lib/p11lab` and a private mode-0700 `/run/p11lab`;
+the caller UID may be root or non-root with any primary group.
+`init`, `health` and `exec -- ARGV...` share the entrypoint plus C
+supervisor: exclusive volume lease and private control lock, static
+ownership/mode/link/roster checks (non-empty store, exact tpmstate
+roster, exact-byte marker) before any daemon starts, then real
+readiness gating, daemon-death detection, signal forwarding with
+TERM/KILL escalation, bounded logs and subreaper cleanup. The
+preferred proxy daemon uses the same supervised `exec` lifetime, so
+no permanent `server`/`server-ready` operation exists. swtpm rewrites
+`tpm2-00.permall` on every operation (TPM clock and NV counters
+advance even for read-only probes), so lanes where daemons
+legitimately run compare all other state bytes exactly and assert
+the blob is still a regular file; refusal lanes assert exact bytes
+including the blob. Reset is explicit caller
+removal/replacement of disposable state after all operations stop;
+persistent tokens are never silently reset. Crash/power-loss recovery
+is unqualified.
+
+**Qualification limits.** `general-token` means exactly the proven
+observation: one labeled token at slot 1 with the native roster,
+P-256 sign/verify with the independent oracle, persistence and
+isolation across resumes, native generated-mode/wrong-PIN/lockout
+errors, the DA hammer observation, and the completed checker
+profile. The module natively exposes two token-present slots for the
+one provisioned token; wider mechanisms, multi-client concurrency,
+other TCTIs/backends, hardware TPMs, FIPS claims and provider-wide
+qualification are not asserted. Optional checker/consumer/proxy
+artifacts have separate provenance and admission.
+
+The module source is BSD-2-Clause, but the image closure carries
+blocking flags: GPL-3 packaging stanzas, LGPL glib, CPL swtpm
+sources and IBM-Custom libtpms, with base-package source
+obligations, notice delivery and actual-layer review pending. See
+[FILE-NOTICES.txt](../src/p11lab/data/providers/tpm2/FILE-NOTICES.txt).
+Distribution remains blocked independently of local runtime or crypto
+results.

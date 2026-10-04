@@ -27,7 +27,7 @@ def test_full_cohort_has_distinct_module_and_backend_dispositions():
         validate_descriptor(spec)
         assert spec['module_implementation']['name']
         assert spec['backend']['name']
-        expected_admission = 'blocked' if spec['id'] in ('cryptech', 'nethsm', 'siguldry', 'kmsp11-fakekms', 'softkms') else 'unreviewed'
+        expected_admission = 'blocked' if spec['id'] in ('cryptech', 'nethsm', 'siguldry', 'kmsp11-fakekms', 'softkms', 'tpm2') else 'unreviewed'
         assert spec['distribution']['status'] == expected_admission
         assert set(spec['channels']) == {'release', 'rolling'}
     by_id = {s['id']: s for s in entries}
@@ -39,7 +39,7 @@ def test_full_cohort_has_distinct_module_and_backend_dispositions():
 
 
 def test_planned_entries_can_be_described_but_not_built():
-    spec = load_environment('tpm2', 'release')
+    spec = load_environment('ykcs11', 'release')
     assert spec['channel_spec']['status'] == 'planned'
     assert 'lock' not in spec
     assert 'lock' not in spec['channel_spec']
@@ -65,14 +65,14 @@ def test_unknown_channel_and_environment_are_errors():
 
 
 def test_invalid_full_source_revision_is_rejected():
-    spec = load_environment('tpm2', 'release')
+    spec = load_environment('ykcs11', 'release')
     spec['channels']['release']['source']['revision'] = '13e6e86'
     with pytest.raises(CatalogError, match='revision'):
         validate_descriptor(spec)
 
 
 def test_license_status_is_required_even_for_unreviewed_source():
-    spec = load_environment('tpm2', 'release')
+    spec = load_environment('ykcs11', 'release')
     del spec['channels']['release']['source']['license_status']
     with pytest.raises(CatalogError, match='license_status'):
         validate_descriptor(spec)
@@ -93,7 +93,7 @@ def test_packaged_asset_rejects_escape(path):
 
 @pytest.fixture
 def locked_environment(tmp_path):
-    spec = load_environment('tpm2', 'release')
+    spec = load_environment('ykcs11', 'release')
     assets = []
     for role, path, content in [('recipe', 'Dockerfile', b'FROM scratch\n'), ('adapter', 'adapter.sh', b'#!/bin/sh\n')]:
         (tmp_path / path).write_bytes(content)
@@ -145,8 +145,8 @@ def test_symlink_asset_cannot_escape_provider_root(locked_environment):
         validate_build_inputs(spec, asset_root=root)
 
 
-def test_tpm2_rolling_uses_actual_master_branch():
-    spec = load_environment('tpm2', 'rolling')
+def test_ykcs11_rolling_uses_actual_master_branch():
+    spec = load_environment('ykcs11', 'rolling')
     assert spec['channel_spec']['source']['selector'] == {'kind': 'branch', 'value': 'master'}
 
 
@@ -173,7 +173,7 @@ def test_tools_require_explicit_artifact_disposition():
 ])
 @pytest.mark.parametrize('malformed', [[], {}])
 def test_malformed_descriptor_enums_raise_catalog_error(field, malformed):
-    spec = load_environment('tpm2', 'release')
+    spec = load_environment('ykcs11', 'release')
     parent = spec
     for key in field[:-1]:
         parent = parent[key]
@@ -204,7 +204,7 @@ def _spec_with_runtime_env(entries):
 
 
 def test_runtime_env_is_optional():
-    spec = load_environment('tpm2', 'release')
+    spec = load_environment('ykcs11', 'release')
     assert 'runtime_env' not in spec
     validate_descriptor(spec)
 
