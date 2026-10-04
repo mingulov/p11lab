@@ -1,0 +1,25 @@
+diff --git a/src/pkcs11/mod.rs b/src/pkcs11/mod.rs
+index 213b9ef..c41cf8b 100644
+--- a/src/pkcs11/mod.rs
++++ b/src/pkcs11/mod.rs
+@@ -452,7 +452,19 @@ pub extern "C" fn C_Initialize(_: *const ()) -> CK_RV {
+ 
+ #[no_mangle]
+ pub extern "C" fn C_Finalize(_: *const ()) -> CK_RV {
+-    ffi_guard!({ CKR_OK })
++    ffi_guard!({
++        // P11Lab: finalization invalidates sessions and drops the object
++        // caches, so a later C_Initialize starts clean. Without this, stale
++        // sessions stayed usable across C_Finalize/C_Initialize. Dropping a
++        // session runs its zeroizing Drop; no return value changes.
++        SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).clear();
++        OBJECTS.lock().unwrap_or_else(|e| e.into_inner()).clear();
++        OBJECT_ATTRIBUTES
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .clear();
++        CKR_OK
++    })
+ }
+ 
+ #[no_mangle]

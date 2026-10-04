@@ -1,0 +1,36 @@
+diff --git a/src/pkcs11/mod.rs b/src/pkcs11/mod.rs
+index 6ca9c6d..d82433d 100644
+--- a/src/pkcs11/mod.rs
++++ b/src/pkcs11/mod.rs
+@@ -249,13 +249,16 @@ type C_Decrypt_t = extern "C" fn(CK_SESSION, *const u8, CK_ULONG, *mut u8, *mut
+ type C_InitToken_t = extern "C" fn(CK_SLOT, *const u8, CK_ULONG, *const u8) -> CK_RV;
+ 
+ // CK_FUNCTION_LIST structure - PKCS#11 v2.40
++// P11Lab: field order follows the specification (C_Initialize,
++// C_Finalize, C_GetInfo, C_GetFunctionList); the previous order routed
++// spec-compliant table calls to the wrong entry points.
+ #[repr(C)]
+ struct CK_FUNCTION_LIST {
+     version: CK_VERSION,
+-    C_GetInfo: C_GetInfo_t,
+-    C_GetFunctionList: C_GetFunctionList_t,
+     C_Initialize: C_Initialize_t,
+     C_Finalize: C_Finalize_t,
++    C_GetInfo: C_GetInfo_t,
++    C_GetFunctionList: C_GetFunctionList_t,
+     C_GetSlotList: C_GetSlotList_t,
+     C_GetSlotInfo: C_GetSlotInfo_t,
+     C_GetTokenInfo: C_GetTokenInfo_t,
+@@ -332,10 +335,10 @@ static FUNCTION_LIST: CK_FUNCTION_LIST = CK_FUNCTION_LIST {
+         major: 2,
+         minor: 40,
+     }, // PKCS#11 version 2.40
+-    C_GetInfo,
+-    C_GetFunctionList,
+     C_Initialize,
+     C_Finalize,
++    C_GetInfo,
++    C_GetFunctionList,
+     C_GetSlotList,
+     C_GetSlotInfo,
+     C_GetTokenInfo,

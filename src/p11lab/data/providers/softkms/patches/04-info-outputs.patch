@@ -1,0 +1,115 @@
+diff --git a/src/pkcs11/mod.rs b/src/pkcs11/mod.rs
+index c41cf8b..c307672 100644
+--- a/src/pkcs11/mod.rs
++++ b/src/pkcs11/mod.rs
+@@ -88,6 +88,25 @@ struct CK_VERSION {
+     minor: u8,
+ }
+ 
++#[repr(C)]
++#[derive(Debug)]
++struct CK_INFO {
++    cryptoki_version: CK_VERSION,
++    manufacturer_id: [u8; 32],
++    flags: CK_ULONG,
++    library_description: [u8; 32],
++    library_version: CK_VERSION,
++}
++
++/// Copy `text` into a fixed-width PKCS#11 field, space-padding the rest.
++/// P11Lab: several fixed strings were short, leaving caller memory
++/// uninitialized; padding makes every info byte deterministic.
++fn pad_copy(field: &mut [u8], text: &[u8]) {
++    field.fill(b' ');
++    let n = text.len().min(field.len());
++    field[..n].copy_from_slice(&text[..n]);
++}
++
+ #[repr(C)]
+ #[derive(Debug)]
+ struct CK_SLOT_INFO {
+@@ -208,7 +227,7 @@ const CKO_PRIVATE_KEY: CK_ULONG = 0x00000003;
+ const CKK_EC: CK_ULONG = 0x00000003;
+ const CKK_EC_EDWARDS: CK_ULONG = 0x00000040; // Ed25519 / Ed448
+                                              // PKCS#11 function pointer types - using C-style names per PKCS#11 spec
+-type C_GetInfo_t = extern "C" fn(*const ()) -> CK_RV;
++type C_GetInfo_t = extern "C" fn(*mut CK_INFO) -> CK_RV;
+ type C_Initialize_t = extern "C" fn(*const ()) -> CK_RV;
+ type C_Finalize_t = extern "C" fn(*const ()) -> CK_RV;
+ type C_GetSlotList_t = extern "C" fn(CK_BOOL, *mut CK_ULONG, *mut CK_ULONG) -> CK_RV;
+@@ -441,8 +460,23 @@ pub extern "C" fn C_GetFunctionList(ppFunctionList: *mut *const CK_FUNCTION_LIST
+ }
+ 
+ #[no_mangle]
+-pub extern "C" fn C_GetInfo(_: *const ()) -> CK_RV {
+-    ffi_guard!({ CKR_OK })
++pub extern "C" fn C_GetInfo(p_info: *mut CK_INFO) -> CK_RV {
++    ffi_guard!({
++        // P11Lab: fill the info struct (previously returned OK without
++        // writing anything). Strings come from upstream's own get_info().
++        if p_info.is_null() {
++            return CKR_ARGUMENTS_BAD;
++        }
++        unsafe {
++            let info = &mut *p_info;
++            info.cryptoki_version = CK_VERSION { major: 2, minor: 40 };
++            pad_copy(&mut info.manufacturer_id, b"softKMS");
++            info.flags = 0;
++            pad_copy(&mut info.library_description, b"softKMS PKCS#11 Provider");
++            info.library_version = CK_VERSION { major: 0, minor: 1 };
++        }
++        CKR_OK
++    })
+ }
+ 
+ #[no_mangle]
+@@ -506,12 +540,14 @@ pub extern "C" fn C_GetSlotInfo(_slot: CK_SLOT, pInfo: *mut CK_SLOT_INFO) -> CK_
+             info.flags = CKF_HW_SLOT | CKF_TOKEN_PRESENT;
+ 
+             // Set slot description (max 64 bytes)
+-            let desc = b"softKMS                                         ";
+-            info.slot_description[..desc.len()].copy_from_slice(desc);
++            pad_copy(&mut info.slot_description, b"softKMS");
+ 
+             // Set manufacturer ID (max 32 bytes)
+-            let mfg = b"softKMS                       ";
+-            info.manufacturer_id[..mfg.len()].copy_from_slice(mfg);
++            pad_copy(&mut info.manufacturer_id, b"softKMS");
++
++            // Hardware/firmware versions (match the token info versions)
++            info.hardware_version = CK_VERSION { major: 1, minor: 0 };
++            info.firmware_version = CK_VERSION { major: 1, minor: 0 };
+         }
+         CKR_OK
+     })
+@@ -532,16 +568,13 @@ pub extern "C" fn C_GetTokenInfo(slot: CK_SLOT, pInfo: *mut CK_TOKEN_INFO) -> CK
+             let info = &mut *pInfo;
+ 
+             // Set label
+-            let label = b"softKMS                        ";
+-            info.label[..label.len()].copy_from_slice(label);
++            pad_copy(&mut info.label, b"softKMS");
+ 
+             // Set manufacturer
+-            let mfg = b"softKMS                        ";
+-            info.manufacturer_id[..mfg.len()].copy_from_slice(mfg);
++            pad_copy(&mut info.manufacturer_id, b"softKMS");
+ 
+             // Set model
+-            let model = b"softKMS         ";
+-            info.model[..model.len()].copy_from_slice(model);
++            pad_copy(&mut info.model, b"softKMS");
+ 
+             // Serial number
+             let serial = b"0000000000000000";
+@@ -570,6 +603,10 @@ pub extern "C" fn C_GetTokenInfo(slot: CK_SLOT, pInfo: *mut CK_TOKEN_INFO) -> CK
+             // Versions
+             info.hardware_version = CK_VERSION { major: 1, minor: 0 };
+             info.firmware_version = CK_VERSION { major: 1, minor: 0 };
++
++            // No clock is reported; zeros keep the field deterministic
++            // instead of leaking caller stack memory.
++            info.utc_time.copy_from_slice(b"0000000000000000");
+         }
+ 
+         CKR_OK

@@ -1074,3 +1074,128 @@ source delivery remain incomplete. See
 [FILE-NOTICES.txt](../src/p11lab/data/providers/kmsp11-fakekms/FILE-NOTICES.txt).
 Distribution remains blocked independently of local runtime or crypto
 results.
+
+## M6: softkms rolling local daemon with PKCS#11 module
+
+| Channel | Frozen source | Runtime contract | Application qualification | Distribution |
+| --- | --- | --- | --- | --- |
+| rolling | `master` tip `f6235a4b8aee9394b1c03ce76cafb5b7652442e5`, falcon `ce15e75bceb372867daf6b8e81918ab6978686eb`, ed25519-bip32 `3cafd074e840971a2de791593918bb1c0707cd04` | Source-built `libsoftkms.so` plus supervised persistent daemon, per-state provisioning, amd64/glibc | `softkms-local-token` holds narrowly: fixed-label token, exact 10-mechanism roster, identity-token login, ECDSA-P256/Ed25519 lanes with independent oracles; `general-token` falsified natively | BLOCKED: AGPL-3.0 network copyleft plus LGPL/GPL closure code with no completed corresponding-source, notice or relinking delivery |
+| release | No source (upstream publishes no tags or release refs) | Unavailable | Unqualified | Unqualified |
+
+The rolling pin is the tip of upstream `master` at acquisition, and the
+falcon submodule and ed25519-bip32 dependency pins were re-verified at the
+frozen revision before sealing. No prebuilt upstream bytes are used: the
+channel compiles the module, daemon and CLI from source with `cargo build
+--locked --offline --release --lib --bin softkms-daemon --bin softkms --jobs
+2` over 487 sealed crates.io archives plus the sealed ed25519-bip32 checkout
+consumed as a directory source and the sealed Falcon C checkout, with
+downloads disabled. Six ordered P11Lab patches apply before sealing:
+function-table slot order, attribute-value encoding, post-finalize session
+invalidation, deterministic info outputs, file-based CLI provisioning
+secrets, and mechanism/token flag constants repaired to standard PKCS#11
+v2.40 values (token flags are now `0x404`). The first five are ABI repairs
+and provisioning extensions; the flag repair is a declared semantic repair
+of wrong constants, and a declared patch that fails to apply fails the
+build. ECDSA-always-SHA-256, the fixed label and permissive SO behavior are
+preserved, not silently changed.
+
+The caller passphrase (32..200 printable ASCII) provisions the daemon admin
+secret and never reaches PKCS#11; the server-issued 192-character identity
+token IS the PKCS#11 PIN for both `CKU_USER` and `CKU_SO` (no distinct SO
+role: SO login succeeds exactly like USER, so SO inputs are shape-checked
+and ignored). `C_InitToken` is native `0x00` while
+`C_InitPIN`/`C_SetPIN`/`C_CreateObject` are native `0x54`.
+`C_GenerateKeyPair` succeeds for P-256 and Ed25519 labels (RSA is `0x70`,
+repeat labels are `0x30`), but generated objects expose no `CKA_ID`,
+private keys expose no `EC_POINT`/`EC_PARAMS`, `C_DestroyObject` is `0x54`,
+and find ignores templates, so `general-token` is falsified. The installed
+checker lane runs to completed evidence (23 nodes: 5 passed, 15 setup
+errors on `CKR_PIN_INCORRECT` for the caller credential, 3 skipped); the
+proxy lane serves and transports the native login rejection faithfully
+while the shared post-health check holds the known live-daemon
+volume-lease ordering limit. Those runner outcomes stay separate from the
+completed provider observations.
+
+### Appendix: softkms source, platform, credential and lifecycle boundary
+
+**Frozen source and build.** The builder runs `cargo build --locked
+--offline --release --lib --bin softkms-daemon --bin softkms --jobs 2`
+(Rust 1.98.1, protoc 3.21.12) against the P11Lab-frozen `Cargo.lock` with
+the sealed archives reconstructed as a directory source and `--locked
+--offline`, so no build-time resolution can occur. The module
+`/usr/local/lib/p11lab/libsoftkms.so` dynamically uses the frozen Debian
+base `libssl`/`libcrypto`/`libc`; the daemon additionally uses base
+`libnettle`/`libhogweed`/`libgmp` via sequoia-openpgp; the CLI is
+libc-only and the C supervisor is libc/dl-only. No source-built system
+crypto, openssl CLI, Python, Rust toolchain, checker, datasets or tracing
+ships in the basic runtime. `ldd` receipts identify actual usage, and the
+sealed `Cargo.lock` plus crate manifest ship in-image for byte comparison.
+
+**Service topology and provisioning.** One keykeeper daemon runs as a
+direct supervisor child for the operation/application lifetime and
+self-forks its key-free REST frontend child (reparented to the supervisor
+as subreaper); both exit with the operation. The keykeeper listens on
+fixed `127.0.0.1:50051` (gRPC) and the frontend on `127.0.0.1:8080`
+(REST); fixed ports fail closed when occupied. The supervisor gates
+readiness on TCP accept plus exact health JSON
+(`healthy`/`initialized`/`unlocked`) plus a native login-bearing check,
+never ports alone. First-time `init` provisions the keystore with the
+caller passphrase as the admin secret plus exactly one `pkcs11` identity;
+`health`/`exec` unlock the existing keystore with the persisted secret.
+Each shard/client owns its own volume, container, PID namespace and
+network namespace; no host/shared networking is used. No baked keys,
+credentials or initialized state ship.
+
+**PIN, label and token.** `P11LAB_LABEL` is fixed to `softKMS` (any other
+value is refused) and names the single token at slot 0, token-present
+index 0. The caller passphrase arrives via file or scalar and is piped to
+the supervisor, never argv/logs; the 192-character server-generated
+identity token persists mode-0600 in owned state for the state owner and
+is the only PKCS#11 PIN. Native token flags are exactly `0x404`
+(`TOKEN_INITIALIZED`|`LOGIN_REQUIRED`, standard bits via the repaired
+constants) and the mechanism roster is exactly 10 entries in native order
+(`0x1001`, `0x1041`, `0x1042`, `0x1043`, `0x1044`, `0x1040`, `0x1050`,
+`0x1057`, `0x1080`, `0x1087`). Library/slot/token info outputs are fully
+deterministic (version 2.40, zeroed serial/utcTime, pin 4..256).
+
+**Readiness, supervision and reset.** Supply caller-owned mode-0700
+writable `/var/lib/p11lab` and a private mode-0700 `/run/p11lab`. `init`,
+`health` and `exec -- ARGV...` use the same C supervisor: exclusive
+volume lease and private control lock, static ownership/mode/link/roster
+checks and exact-byte marker validation before any native launch, then
+real readiness gating on the owned keykeeper PID, TCP accept on both
+fixed ports, exact health JSON and a native
+slot/label/flags/mechanism/login/object check that also proves
+post-finalize sessions invalidate. Startup is bounded, the log sink
+stores at most 64 KiB, required-service death fails the operation, and
+signal forwarding with TERM/KILL escalation plus subreaper/adopted-child
+cleanup reaps owned processes. The preferred proxy daemon uses the same
+supervised `exec` lifetime, so no permanent `server`/`server-ready`
+operation exists. Repeated compatible init preserves native credentials
+and objects and ignores changed credential inputs. Reset is explicit
+caller removal/replacement of disposable state after all operations stop;
+persistent tokens are never silently reset. Crash/power-loss recovery is
+unqualified.
+
+**Qualification limits.** `softkms-local-token` means exactly the proven
+narrow observation: one fixed-label token with the exact 10-mechanism
+roster, identity-token login for USER and SO, ECDSA P-256 (always
+SHA-256, verified over the digest) and Ed25519 signing each with an
+independent oracle (pure-Python curve arithmetic with subgroup checks;
+the Ed25519 oracle is pinned to an OpenSSL-produced anchor vector), exact
+public-key sourcing from the daemon's own persisted sidecars because
+PKCS#11 exposes no public key material, exact-byte info outputs, and
+restart/isolation evidence. RSA and ECDSA-secp256k1 are advertised in CLI
+help but unimplemented natively and in the daemon. Wider mechanisms, key
+types, session objects, concurrent clients, other architectures/libcs and
+multi-tenant behavior are unqualified. Optional checker/consumer/proxy
+artifacts have separate provenance and admission.
+
+softKMS is AGPL-3.0 with network copyleft and the sealed dependency
+closure adds LGPL/GPL code (nettle, sequoia-openpgp) plus 480+
+permissive/dual crates without completed corresponding-source, notice or
+relinking delivery; base-package source obligations, toolchain
+reachability and actual-layer review remain pending. See
+[FILE-NOTICES.txt](../src/p11lab/data/providers/softkms/FILE-NOTICES.txt).
+Distribution remains blocked independently of local runtime or crypto
+results.
