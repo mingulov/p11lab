@@ -1,0 +1,143 @@
+diff --git a/p11lab-bootstrap/main.go b/p11lab-bootstrap/main.go
+new file mode 100644
+index 0000000..1485b07
+--- /dev/null
++++ b/p11lab-bootstrap/main.go
+@@ -0,0 +1,137 @@
++// SPDX-License-Identifier: Apache-2.0
++// P11Lab-original fakekms readiness gate and key provisioning helper.
++//
++// Usage: p11lab-bootstrap <fakekms-addr> <key-ring-id>
++//
++// The helper dials a fakekms gRPC endpoint over an insecure channel,
++// proves it serves (ListKeyRings round-trip), creates the named keyring
++// unless it already exists, then provisions one SOFTWARE-protection
++// CryptoKey per algorithm class kmsp11 exposes, waiting until each first
++// version is ENABLED (libkmsp11 only exposes ENABLED versions). It prints
++// the keyring resource name to stdout for libkmsp11 config generation.
++//
++// Cloud KMS is generate-only at the PKCS#11 layer (no C_CreateObject
++// import; C_GenerateKeyPair needs the CKA_KMS_ALGORITHM vendor template),
++// so server-side provisioning is the only way to give applications
++// usable keys. Key material is created fresh on every launch against the
++// in-memory fake; only the keyring/key identifiers are stable.
++package main
++
++import (
++	"context"
++	"fmt"
++	"log"
++	"os"
++	"time"
++
++	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/credentials/insecure"
++	"google.golang.org/grpc/status"
++)
++
++// keySpec is one provisioned key: its stable CryptoKeyId (exposed as the
++// PKCS#11 CKA_LABEL), purpose and algorithm. The set covers the kmsp11
++// sign/decrypt/MAC surface per kmsp11/algorithm_details.cc.
++type keySpec struct {
++	id      string
++	purpose kmspb.CryptoKey_CryptoKeyPurpose
++	algo    kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm
++}
++
++var keySpecs = []keySpec{
++	{"rsa-sign-pkcs1-2048", kmspb.CryptoKey_ASYMMETRIC_SIGN, kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_2048_SHA256},
++	{"rsa-sign-pss-2048", kmspb.CryptoKey_ASYMMETRIC_SIGN, kmspb.CryptoKeyVersion_RSA_SIGN_PSS_2048_SHA256},
++	{"ec-sign-p256", kmspb.CryptoKey_ASYMMETRIC_SIGN, kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256},
++	{"ec-sign-p384", kmspb.CryptoKey_ASYMMETRIC_SIGN, kmspb.CryptoKeyVersion_EC_SIGN_P384_SHA384},
++	{"rsa-decrypt-oaep-2048", kmspb.CryptoKey_ASYMMETRIC_DECRYPT, kmspb.CryptoKeyVersion_RSA_DECRYPT_OAEP_2048_SHA256},
++	{"hmac-sha256", kmspb.CryptoKey_MAC, kmspb.CryptoKeyVersion_HMAC_SHA256},
++}
++
++const (
++	parent         = "projects/p/locations/global"
++	overallTimeout = 120 * time.Second
++	pollInterval   = 50 * time.Millisecond
++	pollAttempts   = 200
++)
++
++func main() {
++	log.SetFlags(0)
++	if len(os.Args) != 3 {
++		log.Fatalf("usage: p11lab-bootstrap <fakekms-addr> <key-ring-id>")
++	}
++	addr, keyRingID := os.Args[1], os.Args[2]
++	if addr == "" || keyRingID == "" {
++		log.Fatalf("empty address or keyring id")
++	}
++
++	ctx, cancel := context.WithTimeout(context.Background(), overallTimeout)
++	defer cancel()
++
++	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
++	if err != nil {
++		log.Fatalf("dial %s: %v", addr, err)
++	}
++	defer conn.Close()
++	client := kmspb.NewKeyManagementServiceClient(conn)
++
++	// Readiness proof: the endpoint must answer a real RPC, not merely
++	// accept TCP. A stdout address alone never gates readiness.
++	if _, err := client.ListKeyRings(ctx, &kmspb.ListKeyRingsRequest{Parent: parent}); err != nil {
++		log.Fatalf("ListKeyRings: %v", err)
++	}
++
++	ringName := parent + "/keyRings/" + keyRingID
++	if _, err := client.CreateKeyRing(ctx, &kmspb.CreateKeyRingRequest{
++		Parent: parent, KeyRingId: keyRingID,
++	}); err != nil {
++		if status.Code(err) != codes.AlreadyExists {
++			log.Fatalf("CreateKeyRing: %v", err)
++		}
++		if _, err := client.GetKeyRing(ctx, &kmspb.GetKeyRingRequest{Name: ringName}); err != nil {
++			log.Fatalf("GetKeyRing: %v", err)
++		}
++	}
++
++	for _, ks := range keySpecs {
++		ck, err := client.CreateCryptoKey(ctx, &kmspb.CreateCryptoKeyRequest{
++			Parent:      ringName,
++			CryptoKeyId: ks.id,
++			CryptoKey: &kmspb.CryptoKey{
++				Purpose: ks.purpose,
++				VersionTemplate: &kmspb.CryptoKeyVersionTemplate{
++					ProtectionLevel: kmspb.ProtectionLevel_SOFTWARE,
++					Algorithm:       ks.algo,
++				},
++			},
++		})
++		if err != nil {
++			if status.Code(err) != codes.AlreadyExists {
++				log.Fatalf("CreateCryptoKey %s: %v", ks.id, err)
++			}
++			ck = &kmspb.CryptoKey{Name: ringName + "/cryptoKeys/" + ks.id}
++		}
++		// Asymmetric versions generate asynchronously; wait for ENABLED.
++		if err := waitEnabled(ctx, client, ck.Name+"/cryptoKeyVersions/1"); err != nil {
++			log.Fatalf("key %s: %v", ks.id, err)
++		}
++	}
++
++	fmt.Println(ringName)
++}
++
++func waitEnabled(ctx context.Context, client kmspb.KeyManagementServiceClient, version string) error {
++	for i := 0; i < pollAttempts; i++ {
++		got, err := client.GetCryptoKeyVersion(ctx, &kmspb.GetCryptoKeyVersionRequest{Name: version})
++		if err == nil && got.State == kmspb.CryptoKeyVersion_ENABLED {
++			return nil
++		}
++		select {
++		case <-ctx.Done():
++			return ctx.Err()
++		case <-time.After(pollInterval):
++		}
++	}
++	return fmt.Errorf("version %s never reached ENABLED", version)
++}

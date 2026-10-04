@@ -957,3 +957,120 @@ obligations, Rust standard-library reachability, generated layers and
 digest-bound source delivery remain incomplete. See
 [FILE-NOTICES.txt](../src/p11lab/data/providers/siguldry/FILE-NOTICES.txt).
 Distribution remains blocked independently of local runtime or crypto results.
+
+## M6: kmsp11 release and rolling clients with co-located fakekms
+
+| Channel | Frozen source | Runtime contract | Application qualification | Distribution |
+| --- | --- | --- | --- | --- |
+| release | tag `pkcs11-v1.9`, `e01c9b66a4b1db63e42de956ae6b2cefde2fea67` | Source-built `libkmsp11.so` plus supervised in-memory fakekms, per-launch provisioning, amd64/glibc | `kms-vendor-crypto` holds narrowly: six pre-provisioned keys, vendor-template keygen, RSA/EC/HMAC lanes with independent oracles; `general-token` falsified natively | BLOCKED: linked BoringSSL/gRPC/Abseil/protobuf families and 86 Go modules have no completed source companion, notice or relinking delivery |
+| rolling | `master` tip `de849afa57f6e46c1268fbced15c161c532bff8b` | Same supervised stack and platform; distinct source/artifact | Same narrow observation, without error normalization | Same independent source/license blocks |
+
+The release selector is an annotated tag: tag object
+`0ac563ef4d337a0b91a8861b176c41e87eac6198` peels to the recorded release
+commit. The rolling pin is the tip of upstream `master` at acquisition. No
+prebuilt upstream bytes are used: both channels compile the client from source
+with the pinned Bazel 6.4.0 toolchain over 35 sealed archives (plus a pinned
+Go 1.22.0 SDK and two sealed Go zips for the host code generator) with
+downloads disabled, and build fakekms plus the provisioning helper with Go
+1.27.1 from 86 sealed modules with `GOPROXY=off`. Four ordered P11Lab patches
+apply before sealing: a build-only Go SDK hash freeze, generated protobuf
+bindings for the Bazel-only fault service, a build-only `kms` v1.25.0
+dependency floor (the minimum carrying `HSM_SINGLE_TENANT`, proven by version
+bisection), and a P11Lab-original readiness/provisioning helper. The patches
+are provisioning extensions; no PKCS#11 semantic or simulation change is
+added, and a declared patch that fails to apply fails the build.
+
+The caller PIN is accepted for contract compatibility but ignored natively:
+`C_Login(CKU_USER)` succeeds with any value, even empty (empty is still
+refused at the adapter as malformed). There is no security-officer role:
+native `C_Login(CKU_SO)` is `CKR_PIN_LOCKED` (`0xA4`), and
+`C_InitToken`/`C_InitPIN`/`C_SetPIN`/`C_CreateObject` are native `0x54`, so SO
+credential inputs are refused. `C_GenerateKeyPair` without the
+`CKA_KMS_ALGORITHM` vendor template fails natively (empty template `0xD0`,
+public-key attributes `0xD1`); only the vendor template succeeds, so
+`general-token` is falsified. Upstream fakekms semantics are mixed: RSA keys
+are fixed pregenerated test vectors while EC and HMAC keys draw fresh
+`crypto/rand` material per launch. The installed checker lane builds but its
+shared runner requires an SO credential unconditionally; the proxy lane serves
+and transports the native observation faithfully while the shared post-health
+check holds the known live-daemon volume-lease ordering limit. Those runner
+limits stay separate from the completed provider observations.
+
+### Appendix: kmsp11-fakekms source, platform, credential and lifecycle boundary
+
+**Frozen source and build.** The builder compiles
+`bazel build --jobs=2 -c opt --copt=-Wno-error=discarded-qualifiers
+--distdir --repository_cache --experimental_repository_disable_download
+//kmsp11/main:libkmsp11.so` (the copt relieves a `-Werror` failure that modern
+GCC raises on vendored BoringSSL; the flag is recorded, not a source edit)
+and `GOPROXY=off go build -trimpath CGO_ENABLED=0 ./fakekms/main
+./p11lab-bootstrap` with `GOMAXPROCS=2`. Gazelle's `fetch_repo` bypasses the
+Bazel downloader, so the two verified Go zips are additionally laid out as a
+sealed `file://` module proxy (zip bytes plus the `.mod` extracted from each
+zip) that the offline compile consumes via `GOPROXY`. The module
+`/usr/local/lib/p11lab/libkmsp11.so` links only the frozen Debian base
+`libm`/`libc`/`libstdc++`/`libgcc` (GCC 14.2); the Go binaries are static and
+the C supervisor uses only libc/dl. No source-built system crypto, openssl
+CLI, Java/Maven, compiler, Bazel, Go toolchain, checker, Python, datasets or
+tracing ships in the basic runtime.
+
+**Service topology and provisioning.** One memory-only fakekms runs as a
+direct supervisor child for the operation/application lifetime. It takes no
+arguments and prints an OS-ephemeral `127.0.0.1` port to stdout; the
+supervisor parses that strictly, then gates readiness on a real gRPC
+round-trip plus provisioning, never the printed address alone. Every
+`init`/`health`/`exec` starts from zero keyrings and provisions keyring
+`projects/p/locations/global/keyRings/p11lab` plus six SOFTWARE keys (RSA
+PKCS#1/PSS sign, EC P-256/P-384 sign, RSA OAEP decrypt, HMAC-SHA256), waiting
+for ENABLED versions. Each shard/client owns its own volume, container, PID
+namespace and network namespace; no host/shared networking is used. No baked
+keys, credentials or initialized state ship.
+
+**PIN, label and token.** `P11LAB_LABEL` (1..32 ASCII letters/digits/spaces/
+dot/underscore/hyphen, default `P11Lab`) names the single token at slot 0,
+token-present index 0, via the generated mode-0600 libkmsp11 config under the
+private control directory. A caller PIN is optional; when present its shape
+(nonempty single line, 4096-byte bound, no NUL) is validated before any
+native launch, but no PIN ever reaches the supervisor and readiness never
+logs in. Native token flags are exactly `0x400409`, the mechanism roster is
+exactly 46 entries (24 zeros: 23 from an upstream `vector(size)+push_back`
+mistake plus genuine `CKM_RSA_PKCS_KEY_PAIR_GEN`), and the object roster is
+exactly 11 objects under the six key labels. No retry, error translation or
+semantic patch is added.
+
+**Readiness, supervision and reset.** Supply caller-owned mode-0700 writable
+`/var/lib/p11lab` and a private mode-0700 `/run/p11lab`. `init`, `health` and
+`exec -- ARGV...` use the same C supervisor: exclusive volume lease and
+private control lock, static ownership/mode/link/roster checks and exact-byte
+marker validation before any native launch, then real readiness gating on the
+owned fakekms PID, strict loopback port parse, TCP accept, a bounded gRPC
+provisioning round-trip and a native slot/label/flags/mechanism/object check.
+Startup is bounded, the log sink stores at most 64 KiB, required-service
+death fails the operation, and signal forwarding with TERM/KILL escalation
+plus subreaper adoption/reaping cleans up owned processes. The preferred
+proxy daemon uses the same supervised `exec` lifetime, so no permanent
+`server`/`server-ready` operation exists. Repeated compatible init preserves
+the marker and ignores changed credential inputs. Reset is explicit caller
+removal/replacement of disposable state after all operations stop;
+crash/power-loss recovery is unqualified.
+
+**Qualification limits.** `kms-vendor-crypto` means exactly the proven
+narrow observation: six pre-provisioned keys, vendor-template key generation,
+RSA PKCS#1/PSS and ECDSA P-256/P-384 signing, RSA-OAEP decrypt, HMAC-SHA256
+and random generation, each with independent oracles (raw RSA exponentiation,
+curve arithmetic over P-256/P-384 with subgroup checks, OAEP round-trip,
+HMAC determinism), plus restart/isolation evidence. The image qualifies the
+CLIENT against an explicitly fake in-memory backend; it never qualifies
+Cloud KMS. Wider mechanisms, key types, session objects, concurrent clients,
+other architectures/libcs and real Cloud KMS behavior are unqualified.
+Optional checker/consumer/proxy artifacts have separate provenance and
+admission.
+
+Linked BoringSSL dual/MIT-fiat code, gRPC/Abseil/protobuf families and 86 Go
+modules have no completed corresponding-source, notice or relinking delivery;
+one fetched-only archive carries no in-archive license text. Base-package
+source obligations, toolchain reachability, generated layers and digest-bound
+source delivery remain incomplete. See
+[FILE-NOTICES.txt](../src/p11lab/data/providers/kmsp11-fakekms/FILE-NOTICES.txt).
+Distribution remains blocked independently of local runtime or crypto
+results.

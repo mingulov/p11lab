@@ -1,0 +1,147 @@
+P11Lab kmsp11-fakekms runtime file notices
+
+P11Lab original Dockerfile, lifecycle/supervision adapter (provision.c),
+entrypoint and freeze helpers: Apache-2.0 (root LICENSE). The fakekms
+readiness/provisioning helper (p11lab-bootstrap, applied as patch 04) is
+P11Lab-original Apache-2.0. Upstream PKCS#11 behavior is not patched.
+This image qualifies the CLIENT against an explicitly fake in-memory
+backend; it never qualifies Cloud KMS.
+kms-integrations: https://github.com/GoogleCloudPlatform/kms-integrations.git
+release tag pkcs11-v1.9 peel e01c9b66a4b1db63e42de956ae6b2cefde2fea67
+(tag object 0ac563ef4d337a0b91a8861b176c41e87eac6198);
+rolling master de849afa57f6e46c1268fbced15c161c532bff8b.
+Upstream LICENSE is Apache-2.0, SHA-256
+cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+at both pins; the text is shipped. No prebuilt upstream binary is used.
+
+P11Lab patches (ordered, applied to the source checkout before sealing):
+01-workspace-sdk-pin (e1a433e6): build-only Go SDK hash freeze; same SDK
+1.22.0 bytes/URL, no live go.dev index lookup. Apache-2.0 P11Lab original.
+02-faultpb-generated (d8a4e0e2): generated protobuf bindings for the
+Bazel-only fault service (protoc 36.2, protoc-gen-go v1.35.2,
+protoc-gen-go-grpc v1.6.2, fault.proto at channel rev, google/rpc/
+status.proto from googleapis 03a91044); enables the Go build. Apache-2.0.
+03-kms-bump-v1.25.0 (e12001c4): build-only dependency floor
+cloud.google.com/go/kms v1.15.2 to v1.25.0, the minimum version providing
+ProtectionLevel_HSM_SINGLE_TENANT referenced by fakekms sources (proven
+by version bisection), plus go directive 1.22 to 1.24.0 and transitives.
+04-p11lab-bootstrap (1b538ef2): new P11Lab-original Apache-2.0 readiness
+and provisioning helper. Provisioning extension; no PKCS#11 semantic
+change. A declared patch that fails to apply fails the build.
+
+C++ closure (35 sealed Bazel archives plus Go 1.22.0 SDK and two Go
+module zips for the host code generator; Bazel 6.4.0 itself is a sealed
+binary input). Linked into libkmsp11.so: BoringSSL (OpenSSL/ISC dual
+plus MIT fiat), gRPC, Abseil, protobuf, upb, c-ares, re2, yaml-cpp
+(MIT), zlib, glog/gflags (BSD) — all Apache-2.0/BSD/MIT/Zlib/ISC
+family by in-archive texts, strings-reachability probed. googletest and
+opencensus-proto archives are fetched for the build graph but show no
+linked reachability; opencensus-proto v0.3.0 carries no in-archive
+license text (gap recorded). The OASIS PKCS#11 v2.40 headers are used
+under the in-file OASIS IPR Policy grant. In-archive license texts are
+retained under /usr/share/licenses/kmsp11-fakekms/bazel-deps. No Java
+toolchain and no Maven artifacts are fetched or linked.
+
+Go closure inventory (86 sealed modules; not a per-symbol reachability
+claim; 51 Apache-2.0, 24 BSD-family, 9 MIT-family, 1 ISC, 1 BSD-family
+dual-header; every module ships an in-archive license file retained
+under /usr/share/licenses/kmsp11-fakekms/go-modules):
+cel.dev/expr v0.24.0: LICENSE
+cloud.google.com/go v0.121.6: LICENSE
+cloud.google.com/go/auth v0.17.0: LICENSE
+cloud.google.com/go/auth/oauth2adapt v0.2.8: LICENSE
+cloud.google.com/go/compute v1.23.0: LICENSE
+cloud.google.com/go/compute/metadata v0.9.0: LICENSE
+cloud.google.com/go/iam v1.5.3: LICENSE
+cloud.google.com/go/kms v1.25.0: LICENSE
+cloud.google.com/go/longrunning v0.7.0: LICENSE
+cloud.google.com/go/monitoring v1.24.2: LICENSE
+cloud.google.com/go/storage v1.56.0: LICENSE
+github.com/BurntSushi/toml v0.3.1: COPYING
+github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.29.0: LICENSE
+github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.53.0: LICENSE
+github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.53.0: LICENSE
+github.com/bazelbuild/rules_go v0.41.0: LICENSE.txt
+github.com/census-instrumentation/opencensus-proto v0.2.1: LICENSE
+github.com/cespare/xxhash/v2 v2.3.0: LICENSE.txt
+github.com/client9/misspell v0.3.4: LICENSE
+github.com/cncf/udpa/go v0.0.0-20191209042840-269d4d468f6f: LICENSE
+github.com/cncf/xds/go v0.0.0-20250501225837-2ac532fd4443: LICENSE
+github.com/davecgh/go-spew v1.1.1: LICENSE
+github.com/envoyproxy/go-control-plane v0.13.4: LICENSE
+github.com/envoyproxy/go-control-plane/envoy v1.32.4: LICENSE
+github.com/envoyproxy/go-control-plane/ratelimit v0.1.0: LICENSE
+github.com/envoyproxy/protoc-gen-validate v1.2.1: LICENSE
+github.com/felixge/httpsnoop v1.0.4: LICENSE.txt
+github.com/go-jose/go-jose/v4 v4.1.2: LICENSE
+github.com/go-logr/logr v1.4.3: LICENSE
+github.com/go-logr/stdr v1.2.2: LICENSE
+github.com/golang/glog v1.2.5: LICENSE
+github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da: LICENSE
+github.com/golang/mock v1.6.0: LICENSE
+github.com/golang/protobuf v1.5.4: LICENSE
+github.com/golang/snappy v0.0.4: LICENSE
+github.com/google/go-cmp v0.7.0: LICENSE
+github.com/google/martian/v3 v3.3.3: LICENSE
+github.com/google/s2a-go v0.1.9: LICENSE.md
+github.com/google/uuid v1.6.0: LICENSE
+github.com/googleapis/enterprise-certificate-proxy v0.3.7: LICENSE
+github.com/googleapis/gax-go/v2 v2.15.0: LICENSE
+github.com/miekg/pkcs11 v1.1.1: LICENSE
+github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10: LICENSE
+github.com/pmezard/go-difflib v1.0.0: LICENSE
+github.com/prometheus/client_model v0.0.0-20190812154241-14fe0d1b01d4: LICENSE, NOTICE
+github.com/sethvargo/go-gcpkms v0.2.0: LICENSE
+github.com/spiffe/go-spiffe/v2 v2.5.0: LICENSE
+github.com/stretchr/objx v0.5.0: LICENSE
+github.com/stretchr/testify v1.8.1: LICENSE
+github.com/yuin/goldmark v1.4.13: LICENSE
+github.com/zeebo/errs v1.4.0: LICENSE
+go.opencensus.io v0.24.0: LICENSE
+go.opentelemetry.io/auto/sdk v1.1.0: LICENSE
+go.opentelemetry.io/contrib/detectors/gcp v1.36.0: LICENSE
+go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.61.0: LICENSE
+go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0: LICENSE
+go.opentelemetry.io/otel v1.37.0: LICENSE
+go.opentelemetry.io/otel/metric v1.37.0: LICENSE
+go.opentelemetry.io/otel/sdk v1.37.0: LICENSE
+go.opentelemetry.io/otel/sdk/metric v1.37.0: LICENSE
+go.opentelemetry.io/otel/trace v1.37.0: LICENSE
+golang.org/x/crypto v0.45.0: LICENSE, PATENTS
+golang.org/x/exp v0.0.0-20190121172915-509febef88a4: LICENSE, PATENTS
+golang.org/x/lint v0.0.0-20190313153728-d0100b6bd8b3: LICENSE
+golang.org/x/mod v0.29.0: LICENSE, PATENTS
+golang.org/x/net v0.47.0: LICENSE, PATENTS
+golang.org/x/oauth2 v0.33.0: LICENSE
+golang.org/x/sync v0.18.0: LICENSE, PATENTS
+golang.org/x/sys v0.38.0: LICENSE, PATENTS
+golang.org/x/term v0.37.0: LICENSE, PATENTS
+golang.org/x/text v0.31.0: LICENSE, PATENTS
+golang.org/x/time v0.14.0: LICENSE, PATENTS
+golang.org/x/tools v0.38.0: LICENSE, PATENTS
+golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2: LICENSE, PATENTS
+gonum.org/v1/gonum v0.16.0: LICENSE
+google.golang.org/api v0.256.0: LICENSE
+google.golang.org/appengine v1.6.8: LICENSE
+google.golang.org/genproto v0.0.0-20250603155806-513f23925822: LICENSE
+google.golang.org/genproto/googleapis/api v0.0.0-20251111163417-95abcf5c77ba: LICENSE
+google.golang.org/genproto/googleapis/bytestream v0.0.0-20251103181224-f26f9409b101: LICENSE
+google.golang.org/genproto/googleapis/rpc v0.0.0-20251103181224-f26f9409b101: LICENSE
+google.golang.org/grpc v1.76.0: LICENSE, NOTICE.txt
+google.golang.org/protobuf v1.36.10: LICENSE, PATENTS
+gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405: LICENSE
+gopkg.in/yaml.v3 v3.0.1: LICENSE, NOTICE
+honnef.co/go/tools v0.0.0-20190523083050-ea95bdfd59fc: LICENSE
+
+Debian base/runtime: exact 78-package inventory, source archive URLs/hashes and
+signed snapshot indexes in channel locks. Copyright texts remain in-image.
+The module links only base libm/libc/libstdc++/libgcc; Go binaries are
+static (CGO_ENABLED=0). An SBOM or these file notices do not replace
+source/relinking obligations.
+
+POLICY: actual-content review, linked third-party closure (BoringSSL
+dual/MIT-fiat, gRPC/Abseil/protobuf families, 86 Go modules), compiler
+and Go toolchain reachability, generated layers and digest-bound source
+delivery are incomplete. Distribution stays BLOCKED. No
+runtime/checker/proxy image may be published under this task. Checker,
+consumer, proxy and dataset eligibility must be assessed separately.

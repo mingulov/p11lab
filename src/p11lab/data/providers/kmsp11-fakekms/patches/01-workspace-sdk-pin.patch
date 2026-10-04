@@ -1,0 +1,25 @@
+--- a/WORKSPACE
++++ b/WORKSPACE
+@@ -241,10 +241,20 @@
+ # gazelle:repository_macro go.bzl%go_repositories
+ go_repositories()
+ 
+-load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
++load("@io_bazel_rules_go//go:deps.bzl", "go_download_sdk", "go_register_toolchains", "go_rules_dependencies")
+ load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies")
+ 
+-go_register_toolchains("1.22.0")
++# P11Lab: pin the Go SDK bytes instead of discovering the hash from the live
++# go.dev version index at fetch time. Same SDK version and download URL as
++# the unpinned call above; only the hash lookup becomes hermetic.
++go_download_sdk(
++    name = "go_sdk",
++    version = "1.22.0",
++    sdks = {
++        "linux_amd64": ["go1.22.0.linux-amd64.tar.gz", "f6c8a87aa03b92c4b0bf3d558e28ea03006eb29db78917daec5cfb6ec1046265"],
++    },
++)
++go_register_toolchains()
+ 
+ gazelle_dependencies()
+ 
