@@ -67,7 +67,8 @@
       "name": "dotnet-sdk",
       "version": "10.0.401",
       "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-win-x64.exe",
-      "note": "exact-version host prerequisite installed on the runner; version asserted before build"
+      "sha512": "f0d8f8e7ec24efb05172a65dd80c4a9b1ef17efcebdbf0f57c15f436eea417960a7eeb6726c473a042373d6a8b94ac1adc7d680decbf7d2c45fa5c5662d62265",
+      "note": "exact-version host prerequisite installed on the runner; version asserted before build; sha512 from the publisher sidecar 2026-10-05"
     },
     {
       "name": "msvc",

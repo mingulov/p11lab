@@ -1467,7 +1467,7 @@
     {
       "role": "build-helper",
       "path": "apk-indexes.txt",
-      "sha256": "03146888776cc2161cc019d1192bc6aa4f0bc9ba16a64d85b8f7e4f1407a78ba"
+      "sha256": "5f8ce2c03861ce4cc53c76081497fcd5f74158aa7ce589f62354f61941d932dc"
     },
     {
       "role": "build-helper",
@@ -1567,12 +1567,12 @@
     {
       "filename": "main-APKINDEX.tar.gz",
       "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/APKINDEX.tar.gz",
-      "sha256": "ea1722957448032530273eeae1a584416cad4ed367f0a0816c338dc034a22d57"
+      "sha256": "8af071d1389b00b32ad310386ec2ad9cae1add4ebaca4ed404e754c8574a7fa2"
     },
     {
       "filename": "community-APKINDEX.tar.gz",
       "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/community/x86_64/APKINDEX.tar.gz",
-      "sha256": "3dac0b62d8e4dfc0363faa134d65ac8256054be388570eeec4021671a8e7d48b"
+      "sha256": "93539476ec07e7f0a98eaa9218163587c8a60c5c2199f5a9a55709af70c89880"
     }
   ],
   "builder_requested": [
