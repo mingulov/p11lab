@@ -11,12 +11,13 @@ bytes are verified and exercised here, but whole-artifact licensing, source
 companion delivery, and digest-bound admission are separate requirements.
 No bundle, image, cache export, or release is published by these steps.
 
-Windows acquisition is not hermetic. The workflow uses action tags, a hosted
-runner image, the `10.0.x` runtime patch band, a pip upgrade, and unlocked
-Python test/checker dependencies. Exact resolved versions and bundle hashes
-identify an executed attempt; they do not pin all downloaded bytes or prove
-reproducible Windows builds. This remains a qualification limitation. The
-rolling build SDK stays fenced to 10.0.401; runtime preflight still requires
+Windows acquisition is not hermetic. The workflow pins its actions by
+commit SHA but uses a hosted runner image, the `10.0.x` runtime patch
+band, a pip upgrade, and unlocked Python test/checker dependencies.
+Exact resolved versions and bundle hashes identify an executed attempt;
+they do not pin all downloaded bytes or prove reproducible Windows
+builds. This remains a qualification limitation.
+The rolling build SDK stays fenced to 10.0.401; runtime preflight still requires
 both .NET runtimes at 10.0.12 or later within the 10.0 band, with `LatestPatch`
 roll-forward. Fully immutable acquisition and dependency locks are required
 before claiming hermetic Windows qualification.

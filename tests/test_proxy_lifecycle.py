@@ -9,7 +9,7 @@ import pytest
 
 from p11lab import native, run, tls
 from p11lab.bundle import install_bundle
-from p11lab.docker import CommandResult
+from p11lab.docker import CommandResult, DockerError
 from p11lab.models import ArtifactRef, RunSpec
 
 
@@ -171,3 +171,85 @@ def test_proxy_failure_diagnostics_use_secret_redactor(tmp_path, client, monkeyp
         assert 'secret-test-pin' not in data and 'secret-test-so' not in data
     receipt = json.loads(result.receipt_path.read_text())
     assert any(stage['phase'] == 'daemon-diagnosis' and stage['stdout_truncated'] for stage in receipt['stages'])
+
+
+class _LeasedEngine:
+    """Fake proxy engine where post-health takes the daemon's state lease.
+
+    Models the provider entrypoint flock: the post-health container fails
+    with the lease refusal while the daemon container still exists and
+    passes once the daemon has been reaped.
+    """
+
+    def __init__(self, manifest, stop_error=False):
+        self.manifest = manifest
+        self.stop_error = stop_error
+        self.argv = {}
+        self.removed = []
+        self.post_ran_while_live = False
+
+    def volume(self, name, *args):
+        return name
+
+    def image(self, artifact):
+        return {'Id': artifact.reference}
+
+    def create(self, image, argv, options, labels, name):
+        self.argv[name] = argv
+        return name
+
+    def execute(self, identity, *args):
+        argv = self.argv[identity]
+        if argv[0] == 'proxy-build':
+            proxy = self.manifest['source']['proxy']
+            return CommandResult(0, json.dumps({'schema_version': 1, 'source_revision': proxy['source_revision'],
+                                                'cargo_lock_sha256': proxy['cargo_lock_sha256'],
+                                                'binaries': {'pkcs11-proxy-ng-cli': proxy['cli_sha256']}}), '')
+        if argv == ('health',):
+            daemon = next(name for name, seen in self.argv.items() if seen[:1] == ('daemon',))
+            if ('container', daemon) not in self.removed:
+                self.post_ran_while_live = True
+                return CommandResult(1, '', 'p11lab-test: state is unsafe or already in use')
+            return CommandResult(0, 'healthy', '')
+        return CommandResult(0, 'SERVING' if argv[0] == 'cli' else '', '')
+
+    def command(self, args, **kwargs):
+        if args[0] == 'port':
+            return CommandResult(0, '127.0.0.1:12345', '')
+        return CommandResult(0, '', '')
+
+    def remove(self, kind, identity, labels):
+        self.removed.append((kind, identity))
+        if self.stop_error and self.argv.get(identity, ())[:1] == ('daemon',):
+            raise DockerError('daemon stop failed')
+
+
+def test_proxy_post_health_runs_after_daemon_stop(tmp_path, client, monkeypatch):
+    engine = _LeasedEngine(client.manifest)
+    monkeypatch.setattr(run, 'Docker', lambda: engine)
+    monkeypatch.setattr(run, '_create_proxy_network', lambda *args: 'fixture-network')
+    result = run.run_application(replace(spec(tmp_path, client), timeout_seconds=30))
+    assert result.exit_code == 0, result
+    assert not result.lifecycle_errors
+    assert not result.cleanup_errors
+    assert not engine.post_ran_while_live
+    receipt = json.loads(result.receipt_path.read_text())
+    phases = [stage['phase'] for stage in receipt['stages']]
+    assert phases.index('daemon-stop') < phases.index('post-health')
+    daemon_removals = [entry for entry in engine.removed if entry[0] == 'container' and
+                       engine.argv[entry[1]][:1] == ('daemon',)]
+    assert len(daemon_removals) == 1
+
+
+def test_proxy_daemon_stop_failure_skips_post_health(tmp_path, client, monkeypatch):
+    engine = _LeasedEngine(client.manifest, stop_error=True)
+    monkeypatch.setattr(run, 'Docker', lambda: engine)
+    monkeypatch.setattr(run, '_create_proxy_network', lambda *args: 'fixture-network')
+    result = run.run_application(replace(spec(tmp_path, client), timeout_seconds=30))
+    assert result.exit_code == 1
+    assert result.cleanup_errors[0] == 'daemon stop failed (DockerError)'
+    assert len(result.cleanup_errors) == 2  # finally retries the still-owned daemon
+    assert not result.lifecycle_errors
+    receipt = json.loads(result.receipt_path.read_text())
+    assert [stage['phase'] for stage in receipt['stages']].count('post-health') == 0
+    assert not (result.receipt_path.parent / 'post-health.stdout.log').exists()

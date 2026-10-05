@@ -15,7 +15,8 @@ def fixture_inventory(tmp_path):
     binary = tmp_path / 'binary.tar'
     import io
     with tarfile.open(binary, 'w') as tar:
-        item = tarfile.TarInfo('demo.txt'); item.size = 4
+        item = tarfile.TarInfo('demo.txt')
+        item.size = 4
         tar.addfile(item, io.BytesIO(b'demo'))
     artifact = ArtifactRef('bundle', str(binary), hashlib.sha256(binary.read_bytes()).hexdigest(), 'linux/amd64')
     payloads = []
@@ -66,7 +67,6 @@ def test_complete_evidence_is_eligible_but_never_publicly_authorized(tmp_path):
 
 @pytest.mark.parametrize('damage', ['source', 'notice', 'build', 'grant', 'patch', 'dependency', 'binary', 'changed-image', 'agpl'])
 def test_incomplete_or_changed_evidence_refuses_admission(tmp_path, damage):
-    from p11lab.licenses import assess_distribution
     artifact, inventory = fixture_inventory(tmp_path)
     if damage in {'source', 'notice', 'build'}:
         inventory['payloads'] = [p for p in inventory['payloads'] if p['role'] != damage]
@@ -172,7 +172,9 @@ def test_deleted_lower_layer_bytes_require_their_own_review(tmp_path):
     with tarfile.open(archive, 'w') as tar:
         entries = layers + [('config.json', config), ('manifest.json', json.dumps([{'Config':'config.json','Layers':[n for n,d in layers]}]).encode())]
         for name, data in entries:
-            item=tarfile.TarInfo(name);item.size=len(data);tar.addfile(item,io.BytesIO(data))
+            item = tarfile.TarInfo(name)
+            item.size = len(data)
+            tar.addfile(item, io.BytesIO(data))
     distribution = inspect_distribution_archive(archive, [])
     assert distribution['hidden_layer_files'][0]['path'] == '/secret'
     assert distribution['whiteouts'] == ['/secret']

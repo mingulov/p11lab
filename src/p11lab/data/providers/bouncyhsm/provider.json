@@ -91,7 +91,7 @@
   },
   "distribution": {
     "status": "unreviewed",
-    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+    "reason": "Local Linux + native Windows candidate. Linux lanes and Windows CI evidence retained; whole-image licensing, source delivery admission and digest-bound source companion remain incomplete. No publication authorized."
   },
   "constraints": [
     "Linux amd64 container: source-built server (net10.0, ASP.NET Core runtime 10.0.12, libicu) plus source-built client module; fixed container-loopback HTTP 127.0.0.1:8080 and native TCP 127.0.0.1:8765.",

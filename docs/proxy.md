@@ -26,9 +26,11 @@ CLI bytes. Distribution admission is separate for every artifact.
 
 ## Selecting a proxy run
 
-Proxy runs use the library API; the CLI cannot yet express a bundle client
-artifact, which is follow-up work. `prepare_proxy(spec)` validates selection
+Proxy runs use the library API: `prepare_proxy(spec)` validates selection
 without creating resources, and `run_application` routes `mode='proxy'`.
+(`p11lab run --mode proxy` exists but cannot express the required
+`bundle`-kind client artifact — the CLI builds `docker-local` references
+only — so proxy execution stays library-driven until that follow-up lands.)
 
 `proxy/container` needs an exact daemon image, an explicit exact caller image
 and an exact native-client bundle. The consumer container runs precisely the

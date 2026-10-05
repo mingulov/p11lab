@@ -1,6 +1,4 @@
 """External debug companions must bind exact shipped bytes, not just a source pin."""
-import json
-from pathlib import Path
 import subprocess
 
 import pytest

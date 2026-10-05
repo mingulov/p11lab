@@ -1,5 +1,41 @@
 # Developer release cohort
 
+Twenty-four locked provider candidates, each with pinned sources, a build
+recipe, lifecycle adapters, and lane evidence. Fifteen carry full sections
+below; the remaining nine (bouncyhsm, corepkcs11, craton, freehsm, haskoki,
+kryoptic, nss, rustssm, softhsm2) are described by their catalogue entries
+(`p11lab describe ID --channel release|rolling`) until their sections land.
+Every candidate's distribution stays blocked or unreviewed: no registry
+images, tags, releases, or cache exports exist, and lane evidence is local
+qualification only, never provider-wide certification.
+
+| Candidate | Channels | Profile | Distribution |
+| --- | --- | --- | --- |
+| bouncyhsm | release + rolling | general-token | unreviewed |
+| corepkcs11 | release + rolling | embedded-p256-process-local | unreviewed |
+| craton | rolling | general-token | unreviewed |
+| cryptech | rolling | cryptech-fixed-credential-simulator | blocked |
+| freehsm | release + rolling | general-token | unreviewed |
+| haskoki | rolling | general-token | unreviewed |
+| kmsp11-fakekms | release + rolling | kms-vendor-crypto | blocked |
+| kryoptic | release + rolling | general-token | unreviewed |
+| nethsm | release + rolling | nethsm-persistent-p256 | blocked |
+| nss | release + rolling | general-token | unreviewed |
+| opencryptoki | release + rolling | general-token | unreviewed |
+| opensc-isoapplet | release + rolling | isoapplet-signing | blocked |
+| opensc-pico | release + rolling | general-token | blocked |
+| opensc-pivapplet | release + rolling | general-token | blocked |
+| pkcs11-to-cmd | release + rolling | pkcs11-to-cmd-signing | unreviewed |
+| pkcs11rs | rolling | general-token | unreviewed |
+| rustssm | rolling | general-token | unreviewed |
+| sc-hsm | release + rolling | general-token | blocked |
+| siguldry | release + rolling | signing | blocked |
+| softhsm2 | release + rolling | general-token | unreviewed |
+| softkms | rolling | softkms-local-token | blocked |
+| tpm2 | release + rolling | general-token | blocked |
+| wolfpkcs11 | release + rolling | general-token | unreviewed |
+| ykcs11 | release + rolling | general-token | blocked |
+
 ## M6: Cryptech rolling simulator
 
 | Channel | Recipe | Local usability | Application qualification | Distribution |

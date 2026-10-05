@@ -109,6 +109,18 @@ def test_t13_workflows_and_action_pin_every_used_action():
     assert any(repo == "ilammy/msvc-dev-cmd" for _, entry in checked for repo in [entry.partition("@")[0]])
 
 
+def test_delivery_workflows_pin_toolchain_versions():
+    floats = []
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        for lineno, line in enumerate(path.read_text().splitlines(), 1):
+            match = re.search(r"python-version:\s*['\"]?([\d.]+)", line)
+            if match and not re.fullmatch(r"\d+\.\d+\.\d+", match.group(1)):
+                floats.append(f"{path.name}:{lineno}:{line.strip()}")
+            if re.match(r"\s*\d+\.\d+\.x\s*$", line) and path.name != "windows-native-bouncyhsm.yml":
+                floats.append(f"{path.name}:{lineno}:{line.strip()}")
+    assert not floats, floats
+
+
 def test_installers_embed_oras_pins():
     pin = publish.ORAS_PIN
     shell = (ROOT / "src" / "p11lab" / "data" / "delivery" / "install-oras.sh").read_text()
@@ -180,6 +192,21 @@ def test_seal_and_verify_roundtrip(tmp_path):
     assert manifest["build_key"] == receipt["build_key"] and manifest["sources"][0]["size"] > 0
     assert manifest["provider_sha256"] and manifest["lock_sha256"]
     assert str(tmp_path) not in (tmp_path / "extract" / "sealed.json").read_text()
+
+
+def test_seal_member_names_count_sources_and_dependencies_separately(tmp_path):
+    spec = load_environment("tpm2", "release")
+    assert len(spec["lock"]["sources"]) == 1 and len(spec["lock"]["dependencies"]) == 1
+    resolved = {"sources": [], "dependencies": [], "patches": []}
+    for roster, path in (("sources", tmp_path / "source.tar"), ("dependencies", tmp_path / "dep.tar")):
+        digest = tiny_tar(path, data=roster.encode())
+        resolved[roster].append({"source": spec["lock"][roster][0], "archive": str(path),
+                                "sha256": digest, "checkout": str(tmp_path)})
+    publish.seal_sources(spec, resolved, tmp_path / "seal-kinds")
+    manifest = publish.verify_sealed_archive(tmp_path / "seal-kinds" / "sealed-source.tar.gz",
+                                             tmp_path / "extract-kinds")
+    assert [(entry["kind"], entry["archive"]) for entry in manifest["sources"]] == [
+        ("source", "source-0.tar"), ("dependency", "dependency-0.tar")]
 
 
 def test_seal_refuses_to_overwrite(tmp_path):

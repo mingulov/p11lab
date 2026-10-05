@@ -298,13 +298,15 @@ def seal_sources(spec: dict, resolved: dict, output_dir: Path) -> dict:
     _require(resolved.get("patches") == lock["patches"], "resolved patch roster differs from locked inputs")
     files: dict[str, bytes] = {}
     entries = []
+    counters = {"source": 0, "dependency": 0}
     for index, record in enumerate(acquired):
         kind = "source" if index < len(lock["sources"]) else "dependency"
         archive = Path(record["archive"])
         data = archive.read_bytes()
         _require(hashlib.sha256(data).hexdigest() == record["sha256"], "acquired archive digest mismatch")
-        # Global index across sources+dependencies: unique seal member names.
-        name = f"{kind}-{index}.tar"
+        # Per-kind index: unique seal member names that match their roster.
+        name = f"{kind}-{counters[kind]}.tar"
+        counters[kind] += 1
         files[name] = data
         entries.append({"kind": kind, "id": record["source"].get("id", ""), "archive": name,
                         "sha256": record["sha256"], "size": len(data), "source": record["source"]})

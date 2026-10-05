@@ -48,7 +48,7 @@
   "application_profile": "general-token",
   "distribution": {
     "status": "unreviewed",
-    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+    "reason": "Local softoken candidate. All lanes qualified (27/27) with eligible per-channel source companions (0 blockers); anonymous digest-bound source delivery and publication remain incomplete. No publication authorized."
   },
   "constraints": [
     "Linux amd64, glibc 2.41; softoken plus its NSS/NSPR closure is supplied in-image with an ld.so.conf entry. Token-present index 1 is the P11Lab database token; its native slot ID is 2.",

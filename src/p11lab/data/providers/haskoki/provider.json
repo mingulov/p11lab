@@ -56,7 +56,7 @@
   "application_profile": "general-token",
   "distribution": {
     "status": "unreviewed",
-    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+    "reason": "Local rolling-only candidate. Lifecycle, credential, crypto, checker and proxy lanes qualified (21/21); whole-image licensing, source delivery admission and digest-bound source companion remain incomplete. No publication authorized."
   },
   "constraints": [
     "Linux amd64; libhaskoki.so plus 24 bundled GHC closure libraries and the OpenSSL legacy provider module at ossl-modules/legacy.so ship in-image beside the module ($ORIGIN resolution, no LD_LIBRARY_PATH), with libffi.so.8 vendored from a pinned snapshot .deb behind an ld.so.conf entry. Single token on slot 0; token-present index and native slot ID coincide at 0. The measured glibc floor of this source build is 2.38; the upstream prebuilt artifact's 2.43 floor does not apply.",

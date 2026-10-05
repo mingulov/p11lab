@@ -649,6 +649,19 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
                 if stage_timeout or interrupted_signal:
                     proceed = False
             if proceed:
+                # The live daemon holds the state lease; post-health runs in
+                # a fresh container on the same state and must take that
+                # lease, so the daemon is reaped first. A stop failure fails
+                # closed: post-health is skipped and the run reports it.
+                try:
+                    engine.remove('container', daemon_id, labels)
+                except (DockerError, OSError, ValueError) as error:
+                    cleanup.append('daemon stop failed (' + type(error).__name__ + ')')
+                    proceed = False
+                else:
+                    owned.remove(('container', daemon_id))
+                    stages.append({'phase': 'daemon-stop', 'container_id': daemon_id, 'stopped': True})
+            if proceed:
                 post_id = engine.create(spec.artifact.reference, ('health',), [*base, *state_options, '--network', 'none'],
                                         labels, 'p11lab-' + run_id + '-post')
                 owned.append(('container', post_id))

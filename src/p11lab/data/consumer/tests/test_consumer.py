@@ -146,11 +146,13 @@ class ConsumerTests(unittest.TestCase):
         self.assertNotEqual(absent.returncode,0)
         self.assertIn('PIN file required',absent.stderr)
         for name,content in [('empty',b''),('wrong',b'87651234')]:
-            pin=self.work/(name+'.pin');pin.write_bytes(content)
+            pin=self.work/(name+'.pin')
+            pin.write_bytes(content)
             result,_=self.real_smoke(name+'-pin','--pin-file',pin)
             self.assertNotEqual(result.returncode,0)
             self.assertIn('C_Login: CK_RV=0x000000a0',result.stderr)
-            if content: self.assertNotIn(content.decode(),result.stdout+result.stderr)
+            if content:
+                self.assertNotIn(content.decode(),result.stdout+result.stderr)
 
     def test_declared_spki_rejects_wrong_curve_compressed_and_trailing_input(self):
         self.assertTrue(self.available, 'independent consumer implementation is missing')
@@ -234,7 +236,8 @@ class ConsumerTests(unittest.TestCase):
     def test_empty_pin_is_a_nonnull_native_login_argument(self):
         self.assertTrue(self.available, 'independent consumer implementation is missing')
         self.assertTrue(self.stub.exists(), 'native provider fixture is missing')
-        pin=self.work/'fixture-empty.pin';pin.write_bytes(b'')
+        pin=self.work/'fixture-empty.pin'
+        pin.write_bytes(b'')
         env=dict(os.environ,P11_FIXTURE_MODE='empty-pin')
         result=self.run_smoke('--module',self.stub,'--token-label','Fixture','--pin-file',pin,
                               '--output',self.work/'fixture-empty','--key-mode','generated',env=env)
@@ -257,7 +260,8 @@ class ConsumerTests(unittest.TestCase):
 
     def test_missing_and_duplicate_token_are_errors(self):
         self.assertTrue(self.available, 'independent consumer implementation is missing')
-        if not self.real: self.skipTest('host SoftHSM unavailable')
+        if not self.real:
+            self.skipTest('host SoftHSM unavailable')
         base=['--module',SOFTHSM,'--output',self.work/'selection','--key-mode','generated']
         missing=self.run_smoke(*base,'--token-label','nonexistent',env=self.env)
         self.assertNotEqual(missing.returncode,0)

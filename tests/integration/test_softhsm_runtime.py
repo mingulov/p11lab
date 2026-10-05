@@ -5,7 +5,6 @@ The base image is never modified by the tests.
 """
 import json
 import os
-from pathlib import Path
 import subprocess
 from uuid import uuid4
 

@@ -120,7 +120,7 @@ static int native(int quiet, int *slot_id, int *present_index, unsigned *objects
     const char *module = getenv("P11LAB_MODULE"), *label = getenv("P11LAB_LABEL");
     void *handle = NULL, *symbol;
     CK_RV rv;
-    int initialized = 0, status = 1;
+    int initialized = 0, status = 1, have = 0;
     unsigned have_ec = 0, have_ecgen = 0, have_rsa = 0;
     if (!module || !label || strlen(label) > sizeof(padded)) return 2;
     memset(padded, ' ', sizeof(padded));
@@ -148,10 +148,11 @@ static int native(int quiet, int *slot_id, int *present_index, unsigned *objects
         if (!memcmp(info.label, padded, sizeof(padded))) {
             found = slots[i];
             *present_index = (int)i;
+            have = 1;
             break;
         }
     }
-    if (!found) { fputs("p11lab-tpm2: labelled token not present\n", stderr); goto out; }
+    if (!have) { fputs("p11lab-tpm2: labelled token not present\n", stderr); goto out; }
     *slot_id = (int)found;
     if (info.flags != 0x40d) {
         fprintf(stderr, "p11lab-tpm2: token flags=0x%lx, want 0x40d\n", (unsigned long)info.flags);

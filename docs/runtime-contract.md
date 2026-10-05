@@ -9,8 +9,9 @@ installed provider contract. Build receipts identify local artifacts by their
 exact Docker engine image ID. A local engine ID is distinct from an OCI registry
 manifest digest, a config digest, and a native bundle archive hash; it may change
 when transferred to another engine. Run requires the inspected local ID and
-platform, never a mutable tag. Registry and native execution are unavailable in
-this initial runner.
+platform, never a mutable tag. Registry execution pulls no images by
+itself: runs always bind an exact local engine ID (or a verified
+native installation); tag-form references are refused.
 
 `p11lab run ID --channel release|rolling --mode direct --where provider
 --artifact sha256:IMAGE_ID --output-dir NEW_DIR -- ARGV...` executes the selected
@@ -18,8 +19,11 @@ image's `/usr/local/bin/p11lab-provider` adapter: `init`, `health`,
 `exec -- ARGV...`, then `health`. The selected image may be a compatible caller
 owned derivative with application tools. Its artifact occupies the provider role;
 separate consumer and client identities remain null. `--consumer-image` and
-`--client-artifact` reject in direct/provider mode. Proxy, native, host and
-separate-container execution reject before resources are created.
+`--client-artifact` reject in direct/provider mode. Native and host
+execution are selected explicitly with `--mode`/`--where` (see
+[native.md](native.md)); proxy execution is library-driven (see
+[proxy.md](proxy.md)). Mismatched combinations reject before resources
+are created.
 
 The application receives literal arguments, its explicit `--cwd` mounted read/write
 at `/workspace`, and the new output directory at `/p11lab-output`.

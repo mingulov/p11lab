@@ -53,7 +53,7 @@
   "application_profile": "general-token",
   "distribution": {
     "status": "unreviewed",
-    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+    "reason": "Local TESTMODE candidate. Runtime, direct-crypto, checker and proxy lanes qualified (27/27 both channels); whole-image licensing, source delivery admission and digest-bound source companion remain incomplete. No publication authorized; no FIPS claim."
   },
   "constraints": [
     "Linux amd64, glibc 2.41; libfreehsm.so plus the provider-native fhsm-token tool ship in-image and link the base system OpenSSL. Single token in slot 0; token-present index and native slot ID coincide at 0.",

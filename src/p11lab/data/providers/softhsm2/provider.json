@@ -53,7 +53,7 @@
   "application_profile": "general-token",
   "distribution": {
     "status": "unreviewed",
-    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+    "reason": "Local reference candidate. Direct, proxy, native and checker lanes qualified; installed-inventory re-admission pending under the current gate; anonymous digest-bound source delivery and publication remain incomplete. No publication authorized."
   },
   "constraints": [
     "Linux amd64, glibc 2.41; exact module closure supplied locally. Native slot IDs are assigned by SoftHSM; a consumer slot index is a different value.",
