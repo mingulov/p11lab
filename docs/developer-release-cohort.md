@@ -1599,3 +1599,165 @@ delivery and actual-layer review pending. See
 [FILE-NOTICES.txt](../src/p11lab/data/providers/opensc-pico/FILE-NOTICES.txt).
 Distribution remains blocked independently of local runtime or crypto
 results.
+
+## M6: sc-hsm release and rolling CardContact module over SmartCard-HSM emulator tokens
+
+| Channel | Frozen source | Runtime contract | Application qualification | Distribution |
+| --- | --- | --- | --- | --- |
+| release | Tag `V2.12`, revision `da7e3623bc3cb8c126eaa5128b2c24501919c728` | Source-built `libsc-hsm-pkcs11.so` with `--enable-libcrypto` over supervised pcscd and the pico-hsm emulator through the ifd-vpcd loopback handler, persistent per-volume flash with destructive INITIALIZE run once, amd64/glibc | `general-token` retained: fixed `SmartCard-HSM` token at slot 1 with native flags `0x40d`, provisioned P-256/RSA-2048/P-384 sign/verify with independent OpenSSL oracle and altered-message rejection in existing mode, persistence and state isolation; session-key operations stay natively rejected | BLOCKED: closure flags (AGPL-3.0 emulator and SDK, GPL-3.0 vpcd handler, LGPL glib, GPL dual-license options in mbedTLS sources) with no completed corresponding-source, notice or actual-layer review |
+| rolling | `master` revision `ae01b29dbe1585a174de14c1eabb123dafc96c4a` (`V2.12-32-gae01b29`: the V2.12 tag is 32 commits back on the frozen master line) | Same contract, same Debian trixie platform and frozen package roster, same shared pico-hsm plus vsmartcard backend pins; rolling lacks the cert object (no `--enable-cvc`), so the census is 3 objects, not 4 | Same `general-token` evidence, same checker outcome | Same blockers |
+
+Both channels source-build the unpatched CardContact module
+(`./configure --prefix=/usr/local --enable-libcrypto`, `make -j2`)
+against Debian system OpenSSL 3.5.7 (`libcrypto.so.3`, no legacy
+provider, no from-source OpenSSL; nothing links libusb), the
+pico-hsm emulator (`cmake -DENABLE_EMULATION=1 -D__FOR_CI=1`,
+`make -j2`, mbedTLS backend) from the frozen 8-repository closure
+verified byte-identical to the sibling freeze by archive hash
+(7/7), and the vsmartcard ifd-vpcd handler unpatched. Two patches
+apply through the source machinery: the reused SDK build-freeze
+patch (byte-identical, same SDK rev) and the new P11Lab TERMCA
+patch storing the bare terminal-CA CVC the module expects instead
+of the 0x67-wrapped AUT object v6.6 wrote (a simulation-fidelity
+fix; fresh cards showed 0 token-present slots without it), and a
+declared patch that fails to apply fails the build. This lane
+qualifies libsc-hsm-pkcs11 against the pico-hsm emulator only,
+never real SmartCard-HSM hardware.
+
+The caller user PIN is 6..16 bytes single-line (16-byte PINs
+verify; 5-byte PINs also verify since the advertised minimum is
+advisory) and the SO-PIN is exactly 16 hexadecimal characters for
+`C_Login(CKU_SO)` shape validation; only first init consumes
+credentials, while repeated init, health and exec re-validate the
+persistent flash without them. The token label is fixed natively
+as `SmartCard-HSM`; `P11LAB_LABEL` defaults to it and any other
+value is refused. On-card keygen stays native success while
+session keygen and session key pairs stay natively rejected
+(`0xd1`, TOKEN-absent templates `0xd0`), wrong PINs stay native
+`0xa0`, and the third consecutive wrong PIN locks with native
+`0xa4` (sticky, raw card `6983`), after which the correct PIN is
+also rejected until the SO-gated `C_InitPIN` restores the whole
+budget. A digit-only SO-PIN completes `C_InitPIN`; letter
+SO-PINs hit the known upstream `parseSOPIN` hex-letter defect
+(corrupted BCD, `0xa0` while the raw APDU returns `9000`),
+which the recipe documents and never works around. No-daemon
+`C_GetSlotList` returns native `0x30`, not an empty list. The
+installed checker lane completes with full observations in both
+channels (smoke-v1, 23 nodes: 10 passed, 6 xfailed on the
+declared session-setup rejection sets, 6 skipped v3.x-only
+against this Cryptoki 2.20 module, 1 failed on the `2.20`
+interface-version provider finding); the proxy lane serves
+remote P-256 crypto verified by the independent oracle while
+the shared post-health check holds the known live-daemon
+state-lease ordering limit. Those runner outcomes stay
+separate from the completed provider observations. Acceptance
+is 96 passed with the 2 documented proxy lifecycle xfails.
+
+### Appendix: sc-hsm source, platform, credential and lifecycle boundary
+
+**Frozen source and build.** The builder compiles the module,
+emulator and handler from the pinned git archives with the
+pinned arguments above; the daemon closure (pcscd, libpcsclite1
+plus support libraries) comes from the frozen Debian trixie
+roster (base
+`debian@sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c`,
+snapshot `20260918T000000Z`), re-derived independently and
+byte-identical to the sibling's (218 packages, 121 sources, 6
+whole extraction .debs, same builder pins). The pico-hsm
+backend pin (`v6.6` plus pico-keys-sdk, mbedTLS v3.6.6,
+framework, mlkem and tinycbor) and the vsmartcard pin
+(`virtualsmartcard-0.11`) are shared across channels. The
+basic runtime ships the module at
+`/usr/local/lib/p11lab/libsc-hsm-pkcs11.so`, the emulator,
+the handler with its generated reader.conf entry, pcscd,
+base libraries and the exact extracted closure; USB CCID
+drivers, the polkitd/dbus daemons, pkcs11-tool, Python,
+compilers, checker, datasets and tracing are excluded and
+nothing links them. Runtime images measure about 124 MB per
+channel. `/run/pcscd` is an in-image symlink into the private
+control tmpfs, so the fixed daemon socket path works under
+read-only runners with no caller mount.
+
+**Service topology and provisioning.** pcscd, vpcd and the
+emulator run as supervised foreground children for the
+operation/application lifetime only; each shard/client owns a
+separate volume, container, daemons and private network
+namespace. The supervisor gates readiness on socket accept
+plus listed vpcd slots (the emulator connects exactly once
+at startup with no retry, so it spawns only after pcscd
+listens) plus exactly-one-vpcd-reader plus the frozen
+SmartCard-HSM ATR match plus a native pre-login token
+round-trip (slot 1, label, flags `0x40d`, 24 mechanisms,
+per-channel object census), never process-alive alone. The
+emulator fabricates its 8 MiB flash in caller-owned state on
+first boot and resumes it afterwards; first init drives the
+raw `80 50` INITIALIZE in-process (no pty, no child tool),
+then provisions three on-card keys (P-256 id `01`,
+RSA-2048 id `02`, P-384 id `03`) asserted via PKCS#11 keygen
+plus per-ID selects. The daemons, socket, logs and pid files
+live under ephemeral `/run/p11lab/sc-hsm`; the flash, lease
+and marker persist under `/var/lib/p11lab/sc-hsm`. No baked
+credentials or initialized card state ship.
+
+**PIN, label, token and retry budget.** The token reports
+native flags `0x40d` with pin lengths 6..16 and a
+24-mechanism roster; general-token applications may persist
+their own on-card keys, which later censuses must not
+mistake for foreign state. Every wrong-PIN login burns one
+try natively (`0x1040d` COUNT_LOW on one burned try,
+`0x3040d` COUNT_LOW|FINAL_TRY on two), the third consecutive
+wrong attempt locks immediately (`CKF_USER_PIN_LOCKED`),
+and only the SO-gated `C_InitPIN` restores the budget; SO
+login is shape-only (length 16, hex) and never touches the
+card. Repeated init accepts changed credential files
+because it never consumes credentials; the provisioned
+flash bytes are untouched. No silent reset, relabel or
+retry of native state-changing calls exists.
+
+**Readiness, supervision and reset.** Supply caller-owned
+mode-0700 writable `/var/lib/p11lab`, a private mode-0700
+`/run/p11lab` and writable `/tmp`; the caller UID may be
+root or non-root with any primary group. `init`, `health`
+and `exec -- ARGV...` share the entrypoint plus C
+supervisor: exclusive volume lease and private control
+lock, static ownership/mode/link/roster checks (exact
+owned roster, exact-byte marker binding the runtime
+artifact to the non-secret configuration) before any
+daemon starts, then real readiness gating, daemon-death
+detection, signal forwarding with TERM/KILL escalation,
+bounded logs and subreaper cleanup. The preferred proxy
+daemon uses the same supervised `exec` lifetime, so no
+permanent `server`/`server-ready` operation exists.
+Application key provisioning and PIN-state changes move
+flash and census totals legitimately, so lanes compare
+exact bytes only where the operation cannot change them.
+Reset is explicit caller removal/replacement of disposable
+state after all operations stop; re-initialization over an
+existing flash is refused. Crash/power-loss recovery is
+unqualified.
+
+**Qualification limits.** `general-token` means exactly the
+proven observation: the fixed-label token at slot 1 with
+the native roster, provisioned and application-provisioned
+P-256 sign/verify with the independent oracle,
+persistence and state isolation, native session-rejection,
+keygen/wrong-PIN/lockout/SO-restore behavior, the PIN
+hammer observation, and the completed checker profile.
+Session objects, letter-SO-PIN-gated operations, other
+mechanisms, multi-client concurrency, other readers or
+backends, real HSM hardware, FIPS claims and
+provider-wide qualification are not asserted. Optional
+checker/consumer/proxy artifacts have separate provenance
+and admission.
+
+The sc-hsm-embedded sources are BSD-3-Clause and the
+pico-hsm, SDK, mbedTLS, mlkem, tinycbor and vsmartcard
+sources carry their own AGPL/GPL/Apache/MIT/BSD terms,
+but the image closure carries blocking flags: the
+AGPL-3.0 emulator and SDK, the GPL-3.0 vpcd handler,
+LGPL glib and GPL dual-license options in mbedTLS
+sources, with base-package source obligations, notice
+delivery and actual-layer review pending. See
+[FILE-NOTICES.txt](../src/p11lab/data/providers/sc-hsm/FILE-NOTICES.txt).
+Distribution remains blocked independently of local runtime or crypto
+results.
