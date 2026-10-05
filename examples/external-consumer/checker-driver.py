@@ -18,6 +18,7 @@ from pkcs11_check.raw.rv import expect_rv
 from pkcs11_check.raw.types_std import CKR_OK
 
 from p11lab.checker import checker_environment, load_profile
+from p11lab.secrets import credential_text
 
 
 def main():
@@ -34,8 +35,11 @@ def main():
     slot, native_id = selected[0]
     expect_rv(p11.raw.C_Finalize(None), CKR_OK)
     print(f"checker slot: index={slot} native={native_id}", flush=True)
-    pin = Path(os.environ["P11LAB_PIN_FILE"]).read_text()
-    so_pin = Path(os.environ["P11LAB_SO_PIN_FILE"]).read_text()
+    # One trailing LF frames the credential file and is not part of the PIN,
+    # exactly as in provisioning (runtime-contract); anything else fails here
+    # instead of reaching the token with a divergent value.
+    pin = credential_text(Path(os.environ["P11LAB_PIN_FILE"]).read_bytes(), file=True)
+    so_pin = credential_text(Path(os.environ["P11LAB_SO_PIN_FILE"]).read_bytes(), file=True)
     installed_root = Path(tests.__file__).resolve().parent
     targets = [str(installed_root / node) for node in load_profile()["nodes"]]
     argv = [sys.executable, "-m", "pkcs11_check", "test", "--module", str(module),

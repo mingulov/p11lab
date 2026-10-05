@@ -157,8 +157,10 @@ def test_cli_locked_operation_rejects_unlocked_channel_without_output(operation,
 def test_cli_build_rejects_unsupported_role_before_output(tmp_path, capsys):
     from p11lab.cli import main
     output = tmp_path / 'attempt'
-    assert main(['build', 'softhsm2', '--channel', 'release', '--role', 'proxy', '--output-dir', str(output)]) == 2
-    assert 'runtime role' in capsys.readouterr().err
+    with pytest.raises(SystemExit) as status:
+        main(['build', 'softhsm2', '--channel', 'release', '--role', 'proxy', '--output-dir', str(output)])
+    assert status.value.code == 2
+    assert 'proxy' in capsys.readouterr().err
     assert not output.exists()
 
 

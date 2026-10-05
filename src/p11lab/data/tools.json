@@ -28,31 +28,49 @@
       "source": {
         "kind": "git",
         "url": "https://github.com/mingulov/p11scope.git",
-        "revision": "dcc1645a91ec6e0c1f66fbd3f014b6cece5e7845",
+        "revision": "7f8ca02bf926a5cbd4345180bbe7367c4f1abdf4",
         "license_status": "unreviewed"
       },
       "artifacts": [],
-      "pending": "Pinned source; built artifact and actual-content source/license evidence pending."
+      "pending": "Pinned v0.2.0 source; built artifact and actual-content source/license evidence pending."
     },
     "oras": {
-      "status": "planned",
+      "status": "pinned-binary",
       "source": {
         "kind": "git",
         "url": "https://github.com/oras-project/oras.git",
-        "selector": {
-          "kind": "latest-stable-tag",
-          "value": "latest-stable-tag"
-        },
+        "revision": "db9e29505c3059f2b8fde34ae8cae266c5c765e9",
         "license_status": "unreviewed"
       },
-      "artifacts": [],
-      "pending": "Exact ORAS source and platform artifact checksums must be resolved before use."
+      "artifacts": [
+        {
+          "platform": "linux/amd64",
+          "url": "https://github.com/oras-project/oras/releases/download/v1.3.4/oras_1.3.4_linux_amd64.tar.gz",
+          "sha256": "f27adb935022d94df8dc77719c322dda592c78a0d57a6f7dcdd8d900b248c454",
+          "size": 4679642
+        },
+        {
+          "platform": "windows/amd64",
+          "url": "https://github.com/oras-project/oras/releases/download/v1.3.4/oras_1.3.4_windows_amd64.zip",
+          "sha256": "ffdb6aa40267686b5d507da1f21a57fc502a9a7c86b90c54557d335644c99dbd",
+          "size": 4834833
+        }
+      ]
     },
     "consumer": {
-      "status": "planned",
+      "status": "owned",
       "license_status": "unreviewed",
-      "artifacts": [],
-      "pending": "Independent P11Lab-owned C/OpenSSL smoke application is not yet implemented."
+      "artifacts": [
+        "consumer/smoke.c",
+        "consumer/p256.c",
+        "consumer/p256.h",
+        "consumer/vendor/pkcs11.h",
+        "consumer/LICENSE",
+        "consumer/PROVENANCE.md",
+        "consumer/README.md",
+        "consumer/verify.py",
+        "consumer/Dockerfile"
+      ]
     }
   }
 }

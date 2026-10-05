@@ -77,6 +77,9 @@ static CK_RV login(CK_SESSION_HANDLE handle, CK_USER_TYPE user, CK_UTF8CHAR_PTR 
 {
     (void)handle; (void)user; record("Login");
     if (mode("empty-pin") && pin != NULL && length == 0) return CKR_OK;
+    /* lf-pin accepts only the exact unframed PIN: the consumer must strip
+       the file's single framing LF instead of logging in with it. */
+    if (mode("lf-pin") && pin != NULL && length == 8 && memcmp(pin, "62197643", 8) == 0) return CKR_OK;
     return CKR_PIN_INCORRECT;
 }
 static CK_RV logout(CK_SESSION_HANDLE handle) { (void)handle; record("Logout"); return CKR_OK; }

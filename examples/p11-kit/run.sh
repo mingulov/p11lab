@@ -24,8 +24,8 @@ usage: run.sh --archive PATH --sha256 HEX --pin-file PATH --so-pin-file PATH --o
 
   --archive PATH      reviewed SoftHSM native archive (release channel)
   --sha256 HEX        expected SHA256 of that archive (64 lowercase hex)
-  --pin-file PATH     existing private user PIN file, no final newline
-  --so-pin-file PATH  existing private SO PIN file, no final newline
+  --pin-file PATH     existing private user PIN file, at most one final newline
+  --so-pin-file PATH  existing private SO PIN file, at most one final newline
   --output-dir DIR    fresh directory receiving work state and evidence
   --tag NAME          demo vessel tag (default: p11lab-p11kit-demo:local)
   --rebuild           rebuild the vessel without the docker cache

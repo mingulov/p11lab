@@ -120,7 +120,8 @@ def _declared_fixed_env(provider_descriptor) -> dict:
         raise ValueError('provider declaration must be an object')
     if 'runtime_env' not in provider_descriptor:
         return {}
-    validate_runtime_env(provider_descriptor['runtime_env'])
+    validate_runtime_env(provider_descriptor['runtime_env'],
+                         token_stores=provider_descriptor.get('runtime_env_token_stores'))
     return {entry['name']: entry['value'] for entry in provider_descriptor['runtime_env']}
 
 
@@ -227,6 +228,28 @@ def _grouped_classifications(units: list[dict], root: Path):
                    for u in units)
 
 
+def _checker_private_api() -> dict:
+    """Import the checker's private validation internals behind one gate.
+
+    validate_results reconstructs grouped classifications with the pinned
+    checker's own parser/assembler, whose entry points are underscore-
+    private in the owning repo. Every such import lives in this adapter:
+    a checker refactor breaks here (and in the version-gated import test)
+    instead of scattering ImportErrors through validation. Negotiating a
+    public validation entry point stays an owning-repo follow-up.
+    """
+    if importlib.metadata.version('pkcs11-check') != '0.2.2':
+        raise ValueError('checker validation adapter requires pkcs11-check 0.2.2')
+    from pkcs11_check.core.file_runner import _completion_verified_for_attempt
+    from pkcs11_check.core._report_records import _build_detail_from_report_records
+    from pkcs11_check.core._report_writers import _build_isolated_json_payload
+    from pkcs11_check.core._run_units import FileRunResult, FileRunState
+    return {'completion_verified_for_attempt': _completion_verified_for_attempt,
+            'build_detail_from_report_records': _build_detail_from_report_records,
+            'build_isolated_json_payload': _build_isolated_json_payload,
+            'FileRunResult': FileRunResult, 'FileRunState': FileRunState}
+
+
 def validate_results(directory: Path, nodes: list[str], installed_root: Path) -> dict:
     """Reconcile native state, grouped JSON and raw isolated attempt evidence.
 
@@ -236,11 +259,8 @@ def validate_results(directory: Path, nodes: list[str], installed_root: Path) ->
     """
     from collections import Counter
     from pkcs11_check.core.report_log import SessionCompletionTracker
-    from pkcs11_check.core.file_runner import _completion_verified_for_attempt
-    from pkcs11_check.core._report_records import _build_detail_from_report_records
-    from pkcs11_check.core._report_writers import _build_isolated_json_payload
-    from pkcs11_check.core._run_units import FileRunResult, FileRunState
     from pkcs11_check.core.run_metrics import RESULT_OUTCOME_KEYS, run_is_incomplete
+    private = _checker_private_api()
     errors = []
     root = installed_root.resolve()
     expected = {str(root / n) for n in nodes}
@@ -290,12 +310,12 @@ def validate_results(directory: Path, nodes: list[str], installed_root: Path) ->
             for entry in records:
                 tracker.observe(entry)
             cache_finalize.update(json.dumps(r, sort_keys=True) for r in records if r.get('$report_type') == 'TeardownFinalize')
-            detail = _build_detail_from_report_records(records)
+            detail = private['build_detail_from_report_records'](records)
             if detail is not None:
                 details[target] = detail
             if result.get('completion_verified') is not True:
                 errors.append('unverified isolated completion')
-            if not _completion_verified_for_attempt(cache, status, rc, tracker.single_exitstatus):
+            if not private['completion_verified_for_attempt'](cache, status, rc, tracker.single_exitstatus):
                 errors.append('missing or contradictory session evidence')
             own = [o for o in observations if o.get('target') == target and o.get('role') == 'unit']
             valid_observation = len(own) == 1 and type(own[0].get('attempt')) is int and own[0]['attempt'] >= 0
@@ -342,9 +362,9 @@ def validate_results(directory: Path, nodes: list[str], installed_root: Path) ->
             errors.append('aggregate raw finalize evidence mismatch')
         # Reconstruct classifications with the pin's own parser and assembler.
         # This retains its finalize priority, synthetic deaths and grouped RCs.
-        native_results = [FileRunResult(**{k: r[k] for k in FileRunResult.__dataclass_fields__ if k in r}
+        native_results = [private['FileRunResult'](**{k: r[k] for k in private['FileRunResult'].__dataclass_fields__ if k in r}
                                        | {'duration_s': r.get('duration_s', 0.0)}) for r in results]
-        reconstructed = _build_isolated_json_payload(FileRunState(
+        reconstructed = private['build_isolated_json_payload'](private['FileRunState'](
             units=list(expected), fingerprint='', results=native_results,
             process_observations=observations), per_unit_details=details)
         if _grouped_classifications(units, root) != _grouped_classifications(reconstructed['units'], root):

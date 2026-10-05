@@ -1902,7 +1902,7 @@ at 127.0.0.1:35963, but the handler itself listens
 wildcard on 35963/35964 (frozen `vicc opensock` binds
 `INADDR_ANY` with no loopback knob; only the loopback
 JVM is a legitimate peer, and the unoccupied 35964 slot
-stays exposed to bridge peers by frozen design). The
+stays exposed to bridge peers by frozen design: a proxy-mode consumer can bypass mTLS proxy auth over this channel, while direct mode is unaffected and bridge segmentation stays a future option). The
 frozen VSmartCard reloader is disabled by a non-numeric
 port (no 8099 listener exists; the NumberFormatException
 trace in emulator.log is the death marker): pre-fix, a
@@ -2161,7 +2161,7 @@ at 127.0.0.1:35963, but the handler itself listens
 wildcard on 35963/35964 (frozen `vicc opensock` binds
 `INADDR_ANY` with no loopback knob; only the loopback
 JVM is a legitimate peer, and the unoccupied 35964 slot
-stays exposed to bridge peers by frozen design). The
+stays exposed to bridge peers by frozen design: a proxy-mode consumer can bypass mTLS proxy auth over this channel, while direct mode is unaffected and bridge segmentation stays a future option). The
 frozen VSmartCard reloader is disabled by a non-numeric
 port (no 8099 listener exists; the NumberFormatException
 trace in emulator.log is the death marker): pre-fix, a

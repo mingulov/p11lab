@@ -37,8 +37,8 @@ p11-kit has two distinct roles; do not confuse them:
   SHA256, from your own reviewed build receipt
   (see [native.md](../../docs/native.md)). The demo verifies the archive
   through `p11lab install` and never rebuilds the provider.
-- Private user and SO PIN files without a final newline
-  (`printf 'secret' > pin; chmod 600 pin`).
+- Private user and SO PIN files with at most one final newline
+  (framing, not part of the PIN; `printf 'secret' > pin; chmod 600 pin`).
 
 ## Run
 

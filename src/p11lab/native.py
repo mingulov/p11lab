@@ -2258,3 +2258,31 @@ def run_native_bouncyhsm(spec: RunSpec, installed: InstalledBundle) -> RunResult
         },
     )
     return RunResult(app, tuple(lifecycle), tuple(cleanup), code, receipt)
+
+
+# Per-environment native lifecycles wired through `p11lab run`/`install`.
+# Each entry is (install, preflight, run); the install/run entry points own
+# their provider-specific target contract, so the generic CLI/runner path
+# carries no provider constants. Environments without an entry are not
+# executable natively, independent of their catalogue packaging status.
+NATIVE_LIFECYCLES = {
+    "softhsm2": (install_native_bundle, preflight_native, run_native_softhsm),
+    "bouncyhsm": (install_bouncyhsm_bundle, preflight_bouncyhsm, run_native_bouncyhsm),
+}
+
+# Human-readable install report of each lifecycle's runtime configuration
+# location. Keys always match NATIVE_LIFECYCLES (test-enforced).
+NATIVE_CONFIGURATION = {
+    "softhsm2": "chosen control directory/softhsm2.conf at runtime",
+    "bouncyhsm": "chosen control directory (managed server home and log) at runtime",
+}
+
+
+def native_lifecycle(environment: str):
+    """Return the (install, preflight, run) lifecycle for a native environment."""
+    try:
+        return NATIVE_LIFECYCLES[environment]
+    except KeyError:
+        raise ValueError(
+            f"native execution is not packaged for environment: {environment}"
+        ) from None

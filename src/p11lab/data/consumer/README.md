@@ -67,8 +67,9 @@ reset, or cleared. Module discovery selects the standard `PKCS 11` interface wit
 `C_GetInterface` when exported, otherwise `C_GetFunctionList`. An error from an
 available discovery function is reported without falling back.
 
-A PIN file contains exact raw bytes: no newline trimming or text conversion.
-Use a private credential file without an accidental final newline. An empty file
+A PIN file holds one PIN line with one optional trailing LF: the LF frames
+the file and is not part of the PIN. No other text conversion happens, so
+further newlines reach the token and fail with its native error. An empty file
 passes a non-null pointer with length zero; omitting the option makes no login
 call. Omission is accepted for a token that does not declare login required; if
 its particular key requires login, its native error remains visible. A token

@@ -26,11 +26,14 @@ CLI bytes. Distribution admission is separate for every artifact.
 
 ## Selecting a proxy run
 
-Proxy runs use the library API: `prepare_proxy(spec)` validates selection
-without creating resources, and `run_application` routes `mode='proxy'`.
-(`p11lab run --mode proxy` exists but cannot express the required
-`bundle`-kind client artifact — the CLI builds `docker-local` references
-only — so proxy execution stays library-driven until that follow-up lands.)
+Proxy runs use the library API or the CLI: `prepare_proxy(spec)` validates
+selection without creating resources, and `run_application` routes
+`mode='proxy'`. `p11lab run --mode proxy` takes the daemon image as
+`--artifact`, the caller image as `--consumer-image` for `proxy/container`,
+and the native-client bundle as `--client-artifact` plus its
+`--client-sha256`; `prepare_proxy` still requires the `bundle` kind with a
+full SHA-256 on `linux/amd64`, and a reused client installation
+(`installed_prefix` for `proxy/host`) stays library-only.
 
 `proxy/container` needs an exact daemon image, an explicit exact caller image
 and an exact native-client bundle. The consumer container runs precisely the
@@ -43,8 +46,11 @@ consumer mounts no token state: the token is reachable only through the shim.
 `proxy/host` needs an exact daemon image and an exact client bundle. The
 application runs on the host with the shim from a verified installation
 (`installed_prefix`) or a verified temporary prefix, whose path is exported
-as `P11LAB_SHIM` and `P11LAB_MODULE`. The daemon publishes its port on the
-loopback interface only; anything else fails the run before the application.
+as `P11LAB_SHIM` and `P11LAB_MODULE`. It inherits the caller environment
+minus `P11LAB_*`, `SOFTHSM*`, `LD_*` and `PKCS11_PROXY_*` names, plus the
+declared inputs and the shim/transport variables. The daemon publishes its
+port on the loopback interface only; anything else fails the run before
+the application.
 
 ## TLS and daemon contract
 
@@ -66,7 +72,13 @@ helpers that exit without `C_Finalize` (observed in checker preflight);
 reaping still needs an expired lease plus a new admission, so a second live
 context is refused exactly as with the default lease. The context-free CLI
 health probe must report SERVING before the application runs; it checks
-transport and backend gating, never application behavior.
+transport and backend gating, never application behavior. In the pinned
+CLI, exit 0 holds exactly when SERVING is reported (exit 1 is
+NOT_SERVING, 2 is probe failure), so the runner's exit-code check is
+equivalent to asserting the SERVING line. The daemon configuration fixes
+`request_timeout_secs = 60` and `startup_timeout_secs = 30`; the runner's
+health gate gets a 30-second window with at most 10 seconds per probe and
+one second between attempts.
 
 ## Isolation and failures
 
@@ -78,6 +90,16 @@ loss fail closed without retries: the CLI reports transport failure and the
 application observes native errors such as `CKR_GENERAL_ERROR` on connect
 or `CKR_HOST_MEMORY` at the context limit. Direct/provider and transport
 outcomes are recorded separately and never merged.
+
+Residual bridge exposure (STRIDE S2/D4): the daemon and a
+`proxy/container` consumer share one owned bridge network, so daemon-side
+listeners that cannot bind loopback stay reachable from the consumer. The
+frozen vpcd handler in the isoapplet/pivapplet providers listens wildcard
+on 35963/35964, so a malicious or buggy consumer can dial the card channel
+directly, bypassing mTLS proxy auth, or disrupt card state. The tpm2 swtpm
+listeners bind `127.0.0.1` explicitly. Direct mode is unaffected
+(`--network none`). Bridge segmentation (a daemon-only network plus a
+published loopback proxy port) stays a future option, not implemented.
 
 The installed checker runs in its declared consumer through the same
 contract. Its driver preserves the controlled container environment for the

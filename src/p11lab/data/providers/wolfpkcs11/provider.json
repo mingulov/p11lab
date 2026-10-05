@@ -65,5 +65,8 @@
       "name": "WOLFPKCS11_TOKEN_PATH",
       "value": "/var/lib/p11lab/wolfpkcs11"
     }
-  ]
+  ],
+  "runtime_env_token_stores": {
+    "WOLFPKCS11_TOKEN_PATH": "/var/lib/p11lab/wolfpkcs11"
+  }
 }

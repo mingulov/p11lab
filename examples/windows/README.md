@@ -70,7 +70,7 @@ cl /std:clatest /O2 /W4 /WX <p11lab>\src\p11lab\data\providers\bouncyhsm\probe.c
 # Build the independent consumer (pinned cryptoki headers travel with it).
 cl /std:clatest /O2 /W4 /WX <consumer>\smoke.c <consumer>\p256.c /link /OUT:p11lab-smoke.exe
 
-# PIN files hold exact bytes (no trailing newline).
+# PIN files hold one line with at most one trailing newline (framing, not part of the PIN).
 python run.py --prefix prefix --channel release --tools .
 python <consumer>\verify.py out/smoke
 ```

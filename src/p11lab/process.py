@@ -65,6 +65,10 @@ def write_process_logs(owner, output, phase, secrets, *, marker=False):
 
 
 class _Capture:
+    # Nonblocking capture (deliberate): supervised processes can outlive any
+    # deadline and must be abortable mid-drain, so readers poll nonblocking
+    # fds under a stop event and retain a 1 MiB prefix per stream. Short
+    # docker CLI control calls use the simpler blocking capture in docker.py.
     def __init__(self, streams, limit):
         self.buffers = [bytearray() for _ in streams]
         self.truncated = [False for _ in streams]

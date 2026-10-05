@@ -232,9 +232,11 @@ def test_malformed_patch_license_status_raises_catalog_error(locked_environment)
         validate_descriptor(spec, asset_root=root)
 
 
-def _spec_with_runtime_env(entries):
+def _spec_with_runtime_env(entries, token_stores=None):
     spec = load_environment('tpm2', 'release')
     spec['runtime_env'] = entries
+    if token_stores is not None:
+        spec['runtime_env_token_stores'] = token_stores
     return spec
 
 
@@ -295,9 +297,10 @@ def test_runtime_env_token_word_boundary_preserves_pkcs11_token_names():
 def test_runtime_env_accepts_reviewed_native_token_store():
     # Repro: TOKEN's credential-word check rejected this required non-secret
     # file-store directory, preventing checker env restoration after scrubbing.
+    # The exception is declared per-descriptor, not hardcoded in the catalogue.
     validate_descriptor(_spec_with_runtime_env([
         {'name': 'WOLFPKCS11_TOKEN_PATH', 'value': '/var/lib/p11lab/wolfpkcs11'},
-    ]))
+    ], {'WOLFPKCS11_TOKEN_PATH': '/var/lib/p11lab/wolfpkcs11'}))
 
 
 @pytest.mark.parametrize('name,value', [
@@ -317,7 +320,7 @@ def test_runtime_env_accepts_reviewed_pkcs11rs_token_store():
     # Repro at e8b978a: validate_runtime_env rejected its TOKEN word.
     validate_descriptor(_spec_with_runtime_env([
         {'name': 'PKCS11RS_TOKEN_STORAGE', 'value': '/var/lib/p11lab/pkcs11rs'},
-    ]))
+    ], {'PKCS11RS_TOKEN_STORAGE': '/var/lib/p11lab/pkcs11rs'}))
 
 
 @pytest.mark.parametrize('name,value', [
@@ -350,3 +353,106 @@ def test_runtime_env_rejects_malformed_channels(entries):
     spec = _spec_with_runtime_env(entries)
     with pytest.raises(CatalogError):
         validate_descriptor(spec)
+
+
+def _spec_with_inputs(entries):
+    spec = load_environment('tpm2', 'release')
+    spec['inputs'] = entries
+    return spec
+
+
+@pytest.mark.parametrize('entries', [
+    {'FOO': {}},
+    {'FOO': 'secret'},
+    {'FOO': {'secret': 'yes', 'required': False}},
+    {'FOO': {'secret': True}},
+    {'FOO': {'secret': True, 'required': 1}},
+    {'FOO': {'secret': True, 'required': False, 'default': 7}},
+    {'FOO': {'secret': True, 'required': False, 'extra': 1}},
+    {'': {'secret': True, 'required': False}},
+    ['P11LAB_PIN'],
+])
+def test_inputs_entries_require_secret_required_shapes(entries):
+    with pytest.raises(CatalogError):
+        validate_descriptor(_spec_with_inputs(entries))
+
+
+def test_inputs_entries_accept_documented_shapes():
+    validate_descriptor(_spec_with_inputs({
+        'P11LAB_PIN_FILE': {'secret': True, 'required': False},
+        'P11LAB_LABEL': {'secret': False, 'required': False, 'default': 'P11Lab'},
+    }))
+
+
+@pytest.mark.parametrize('table', [
+    [],
+    {},
+    {'bad-name': '/var/lib/p11lab/x'},
+    {'STORE': 'credential-value'},
+    {'STORE': '/var/lib/p11lab/../secrets'},
+    {'STORE': '/var/lib/p11lab/'},
+    {'STORE': '/etc/p11lab/store'},
+    {'STORE': 'has\nnewline'},
+])
+def test_token_store_table_rejects_malformed_declarations(table):
+    with pytest.raises(CatalogError):
+        validate_descriptor(_spec_with_runtime_env(
+            [{'name': 'FHSM_EXAMPLE', 'value': '1'}], table))
+
+
+def test_token_store_exception_requires_exact_declared_value():
+    with pytest.raises(CatalogError):
+        validate_descriptor(_spec_with_runtime_env(
+            [{'name': 'WOLFPKCS11_TOKEN_PATH', 'value': '/var/lib/p11lab/other'}],
+            {'WOLFPKCS11_TOKEN_PATH': '/var/lib/p11lab/wolfpkcs11'}))
+
+
+def test_token_store_exception_requires_matching_entry():
+    with pytest.raises(CatalogError, match='lacks a runtime_env entry'):
+        validate_descriptor(_spec_with_runtime_env(
+            [{'name': 'FHSM_EXAMPLE', 'value': '1'}],
+            {'WOLFPKCS11_TOKEN_PATH': '/var/lib/p11lab/wolfpkcs11'}))
+
+
+def test_packaged_token_store_declarations_validate():
+    for environment in ('wolfpkcs11', 'pkcs11rs'):
+        spec = load_environment(environment, 'release')
+        assert spec['runtime_env_token_stores']
+        validate_descriptor(spec)
+
+
+def test_tools_state_truth():
+    tools = json.loads(package_data('tools.json').read_text())
+    validate_tools(tools)
+    states = {name: tool['status'] for name, tool in tools['tools'].items()}
+    assert states == {'checker': 'planned', 'proxy': 'planned', 'p11scope': 'planned',
+                      'oras': 'pinned-binary', 'consumer': 'owned'}
+    assert tools['tools']['p11scope']['source']['revision'] == '7f8ca02bf926a5cbd4345180bbe7367c4f1abdf4'
+
+
+def test_tools_oras_matches_oras_pin():
+    from p11lab.publish import ORAS_PIN
+
+    tools = json.loads(package_data('tools.json').read_text())
+    oras = tools['tools']['oras']
+    assert oras['source']['revision'] == ORAS_PIN['source']['revision']
+    for entry in oras['artifacts']:
+        pinned = ORAS_PIN['artifacts'][entry['platform']]
+        assert entry['url'] == pinned['url']
+        assert entry['sha256'] == pinned['sha256']
+        assert entry['size'] == pinned['size']
+
+
+@pytest.mark.parametrize('mutate', [
+    lambda tools: tools['tools']['consumer'].__setitem__('status', 'planned'),
+    lambda tools: tools['tools']['oras']['artifacts'].__setitem__(0, {}),
+    lambda tools: tools['tools']['oras'].__setitem__('pending', 'unfinished'),
+    lambda tools: tools['tools']['consumer'].__setitem__('pending', 'unfinished'),
+    lambda tools: tools['tools']['consumer']['artifacts'].append('consumer/absent.c'),
+    lambda tools: tools['tools']['proxy'].__setitem__('status', 'shipped'),
+])
+def test_tools_reject_false_or_broken_dispositions(mutate):
+    tools = json.loads(package_data('tools.json').read_text())
+    mutate(tools)
+    with pytest.raises(CatalogError):
+        validate_tools(tools)

@@ -73,5 +73,8 @@
       "name": "PKCS11RS_TOKEN_STORAGE",
       "value": "/var/lib/p11lab/pkcs11rs"
     }
-  ]
+  ],
+  "runtime_env_token_stores": {
+    "PKCS11RS_TOKEN_STORAGE": "/var/lib/p11lab/pkcs11rs"
+  }
 }

@@ -25,6 +25,7 @@ case "${1-}" in
         [ "$#" -eq 2 ] || p11lab_proxy_die "usage: p11lab-proxy daemon /etc/p11lab/proxy.toml"
         case "$2" in /*) ;; *) p11lab_proxy_die "daemon config must be an absolute path" ;; esac
         [ -f "$2" ] && [ ! -L "$2" ] && [ -r "$2" ] || p11lab_proxy_die "daemon config is not a readable regular file"
+        p11lab_check_find empty "daemon config must not be group/world-writable: $2" "$2" -perm /022 -print -quit
         p11lab_proxy_server_material
         # Provider configuration is owned by the provider adapter: launching
         # the daemon through `p11lab-provider exec` applies the exact same

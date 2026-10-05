@@ -26,13 +26,11 @@ _RUNTIME_ENV_DENIED_SUBSTRINGS = ("PIN", "SECRET", "PASSWORD", "PRIVATE", "KEY",
 # reviewed PKCS#11-token directory name FHSM_TOKENS_DIR keeps validating
 # while API_TOKEN-style aliases are rejected.
 _RUNTIME_ENV_DENIED_WORDS = tuple(re.compile(r"(^|_)%s(_|$)" % word) for word in ("TOKEN",))
-# Reviewed native PKCS#11 storage controls can contain the word TOKEN. Bind
-# each exception to its exact non-secret managed directory, so this does not
-# admit authentication-token aliases or arbitrary values under that name.
-_RUNTIME_ENV_TOKEN_STORES = {
-    "WOLFPKCS11_TOKEN_PATH": "/var/lib/p11lab/wolfpkcs11",
-    "PKCS11RS_TOKEN_STORAGE": "/var/lib/p11lab/pkcs11rs",
-}
+# Reviewed native PKCS#11 storage controls can contain the word TOKEN. Each
+# descriptor declares its own name/value exceptions (runtime_env_token_stores)
+# instead of the catalogue hardcoding provider names; values stay bound to
+# exact non-secret managed directories, so the mechanism cannot admit
+# authentication-token aliases or arbitrary values under that name.
 _RUNTIME_ENV_RESERVED_NAMES = {"PATH", "LD_LIBRARY_PATH", "SYSTEMROOT", "WINDIR", "HOME", "XDG_CONFIG_HOME",
                                "ENV", "SHELLOPTS", "USERPROFILE", "SHELL", "COMSPEC",
                                "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA"}
@@ -163,13 +161,38 @@ def _lock(lock, root, environment):
         _require(hashlib.sha256(target.read_bytes()).hexdigest() == patch.get("sha256"), "patch sha256 mismatch")
 
 
-def validate_runtime_env(entries) -> None:
+def validate_runtime_env_token_stores(table) -> None:
+    """Validate a descriptor's declared token-store exceptions.
+
+    Reviewed native PKCS#11 storage controls can contain the word TOKEN.
+    Each descriptor declares its own name/value exceptions; values must be
+    exact managed state directories, never aliases or arbitrary strings.
+    """
+    _require(isinstance(table, dict) and 1 <= len(table) <= 8,
+             "runtime_env_token_stores must be a non-empty object of name/value exceptions")
+    for name, value in table.items():
+        _require(isinstance(name, str) and _RUNTIME_ENV_NAME.fullmatch(name),
+                 "token store name must match [A-Z][A-Z0-9_]{0,63}")
+        _require(isinstance(value, str) and 1 <= len(value) <= 4096
+                 and all(0x20 <= ord(c) <= 0x7E for c in value),
+                 "token store value must be non-empty single-line printable ASCII")
+        _require(value.startswith("/var/lib/p11lab/") and len(value) > len("/var/lib/p11lab/")
+                 and ".." not in value.split("/"),
+                 "token store value must be a managed state directory")
+
+
+def validate_runtime_env(entries, *, token_stores=None) -> None:
     """Validate the provider-declared non-secret env channel (fixed values only).
 
     Consumers extend their environment from these entries alone; undeclared
     names stay scrubbed. Fail closed: credential-like and reserved names are
     rejected, values are single-line printable ASCII and never enter receipts.
+    token_stores carries the descriptor's own declared TOKEN-word exceptions.
     """
+    if token_stores is None:
+        token_stores = {}
+    else:
+        validate_runtime_env_token_stores(token_stores)
     _require(isinstance(entries, list) and 1 <= len(entries) <= 32,
              "runtime_env must be a non-empty list of fixed entries")
     seen = set()
@@ -181,7 +204,7 @@ def validate_runtime_env(entries) -> None:
                  "runtime_env name must match [A-Z][A-Z0-9_]{0,63}")
         _require(not any(part in name for part in _RUNTIME_ENV_DENIED_SUBSTRINGS),
                  "runtime_env name resembles a credential and cannot be declared")
-        _require(_RUNTIME_ENV_TOKEN_STORES.get(name) == entry["value"]
+        _require(token_stores.get(name) == entry["value"]
                  or not any(pattern.search(name) for pattern in _RUNTIME_ENV_DENIED_WORDS),
                  "runtime_env name resembles a credential and cannot be declared")
         _require(name not in _RUNTIME_ENV_RESERVED_NAMES
@@ -193,6 +216,25 @@ def validate_runtime_env(entries) -> None:
         _require(isinstance(value, str) and 1 <= len(value) <= 4096
                  and all(0x20 <= ord(c) <= 0x7E for c in value),
                  "runtime_env value must be non-empty single-line printable ASCII")
+
+
+def _inputs(inputs) -> None:
+    """Validate provider input declarations so runners never KeyError.
+
+    Every entry declares a boolean secret flag (the runner's redaction and
+    mount switch) and a boolean required flag; an optional string default
+    documents the adapter's fallback. Unknown keys are refused: a typo must
+    fail validation, not silently change runner behavior.
+    """
+    _require(isinstance(inputs, dict), "descriptor requires inputs object")
+    for name, entry in inputs.items():
+        _require(isinstance(name, str) and bool(name), "input name must be a nonempty string")
+        _require(isinstance(entry, dict) and set(entry) <= {"secret", "required", "default"},
+                 "input entry must declare secret/required/default only")
+        _require(type(entry.get("secret")) is bool, "input entry requires boolean secret")
+        _require(type(entry.get("required")) is bool, "input entry requires boolean required")
+        if "default" in entry:
+            _require(isinstance(entry["default"], str), "input default must be a string")
 
 
 def validate_descriptor(spec: dict, *, asset_root=None) -> None:
@@ -208,9 +250,16 @@ def validate_descriptor(spec: dict, *, asset_root=None) -> None:
         _require(isinstance(value, list) and value and all(isinstance(p, str) and re.fullmatch(r"[a-z0-9]+/[a-z0-9]+", p) for p in value), f"descriptor requires {key}")
     _require(_enum(spec.get("state_mode"), {"persistent", "ephemeral", "process-local"}), "invalid state_mode")
     _require(_text(spec.get("module_path")), "descriptor requires module_path")
+    table = spec.get("runtime_env_token_stores")
+    if table is not None:
+        validate_runtime_env_token_stores(table)
     if "runtime_env" in spec:
-        validate_runtime_env(spec["runtime_env"])
-    _require(isinstance(spec.get("inputs"), dict), "descriptor requires inputs object")
+        validate_runtime_env(spec["runtime_env"], token_stores=table)
+    if table is not None:
+        declared = {entry["name"] for entry in spec.get("runtime_env", [])
+                    if isinstance(entry, dict) and isinstance(entry.get("name"), str)}
+        _require(set(table) <= declared, "token store exception lacks a runtime_env entry")
+    _inputs(spec.get("inputs"))
     _require(isinstance(spec.get("services"), list), "descriptor requires services list")
     _require(_text(spec.get("application_profile")), "descriptor requires application_profile")
     distribution = spec.get("distribution")
@@ -290,19 +339,59 @@ def list_environments() -> list[dict]:
     return result
 
 
+def _pinned_binary_artifact(entry, name) -> None:
+    _require(isinstance(entry, dict) and set(entry) == {"platform", "url", "sha256", "size"},
+             f"pinned binary artifact requires platform/url/sha256/size: {name}")
+    _require(isinstance(entry["platform"], str) and re.fullmatch(r"[a-z0-9]+/[a-z0-9]+", entry["platform"]),
+             f"pinned binary artifact requires a platform pair: {name}")
+    url = entry["url"]
+    _require(_text(url) and urlsplit(url).scheme == "https" and bool(urlsplit(url).hostname)
+             and urlsplit(url).username is None and urlsplit(url).password is None,
+             f"pinned binary artifact requires a public HTTPS URL without credentials: {name}")
+    _require(isinstance(entry["sha256"], str) and _SHA256.fullmatch(entry["sha256"]),
+             f"pinned binary artifact requires full lowercase SHA-256: {name}")
+    _require(type(entry["size"]) is int and entry["size"] > 0,
+             f"pinned binary artifact requires a positive byte size: {name}")
+
+
 def validate_tools(spec: dict) -> None:
-    """Validate tool source pins without treating them as built artifacts."""
+    """Validate declared tool integrations in their true states.
+
+    planned tools pin a source (or record a pending selector) and claim no
+    artifacts; owned tools ship P11Lab sources from package data (every
+    listed path must exist); pinned-binary tools bind a resolved source
+    revision to hashed platform artifacts. Complete states carry no pending
+    note; anything still missing keeps the tool planned.
+    """
     _require(isinstance(spec, dict) and spec.get("schema_version") == 1, "unsupported tools schema_version")
     tools = spec.get("tools")
     _require(isinstance(tools, dict) and {"checker", "proxy", "p11scope", "oras", "consumer"} <= tools.keys(), "tools catalogue requires declared integrations")
     for name, tool in tools.items():
-        _require(isinstance(tool, dict) and tool.get("status") == "planned", f"tool requires explicit planned status: {name}")
-        _require(_text(tool.get("pending")) and tool.get("artifacts") == [], "planned tool cannot claim acquired artifacts")
-        if name == "consumer":
-            _require(_enum(tool.get("license_status"), _LICENSE_STATUSES), "consumer requires license_status")
+        _require(isinstance(tool, dict), f"tool must be an object: {name}")
+        status = tool.get("status")
+        _require(status in {"planned", "owned", "pinned-binary"}, f"tool requires an explicit planned/owned/pinned-binary status: {name}")
+        if status == "planned":
+            _require(_text(tool.get("pending")) and tool.get("artifacts") == [], "planned tool cannot claim acquired artifacts")
+            if name == "consumer":
+                _require(_enum(tool.get("license_status"), _LICENSE_STATUSES), "consumer requires license_status")
+            else:
+                _source(tool.get("source"))
+                _require("revision" in tool["source"] or "selector" in tool["source"], "tool source requires a revision or pending selector")
+        elif status == "owned":
+            _require(_enum(tool.get("license_status"), _LICENSE_STATUSES), f"owned tool requires license_status: {name}")
+            _require("pending" not in tool, f"complete tool state cannot carry pending: {name}")
+            artifacts = tool.get("artifacts")
+            _require(isinstance(artifacts, list) and artifacts, f"owned tool ships packaged artifacts: {name}")
+            for path in artifacts:
+                package_data(path)
         else:
+            _require("pending" not in tool, f"complete tool state cannot carry pending: {name}")
             _source(tool.get("source"))
-            _require("revision" in tool["source"] or "selector" in tool["source"], "tool source requires a revision or pending selector")
+            _require("revision" in tool["source"], f"pinned binary requires a resolved source revision: {name}")
+            artifacts = tool.get("artifacts")
+            _require(isinstance(artifacts, list) and artifacts, f"pinned binary requires platform artifacts: {name}")
+            for entry in artifacts:
+                _pinned_binary_artifact(entry, name)
 
 
 def load_native_target(id: str, channel: str, target: str) -> dict:
@@ -317,7 +406,8 @@ def load_native_target(id: str, channel: str, target: str) -> dict:
     _require(lock.get('schema_version') == 1 and lock.get('target') == target and lock.get('channel') == channel
              and lock.get('platform') == selected.get('platform'), 'native target lock tuple mismatch')
     _require(isinstance(lock.get('host_requirements'), dict) and lock['host_requirements']
-             and selected.get('module_path') == 'lib/libsofthsm2.so', 'invalid native target contract')
+             and any(isinstance(entry, dict) and entry.get('path') == selected.get('module_path')
+                     for entry in lock.get('binaries', [])), 'invalid native target contract')
     for source in lock.get('sources', []):
         _source(source)
     _require(lock.get('sources') and isinstance(lock.get('binaries'), list) and lock['binaries'], 'native lock requires source and binary identities')

@@ -14,6 +14,8 @@ No bundle, image, cache export, or release is published by these steps.
 Windows acquisition is not hermetic. The workflow pins its actions by
 commit SHA but uses a hosted runner image, the `10.0.x` runtime patch
 band, a pip upgrade, and unlocked Python test/checker dependencies.
+The workflows record the resolved set in the job log (`pip freeze`
+output); hash-constrained installs are a follow-up.
 Exact resolved versions and bundle hashes identify an executed attempt;
 they do not pin all downloaded bytes or prove reproducible Windows
 builds. This remains a qualification limitation.

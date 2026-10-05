@@ -56,7 +56,9 @@ run-native.sh --bundle-dir /path/to/native-bundle --work-dir /path/to/fresh-work
 Both scripts refuse a non-eligible handoff unless `--local-proof`
 explicitly acknowledges the blocked verdict and prints its blockers. A
 blocked verdict means the binary must not be treated as a release; the
-local proof exercises the mechanics only.
+local proof exercises the mechanics only. Prefer PIN files over scalar
+`--input P11LAB_PIN=...` values: scalar secrets stay visible to the host
+caller through `docker inspect`.
 
 ## Production bootstrap
 

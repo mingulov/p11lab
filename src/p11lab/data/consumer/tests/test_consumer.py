@@ -243,6 +243,21 @@ class ConsumerTests(unittest.TestCase):
                               '--output',self.work/'fixture-empty','--key-mode','generated',env=env)
         self.assertEqual(result.returncode,0,result.stderr)
 
+    def test_lf_terminated_pin_logs_in_without_framing_newline(self):
+        self.assertTrue(self.available, 'independent consumer implementation is missing')
+        self.assertTrue(self.stub.exists(), 'native provider fixture is missing')
+        pin=self.work/'fixture-lf.pin'
+        pin.write_bytes(b'62197643\n')
+        env=dict(os.environ,P11_FIXTURE_MODE='lf-pin')
+        result=self.run_smoke('--module',self.stub,'--token-label','Fixture','--pin-file',pin,
+                              '--output',self.work/'fixture-lf','--key-mode','generated',env=env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        reframed=self.work/'fixture-lf-plain.pin'
+        reframed.write_bytes(b'62197643')
+        plain=self.run_smoke('--module',self.stub,'--token-label','Fixture','--pin-file',reframed,
+                             '--output',self.work/'fixture-lf-plain','--key-mode','generated',env=env)
+        self.assertEqual(plain.returncode,0,plain.stderr)
+
     def test_signing_only_provider_accepts_existing_key_readonly_session(self):
         self.assertTrue(self.available, 'independent consumer implementation is missing')
         env=dict(os.environ,P11_FIXTURE_MODE='readonly-existing')

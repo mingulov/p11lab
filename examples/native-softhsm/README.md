@@ -3,7 +3,7 @@
 Install a verified Debian 13 amd64 SoftHSM candidate using the [native guide](../../docs/native.md).
 Set `PREFIX`, `STATE` and `CONTROL` to explicit separate directories. Set
 `P11LAB_PIN_FILE` and `P11LAB_SO_PIN_FILE` to existing private credential files
-without final newlines; never echo credentials. Invoke:
+with at most one final newline each (framing, not part of the PIN); never echo credentials. Invoke:
 
 ```sh
 ./run.sh /path/to/application 'literal argument'

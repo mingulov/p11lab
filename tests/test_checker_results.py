@@ -408,3 +408,44 @@ def test_checker_environment_scrubs_home_on_posix(tmp_path, monkeypatch):
     env = checker_environment(tmp_path, 'secret-pin', 'secret-so-pin')
     assert 'USERPROFILE' not in env
     assert env['HOME'] == str(tmp_path)
+
+
+def test_checker_private_api_resolves_pinned_version():
+    import importlib.metadata
+
+    pytest.importorskip("pkcs11_check.testcases")
+    if importlib.metadata.version("pkcs11-check") != "0.2.2":
+        pytest.skip("checker validation adapter pins pkcs11-check 0.2.2")
+    from p11lab.checker import _checker_private_api
+
+    api = _checker_private_api()
+    assert callable(api["completion_verified_for_attempt"])
+    assert callable(api["build_detail_from_report_records"])
+    assert callable(api["build_isolated_json_payload"])
+    assert api["FileRunResult"].__name__ == "FileRunResult"
+    assert api["FileRunState"].__name__ == "FileRunState"
+
+
+def test_checker_private_api_rejects_other_versions(monkeypatch):
+    import importlib.metadata
+
+    from p11lab import checker
+
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: "9.9.9")
+    with pytest.raises(ValueError, match="requires pkcs11-check 0.2.2"):
+        checker._checker_private_api()
+
+
+def test_checker_private_imports_live_only_in_adapter():
+    import inspect
+
+    from p11lab import checker
+
+    adapter = inspect.getsource(checker._checker_private_api)
+    outside = inspect.getsource(checker).replace(adapter, "")
+    for name in ("_completion_verified_for_attempt", "_build_detail_from_report_records",
+                 "_build_isolated_json_payload", "FileRunState"):
+        assert name in adapter
+    for line in outside.splitlines():
+        if line.strip().startswith("from pkcs11_check"):
+            assert "._" not in line and " import _" not in line

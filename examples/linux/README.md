@@ -33,7 +33,8 @@ application, its sources and notices; build tools remain in the builder stage.
 The provider is not recompiled. Caller supplied derivatives and upstream package
 contents need their own distribution review before publication.
 
-Create private PIN and SO PIN files without a final newline. Run from your own
+Create private PIN and SO PIN files holding one line each (at most one final
+newline, which frames the file and is not part of the PIN). Run from your own
 application working directory, with a new output directory:
 
 ```sh

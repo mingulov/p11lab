@@ -30,7 +30,9 @@ p11lab install softhsm2 --channel release --platform linux/amd64 \
 
 The command prints the absolute prefix, module and installation receipt paths.
 Installation verifies the archive and every file, checks target prerequisites
-before publishing the requested prefix, and initializes no tokens. Matching
+before publishing the requested prefix, and initializes no tokens. Archives
+with links, hardlinks or special entries are refused; only the manifest
+roster of regular files is installed. Matching
 verified installations can be reused. Unrelated or damaged prefixes fail without
 replacement. An explicit verified reinstall at a second prefix creates a new
 placement receipt; copying the installed directory leaves an invalid receipt.
@@ -40,7 +42,8 @@ The module is `PREFIX/payload/lib/libsofthsm2.so`. The configuration is
 outside the prefix, including resolved symlinks and either direction of nesting.
 State and control must also be separate from each other. Paths with internal
 spaces work; newlines, carriage returns and `#` cannot be represented safely in
-SoftHSM configuration. Credentials belong in private files, with no final newline.
+SoftHSM configuration. Credentials belong in private files holding one line
+with at most one final newline (framing, not part of the PIN).
 
 ## Run your application
 
@@ -110,6 +113,8 @@ Building uses Docker to acquire those bytes; native consumers do not. Rolling
 uses its own lock and archive. Source companion references, ordered patches,
 compilation inputs, packaging assets and original notices are retained. Native
 actual-content admission is separate from container admission and publication.
+A native build does not export container debug companions: `--role native`
+with `--debug-output-dir` is rejected.
 
 The independent C consumer under `src/p11lab/data/consumer/` supports P-256
 session-key signing and existing token-key signing. Verify exported signatures

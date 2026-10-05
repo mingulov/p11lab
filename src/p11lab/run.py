@@ -52,21 +52,138 @@ def _validate(spec):
     return descriptor
 
 
+def redact_text(text, truncated, secrets):
+    """Redact retained engine log text against snapshot credentials.
+
+    Shared by the direct and proxy runners so timeout/interrupt precedence
+    and redaction trimming cannot diverge across the two critical paths.
+    This stays separate from process.redacted deliberately: the Docker
+    engine returns text, so trimming counts characters, while process
+    capture works on bytes and counts credential byte lengths.
+    """
+    if truncated and secrets:
+        # Drop the boundary where a retained prefix could end
+        # halfway through a credential before value redaction.
+        trim = max(len(secret) for secret in secrets) - 1
+        if trim:
+            text = text[:-trim]
+    for secret in sorted(secrets, key=len, reverse=True):
+        text = text.replace(secret, '[REDACTED]')
+    return text
+
+
+def compute_exit_code(*, app_returncode, app_completed, interrupted_signal, timed_out,
+                      lifecycle, cleanup):
+    """One exit-code formula for the direct and proxy runners.
+
+    A completed application return code wins; interruption, timeout and
+    runner errors follow in that precedence; 0 requires a clean run.
+    """
+    return (app_returncode if app_completed and app_returncode else
+            128 + interrupted_signal if interrupted_signal else 124 if timed_out else
+            app_returncode if app_returncode else 1 if lifecycle or cleanup else 0)
+
+
+def stage_credential_inputs(spec, descriptor, credentials, staging):
+    """Snapshot secret file inputs and render the container env file.
+
+    staging is a caller-owned private directory; snapshots are world-readable
+    single files (only each file is mounted) and the env file is 0600.
+    Returns (inputs, mounts, envfile).
+    """
+    staging = Path(staging)
+    envfile = staging / 'environment'
+    inputs = {}
+    mounts = []
+    for key, value in spec.inputs.items():
+        if key == 'P11LAB_STATE_DIR':
+            continue
+        if descriptor['inputs'][key]['secret']:
+            if key.endswith('_FILE'):
+                source = Path(value).resolve(strict=True)
+                secret = credentials[key]
+                destination = '/run/p11lab-input/' + key
+                if ',' in str(source):
+                    raise ValueError('Docker bind mount paths cannot contain commas')
+                snapshot = staging / key
+                snapshot.write_bytes(secret)
+                snapshot.chmod(0o444)  # parent is 0700; only this file is mounted
+                mounts.extend(['--mount', f'type=bind,src={snapshot},dst={destination},readonly'])
+                inputs[key] = destination
+            else:
+                secret = value.encode()
+                inputs[key] = value
+        else:
+            inputs[key] = value
+    envfile.write_text(''.join(f'{k}={v}\n' for k, v in inputs.items()))
+    envfile.chmod(0o600)
+    return inputs, mounts, envfile
+
+
+def prepare_state_mount(spec, engine, run_id, labels, owned, box):
+    """Resolve the token state mount: caller bind or owned volume.
+
+    Fills box with state_mount/state_directory/state_ownership progressively
+    and appends the owned volume entry on success, so a mid-step engine
+    failure keeps the same partial state the inline code left behind.
+    """
+    if 'P11LAB_STATE_DIR' in spec.inputs:
+        state = Path(spec.inputs['P11LAB_STATE_DIR']).resolve()
+        if ',' in str(state):
+            raise ValueError('Docker bind mount paths cannot contain commas')
+        box['state_directory'] = None
+        box['state_ownership'] = {'uid': state.stat().st_uid, 'gid': state.stat().st_gid,
+                                  'mode': oct(state.stat().st_mode & 0o777)}
+        box['state_mount'] = f'type=bind,src={state},dst=/var/lib/p11lab'
+        return
+    state_directory = Path(tempfile.mkdtemp(prefix='p11lab-state-'))
+    box['state_directory'] = state_directory
+    box['state_ownership'] = {'uid': state_directory.stat().st_uid, 'gid': state_directory.stat().st_gid,
+                              'mode': oct(state_directory.stat().st_mode & 0o777)}
+    state = engine.volume('p11lab-' + run_id, labels, state_directory)
+    owned.append(('volume', state))
+    box['state_mount'] = f'type=volume,src={state},dst=/var/lib/p11lab,volume-nocopy'
+
+
+def receipt_outcome_fields(*, spec, descriptor, state_directory, state_ownership, stages,
+                           owned, uncertain, app_returncode, app_completed, lifecycle,
+                           cleanup, exit_code, timed_out, interrupted_signal):
+    """Shared receipt tail for the direct and proxy runners.
+
+    Inputs presence, state ownership, stage roster, resource accounting and
+    the outcome triple are identical across modes; each runner adds its own
+    artifacts/observation/execution sections around these fields.
+    """
+    return {'inputs': {key: {'present': True, 'secret': descriptor['inputs'][key]['secret']}
+                       for key in spec.inputs if key != 'P11LAB_STATE_DIR'},
+            'state': {'persistent_caller_directory': 'P11LAB_STATE_DIR' in spec.inputs,
+                      'owned_directory': str(state_directory) if state_directory else None,
+                      'directory_ownership': state_ownership,
+                      'control_uid_gid': f'{os.getuid()}:{os.getgid()}', 'control_mode': '0700',
+                      'owned_directory_retained': state_directory.exists() if state_directory else False},
+            'stages': stages, 'owned_resources': [{'kind': k, 'identity': i} for k, i in owned],
+            'uncertain_resources': [{'kind': k, 'name': n} for k, n in uncertain],
+            'app_returncode': app_returncode, 'app_completed': app_completed,
+            'lifecycle_errors': lifecycle, 'cleanup_errors': cleanup,
+            'exit_code': exit_code, 'timeout': timed_out, 'interrupted_signal': interrupted_signal}
+
+
 def run_application(spec: RunSpec) -> RunResult:
     if spec.mode == 'native':
-        from .native import install_native_bundle, run_native_softhsm, staging_parent
+        from .native import native_lifecycle, staging_parent
         from .bundle import read_installation
+        install_native, _, run_native = native_lifecycle(spec.environment)
         if spec.installed_prefix is not None:
             installed = read_installation(spec.installed_prefix, environment=spec.environment,
                                           channel=spec.channel, platform=spec.artifact.platform)
-            return run_native_softhsm(spec, installed)
+            return run_native(spec, installed)
         # Validate routing before even temporary installation/resource creation.
         if spec.execution_location != 'host' or spec.consumer_artifact or spec.client_artifact:
             raise ValueError('native requires host without container options')
         with tempfile.TemporaryDirectory(prefix='.p11lab-native-run-', dir=staging_parent(spec.output_dir)) as temporary:
-            installed = install_native_bundle(spec.artifact, Path(temporary) / 'prefix',
-                                              environment=spec.environment, channel=spec.channel)
-            return run_native_softhsm(spec, installed)
+            installed = install_native(spec.artifact, Path(temporary) / 'prefix',
+                                       environment=spec.environment, channel=spec.channel)
+            return run_native(spec, installed)
     if spec.mode == 'proxy':
         return run_proxy(spec, prepare_proxy(spec))
     if spec.installed_prefix is not None:
@@ -103,45 +220,14 @@ def run_application(spec: RunSpec) -> RunResult:
     state_ownership = None
     try:
         with tempfile.TemporaryDirectory(prefix='p11lab-input-') as private:
-            envfile = Path(private) / 'environment'
-            inputs = {}
-            mounts = []
-            for key, value in spec.inputs.items():
-                if key == 'P11LAB_STATE_DIR':
-                    continue
-                if descriptor['inputs'][key]['secret']:
-                    if key.endswith('_FILE'):
-                        source = Path(value).resolve(strict=True)
-                        secret = credentials[key]
-                        destination = '/run/p11lab-input/' + key
-                        if ',' in str(source):
-                            raise ValueError('Docker bind mount paths cannot contain commas')
-                        snapshot = Path(private) / key
-                        snapshot.write_bytes(secret)
-                        snapshot.chmod(0o444)  # parent is 0700; only this file is mounted
-                        mounts.extend(['--mount', f'type=bind,src={snapshot},dst={destination},readonly'])
-                        inputs[key] = destination
-                    else:
-                        secret = value.encode()
-                        inputs[key] = value
-                else:
-                    inputs[key] = value
-            envfile.write_text(''.join(f'{k}={v}\n' for k, v in inputs.items()))
-            envfile.chmod(0o600)
-            if 'P11LAB_STATE_DIR' in spec.inputs:
-                state = Path(spec.inputs['P11LAB_STATE_DIR']).resolve()
-                if ',' in str(state):
-                    raise ValueError('Docker bind mount paths cannot contain commas')
-                state_ownership = {'uid': state.stat().st_uid, 'gid': state.stat().st_gid,
-                                   'mode': oct(state.stat().st_mode & 0o777)}
-                state_mount = f'type=bind,src={state},dst=/var/lib/p11lab'
-            else:
-                state_directory = Path(tempfile.mkdtemp(prefix='p11lab-state-'))
-                state_ownership = {'uid': state_directory.stat().st_uid, 'gid': state_directory.stat().st_gid,
-                                   'mode': oct(state_directory.stat().st_mode & 0o777)}
-                state = engine.volume('p11lab-' + run_id, labels, state_directory)
-                owned.append(('volume', state))
-                state_mount = f'type=volume,src={state},dst=/var/lib/p11lab,volume-nocopy'
+            inputs, mounts, envfile = stage_credential_inputs(spec, descriptor, credentials, Path(private))
+            state_box = {}
+            try:
+                prepare_state_mount(spec, engine, run_id, labels, owned, state_box)
+            finally:
+                state_mount = state_box.get('state_mount')
+                state_directory = state_box.get('state_directory')
+                state_ownership = state_box.get('state_ownership')
             options = ['--user', f'{os.getuid()}:{os.getgid()}', '--network', 'none', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
                        '--tmpfs', f'/run/p11lab:rw,nosuid,nodev,uid={os.getuid()},gid={os.getgid()},mode=0700', '--tmpfs', '/tmp:rw,nosuid,nodev',
                        '--mount', state_mount, '--env-file', str(envfile), *mounts]
@@ -163,18 +249,8 @@ def run_application(spec: RunSpec) -> RunResult:
                     app_returncode = result.returncode
                     app_completed = not result.timed_out and not interrupted_signal
                 timed_out = timed_out or result.timed_out
-                def redact(text, truncated):
-                    if truncated and secrets:
-                        # Drop the boundary where a retained prefix could end
-                        # halfway through a credential before value redaction.
-                        trim = max(len(secret) for secret in secrets) - 1
-                        if trim:
-                            text = text[:-trim]
-                    for secret in sorted(secrets, key=len, reverse=True):
-                        text = text.replace(secret, '[REDACTED]')
-                    return text
-                (output / (phase + '.stdout.log')).write_text(redact(result.stdout, result.stdout_truncated))
-                (output / (phase + '.stderr.log')).write_text(redact(result.stderr, result.stderr_truncated))
+                (output / (phase + '.stdout.log')).write_text(redact_text(result.stdout, result.stdout_truncated, secrets))
+                (output / (phase + '.stderr.log')).write_text(redact_text(result.stderr, result.stderr_truncated, secrets))
                 stages.append({'phase': phase, 'container_id': identity, 'returncode': result.returncode,
                                'timed_out': result.timed_out, 'stdout_truncated': result.stdout_truncated,
                                'stderr_truncated': result.stderr_truncated})
@@ -205,9 +281,9 @@ def run_application(spec: RunSpec) -> RunResult:
                 cleanup.append('private state directory cleanup failed')
         for sig, handler in old_handlers.items():
             signal.signal(sig, handler)
-    exit_code = (app_returncode if app_completed and app_returncode else
-                 128 + interrupted_signal if interrupted_signal else 124 if timed_out else
-                 app_returncode if app_returncode else 1 if lifecycle or cleanup else 0)
+    exit_code = compute_exit_code(app_returncode=app_returncode, app_completed=app_completed,
+                                  interrupted_signal=interrupted_signal, timed_out=timed_out,
+                                  lifecycle=lifecycle, cleanup=cleanup)
     receipt_path = output / 'receipt.json'
     record = {'schema_version': 1, 'run_id': run_id, 'attempt_id': attempt_id,
               'environment': spec.environment, 'channel': spec.channel, 'mode': spec.mode,
@@ -220,18 +296,12 @@ def run_application(spec: RunSpec) -> RunResult:
                             'capabilities': [], 'network': 'none', 'root_readonly': True,
                             'writable': ['/var/lib/p11lab', '/run/p11lab', '/tmp', '/workspace', '/p11lab-output'],
                             'argv_count': len(spec.argv)},
-              'inputs': {key: {'present': True, 'secret': descriptor['inputs'][key]['secret']}
-                         for key in spec.inputs if key != 'P11LAB_STATE_DIR'},
-              'state': {'persistent_caller_directory': 'P11LAB_STATE_DIR' in spec.inputs,
-                        'owned_directory': str(state_directory) if state_directory else None,
-                        'directory_ownership': state_ownership,
-                        'control_uid_gid': f'{os.getuid()}:{os.getgid()}', 'control_mode': '0700',
-                        'owned_directory_retained': state_directory.exists() if state_directory else False},
-              'stages': stages, 'owned_resources': [{'kind': k, 'identity': i} for k, i in owned],
-              'uncertain_resources': [{'kind': k, 'name': n} for k, n in uncertain],
-              'app_returncode': app_returncode, 'app_completed': app_completed,
-              'lifecycle_errors': lifecycle, 'cleanup_errors': cleanup,
-              'exit_code': exit_code, 'timeout': timed_out, 'interrupted_signal': interrupted_signal}
+              **receipt_outcome_fields(spec=spec, descriptor=descriptor, state_directory=state_directory,
+                                       state_ownership=state_ownership, stages=stages, owned=owned,
+                                       uncertain=uncertain, app_returncode=app_returncode,
+                                       app_completed=app_completed, lifecycle=lifecycle, cleanup=cleanup,
+                                       exit_code=exit_code, timed_out=timed_out,
+                                       interrupted_signal=interrupted_signal)}
     write_receipt(receipt_path, record)
     return RunResult(app_returncode, tuple(lifecycle), tuple(cleanup), exit_code, receipt_path)
 
@@ -448,45 +518,14 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
                             'server': material['evidence']['server'], 'client': material['evidence']['client'],
                             'cert_sha256': {name: proxy_tls.cert_sha256(Path(material[name]))
                                             for name in ('ca_cert', 'server_cert', 'client_cert')}}
-            envfile = work / 'environment'
-            inputs = {}
-            mounts = []
-            for key, value in spec.inputs.items():
-                if key == 'P11LAB_STATE_DIR':
-                    continue
-                if descriptor['inputs'][key]['secret']:
-                    if key.endswith('_FILE'):
-                        source = Path(value).resolve(strict=True)
-                        secret = credentials[key]
-                        destination = '/run/p11lab-input/' + key
-                        if ',' in str(source):
-                            raise ValueError('Docker bind mount paths cannot contain commas')
-                        snapshot = work / key
-                        snapshot.write_bytes(secret)
-                        snapshot.chmod(0o444)  # parent is 0700; only this file is mounted
-                        mounts.extend(['--mount', f'type=bind,src={snapshot},dst={destination},readonly'])
-                        inputs[key] = destination
-                    else:
-                        secret = value.encode()
-                        inputs[key] = value
-                else:
-                    inputs[key] = value
-            envfile.write_text(''.join(f'{k}={v}\n' for k, v in inputs.items()))
-            envfile.chmod(0o600)
-            if 'P11LAB_STATE_DIR' in spec.inputs:
-                state = Path(spec.inputs['P11LAB_STATE_DIR']).resolve()
-                if ',' in str(state):
-                    raise ValueError('Docker bind mount paths cannot contain commas')
-                state_ownership = {'uid': state.stat().st_uid, 'gid': state.stat().st_gid,
-                                   'mode': oct(state.stat().st_mode & 0o777)}
-                state_mount = f'type=bind,src={state},dst=/var/lib/p11lab'
-            else:
-                state_directory = Path(tempfile.mkdtemp(prefix='p11lab-state-'))
-                state_ownership = {'uid': state_directory.stat().st_uid, 'gid': state_directory.stat().st_gid,
-                                   'mode': oct(state_directory.stat().st_mode & 0o777)}
-                state = engine.volume('p11lab-' + run_id, labels, state_directory)
-                owned.append(('volume', state))
-                state_mount = f'type=volume,src={state},dst=/var/lib/p11lab,volume-nocopy'
+            inputs, mounts, envfile = stage_credential_inputs(spec, descriptor, credentials, work)
+            state_box = {}
+            try:
+                prepare_state_mount(spec, engine, run_id, labels, owned, state_box)
+            finally:
+                state_mount = state_box.get('state_mount')
+                state_directory = state_box.get('state_directory')
+                state_ownership = state_box.get('state_ownership')
             base = ['--user', f'{os.getuid()}:{os.getgid()}', '--read-only', '--cap-drop', 'ALL',
                     '--security-opt', 'no-new-privileges',
                     '--tmpfs', f'/run/p11lab:rw,nosuid,nodev,uid={os.getuid()},gid={os.getgid()},mode=0700',
@@ -498,13 +537,7 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
             proceed = not lifecycle and not interrupted_signal and time.monotonic() < deadline
 
             def redact(text, truncated):
-                if truncated and secrets:
-                    trim = max(len(secret) for secret in secrets) - 1
-                    if trim:
-                        text = text[:-trim]
-                for secret in sorted(secrets, key=len, reverse=True):
-                    text = text.replace(secret, '[REDACTED]')
-                return text
+                return redact_text(text, truncated, secrets)
 
             if proceed:
                 network = _create_proxy_network(engine, 'p11lab-proxy-' + run_id, labels)
@@ -699,9 +732,9 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
                 cleanup.append('private state directory cleanup failed')
         for sig, handler in old_handlers.items():
             signal.signal(sig, handler)
-    exit_code = (app_returncode if app_completed and app_returncode else
-                 128 + interrupted_signal if interrupted_signal else 124 if timed_out else
-                 app_returncode if app_returncode else 1 if lifecycle or cleanup else 0)
+    exit_code = compute_exit_code(app_returncode=app_returncode, app_completed=app_completed,
+                                  interrupted_signal=interrupted_signal, timed_out=timed_out,
+                                  lifecycle=lifecycle, cleanup=cleanup)
     receipt_path = output / 'receipt.json'
     record = {'schema_version': 1, 'run_id': run_id, 'attempt_id': attempt_id,
               'environment': spec.environment, 'channel': spec.channel, 'mode': 'proxy',
@@ -736,17 +769,11 @@ def run_proxy(spec: RunSpec, plan: dict) -> RunResult:
                             if not host else
                             {'cwd': str(cwd), 'endpoint': endpoint,
                              'uid_gid': f'{os.getuid()}:{os.getgid()}', 'argv_count': len(spec.argv)}),
-              'inputs': {key: {'present': True, 'secret': descriptor['inputs'][key]['secret']}
-                         for key in spec.inputs if key != 'P11LAB_STATE_DIR'},
-              'state': {'persistent_caller_directory': 'P11LAB_STATE_DIR' in spec.inputs,
-                        'owned_directory': str(state_directory) if state_directory else None,
-                        'directory_ownership': state_ownership,
-                        'control_uid_gid': f'{os.getuid()}:{os.getgid()}', 'control_mode': '0700',
-                        'owned_directory_retained': state_directory.exists() if state_directory else False},
-              'stages': stages, 'owned_resources': [{'kind': k, 'identity': i} for k, i in owned],
-              'uncertain_resources': [{'kind': k, 'name': n} for k, n in uncertain],
-              'app_returncode': app_returncode, 'app_completed': app_completed,
-              'lifecycle_errors': lifecycle, 'cleanup_errors': cleanup,
-              'exit_code': exit_code, 'timeout': timed_out, 'interrupted_signal': interrupted_signal}
+              **receipt_outcome_fields(spec=spec, descriptor=descriptor, state_directory=state_directory,
+                                       state_ownership=state_ownership, stages=stages, owned=owned,
+                                       uncertain=uncertain, app_returncode=app_returncode,
+                                       app_completed=app_completed, lifecycle=lifecycle, cleanup=cleanup,
+                                       exit_code=exit_code, timed_out=timed_out,
+                                       interrupted_signal=interrupted_signal)}
     write_receipt(receipt_path, record)
     return RunResult(app_returncode, tuple(lifecycle), tuple(cleanup), exit_code, receipt_path)

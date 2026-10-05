@@ -553,8 +553,11 @@ int main(int argc, char **argv)
         sigaction(SIGHUP, &action, NULL)) goto out;
     if (pipe(addr_pipe)) goto out;
     snprintf(state_arg, sizeof(state_arg), "dir=%s", TPMSTATE);
-    snprintf(ctrl_arg, sizeof(ctrl_arg), "type=tcp,port=2322");
-    snprintf(server_arg, sizeof(server_arg), "type=tcp,port=2321");
+    /* Loopback-bind both swtpm TCP listeners (verified against the shipped
+     * swtpm 0.7.x --ctrl/--server type=tcp bindaddr sub-option): only the
+     * co-resident abrmd reaches the TPM; bridge neighbors cannot. */
+    snprintf(ctrl_arg, sizeof(ctrl_arg), "type=tcp,port=2322,bindaddr=127.0.0.1");
+    snprintf(server_arg, sizeof(server_arg), "type=tcp,port=2321,bindaddr=127.0.0.1");
     swtpm_argv[0] = SWTPM; swtpm_argv[1] = "socket"; swtpm_argv[2] = "--tpm2";
     swtpm_argv[3] = "--tpmstate"; swtpm_argv[4] = state_arg;
     swtpm_argv[5] = "--ctrl"; swtpm_argv[6] = ctrl_arg;

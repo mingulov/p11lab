@@ -9,6 +9,24 @@ import sys
 from .catalog import CatalogError, list_environments, load_environment, package_data, validate_tools
 
 
+# Flags each publish operation reads; anything else on the command line is a
+# misrouted flag or typo and is rejected instead of silently ignored. (Full
+# per-operation subparsers stay a follow-up.)
+_PUBLISH_OP_FLAGS = {
+    "seal-sources": {"--channel", "--resolved-dir", "--output-dir"},
+    "seal-native": {"--channel", "--target", "--output-dir"},
+    "verify-readback": {"--sealed-receipt", "--pulled-dir", "--transcript", "--extract-dir"},
+    "check-inputs": {"--channel", "--sealed-manifest", "--build-receipt", "--manifest"},
+    "admit": {"--channel", "--target", "--sealed-receipt", "--sealed-manifest", "--readback-proof",
+              "--build-receipt", "--manifest", "--artifact-kind", "--artifact-reference", "--artifact-digest",
+              "--platform", "--registry", "--evidence-dir", "--output-dir", "--producer-wheel-sha256",
+              "--source-manifest-digest", "--source-manifest"},
+    "expose": {"--admission", "--pushed-digest", "--pushed-tag", "--pushed-size", "--registry",
+               "--output-dir", "--local-inspect", "--pulled-inspect", "--pulled-bundle"},
+    "show-handoff": {"--handoff"},
+}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="p11lab", description="PKCS#11 provider environment catalogue")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -24,14 +42,14 @@ def main(argv=None) -> int:
         command.add_argument("--channel", required=True)
         command.add_argument("--output-dir", required=True, type=Path)
         if name == "build":
-            command.add_argument("--role", default="runtime")
+            command.add_argument("--role", default="runtime", choices=("runtime", "native"))
             command.add_argument("--debug-output-dir", type=Path, help="export a separate matched binary debug companion")
     install = commands.add_parser("install", help="install a verified local native candidate")
     install.add_argument("id")
     install.add_argument("--channel", required=True)
     install.add_argument("--artifact", required=True, type=Path)
     install.add_argument("--sha256", required=True)
-    install.add_argument("--platform", required=True)
+    install.add_argument("--platform", required=True, choices=("linux/amd64", "windows/amd64"))
     install.add_argument("--prefix", required=True, type=Path)
     command = commands.add_parser("run", help="run an application in an owned provider instance")
     command.add_argument("id")
@@ -45,12 +63,14 @@ def main(argv=None) -> int:
     command.add_argument("--control-dir", type=Path, help="native private control directory")
     command.add_argument("--consumer-image")
     command.add_argument("--client-artifact")
-    command.add_argument("--platform", default="linux/amd64")
+    command.add_argument("--client-sha256", help="required SHA256 for proxy native-client bundle input")
+    command.add_argument("--platform", default="linux/amd64", choices=("linux/amd64", "windows/amd64"))
     command.add_argument("--input", action="append", default=[], metavar="NAME=VALUE")
     command.add_argument("--state-dir", type=Path, help="existing caller-owned persistent state directory")
     command.add_argument("--output-dir", required=True, type=Path)
     command.add_argument("--cwd", type=Path, default=Path.cwd())
-    command.add_argument("--timeout", type=int, default=300)
+    command.add_argument("--timeout", type=int, default=300,
+                         help="lifecycle attempt budget in seconds, 1..86400 (24h ceiling)")
     # Delivery gates decide only; they never push, publish, or reach the network.
     publish = commands.add_parser("publish", help="source-first delivery gates (decide only; never publish)")
     publish.add_argument("operation", choices=("seal-sources", "seal-native", "verify-readback", "check-inputs", "admit", "expose", "show-handoff"))
@@ -95,6 +115,12 @@ def main(argv=None) -> int:
         if args.command == "publish":
             from . import publish as delivery
             operation = args.operation
+            allowed = _PUBLISH_OP_FLAGS[operation]
+            for token in arguments:
+                if token.startswith("--"):
+                    flag = token.split("=", 1)[0]
+                    if not any(option == flag or option.startswith(flag) for option in allowed):
+                        raise ValueError(f"{flag} is not a publish {operation} option")
             if operation == "seal-sources":
                 if not args.id or not args.channel or not args.resolved_dir or not args.output_dir:
                     raise ValueError("seal-sources requires an ID, --channel, --resolved-dir and --output-dir")
@@ -151,22 +177,25 @@ def main(argv=None) -> int:
                 if not all(required):
                     raise ValueError("expose requires --admission, --pushed-digest, --pushed-tag, --pushed-size,"
                                      " --registry and --output-dir, plus readback identity")
-                print(json.dumps(delivery.expose(admission_path=args.admission, pushed_digest=args.pushed_digest,
+                result = delivery.expose(admission_path=args.admission, pushed_digest=args.pushed_digest,
                     pushed_tag=args.pushed_tag, pushed_size=args.pushed_size, local_inspect_path=args.local_inspect,
                     pulled_inspect_path=args.pulled_inspect, pulled_bundle_path=args.pulled_bundle,
-                    registry=args.registry, out_dir=args.output_dir), indent=2, sort_keys=True))
+                    registry=args.registry, out_dir=args.output_dir)
+                print(json.dumps(result, indent=2, sort_keys=True))
+                return 0 if result["status"] == "eligible" else 3
             elif operation == "show-handoff":
                 if not args.handoff:
                     raise ValueError("show-handoff requires --handoff")
                 print(json.dumps(delivery.show_handoff(args.handoff), indent=2, sort_keys=True))
         elif args.command == "install":
-            from .native import install_native_bundle, MODULE
+            from .native import NATIVE_CONFIGURATION, native_lifecycle
             from .models import ArtifactRef
+            install_native, _, _ = native_lifecycle(args.id)
             artifact = ArtifactRef('bundle', str(args.artifact.resolve()), args.sha256, args.platform)
-            installed = install_native_bundle(artifact, args.prefix, environment=args.id, channel=args.channel)
+            installed = install_native(artifact, args.prefix, environment=args.id, channel=args.channel)
             print(json.dumps({'artifact': asdict(installed.artifact), 'prefix': str(installed.prefix),
-                              'module': str(installed.prefix / 'payload' / MODULE),
-                              'configuration': 'chosen control directory/softhsm2.conf at runtime',
+                              'module': str(installed.prefix / 'payload' / installed.manifest['module']),
+                              'configuration': NATIVE_CONFIGURATION[args.id],
                               'receipt_path': str(installed.receipt_path)}, indent=2))
         elif args.command == "run":
             from .models import ArtifactRef, RunSpec
@@ -187,6 +216,15 @@ def main(argv=None) -> int:
                 if args.sha256 or args.control_dir:
                     raise ValueError('native archive/control options require native mode')
                 selected_artifact = artifact(args.artifact)
+            if args.client_sha256 and (args.mode != 'proxy' or not args.client_artifact):
+                raise ValueError('--client-sha256 requires proxy mode with --client-artifact')
+            if args.mode == 'proxy' and args.client_artifact:
+                if not args.client_sha256:
+                    raise ValueError('proxy client bundle requires --client-sha256')
+                selected_client = ArtifactRef('bundle', str(Path(args.client_artifact).resolve()),
+                                              args.client_sha256, args.platform)
+            else:
+                selected_client = artifact(args.client_artifact)
             inputs = {}
             for item in args.input:
                 if "=" not in item:
@@ -203,14 +241,18 @@ def main(argv=None) -> int:
                 if 'P11LAB_CONTROL_DIR' in inputs:
                     raise ValueError('duplicate control directory input')
                 inputs['P11LAB_CONTROL_DIR'] = str(args.control_dir)
+            if not 1 <= args.timeout <= 86400:
+                raise ValueError('--timeout must be 1..86400 seconds')
             result = run_application(RunSpec(args.id, args.channel, args.mode, selected_artifact,
                 args.where or {"direct": "provider", "proxy": "host", "native": "host"}[args.mode],
-                artifact(args.consumer_image), artifact(args.client_artifact), tuple(application_argv), inputs,
+                artifact(args.consumer_image), selected_client, tuple(application_argv), inputs,
                 args.output_dir, args.cwd, args.timeout, args.installed_prefix))
             record = asdict(result)
             if args.mode == 'native':
                 execution = json.loads(result.receipt_path.read_text())['execution']
-                record.update(module=execution['module'], configuration=execution['configuration'])
+                record.update(module=execution['module'])
+                if 'configuration' in execution:
+                    record.update(configuration=execution['configuration'])
             print(json.dumps(record, default=str, indent=2, sort_keys=True))
             return result.exit_code
         elif args.command in {"resolve", "build"}:

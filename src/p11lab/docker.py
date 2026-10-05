@@ -26,7 +26,15 @@ class CommandResult:
 
 
 def capture(argv, timeout, *, limit=65536, interrupted=None, on_stop=None, env=None):
-    """Continuously drain both pipes, retaining only a bounded prefix of each."""
+    """Continuously drain both pipes, retaining only a bounded prefix of each.
+
+    Blocking-thread capture (deliberate): docker CLI invocations are short
+    control calls whose pipes close on process exit, so two blocking reader
+    threads and a 64 KiB prefix each suffice. Supervised application/checker
+    processes use process.py's nonblocking capture instead: their pipes can
+    outlive any deadline, so draining must be abortable, and app logs get a
+    larger 1 MiB budget.
+    """
     process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                start_new_session=True, env=env)
     buffers = [bytearray(), bytearray()]

@@ -407,6 +407,10 @@ int main(int argc, char **argv)
     if (o.pin_file) {
         CK_RV rv;
         if (!read_bounded(o.pin_file, pin, sizeof(pin), &pin_length)) goto done;
+        /* One trailing LF frames the credential file and is not part of the
+           PIN, matching the runtime contract. Anything else reaches the
+           token untouched and fails with its native error. */
+        if (pin_length > 0 && pin[pin_length - 1] == '\n') pin_length--;
         rv = s.f->C_Login(s.session, CKU_USER, pin, (CK_ULONG)pin_length);
         wipe(pin, sizeof(pin));
         if (!native("C_Login", rv)) goto done;

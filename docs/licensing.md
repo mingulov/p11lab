@@ -21,6 +21,7 @@ uses `collect_source_bundle(artifact, inventory, output_dir) -> Path`; assessmen
 uses `assess_distribution(artifact, evidence_dir) -> dict`. Output directories
 for inspection, collection and verification must be new. Failed attempts remain
 available for diagnosis. These operations neither publish nor change visibility.
+`assess` exits 2 on a blocked assessment, the same code usage errors use.
 The optional packaged `data/runtime/source-companion.Dockerfile` wraps the
 collected `files/` directory in a scratch, source-only OCI image. Its immutable
 identity must be verified separately; the source archive receipt does not admit a

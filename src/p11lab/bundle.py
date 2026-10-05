@@ -196,6 +196,12 @@ def _archive(artifact):
 
 
 def _archive_layout(members, opener, artifact, selection):
+    # Roster-strict posture (deliberate): an installable bundle carries its
+    # own manifest, so the exact file roster is known and anything extra,
+    # missing or resized is refused. Third-party tars without a manifest
+    # (source companions, readback transports) cannot use this check and are
+    # verified bound-based in sources.py/publish.py instead; unifying would
+    # either bless unknown members here or demand manifests there.
     names = {}
     for member in members:
         name = member.name[:-1] if member.directory and member.name.endswith("/") else member.name

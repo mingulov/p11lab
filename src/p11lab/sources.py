@@ -341,7 +341,14 @@ def collect_source_bundle(artifact, inventory: dict, output_dir: Path) -> Path:
 
 
 def verify_source_bundle(archive: Path, output_dir: Path) -> dict:
-    """Extract only regular files into a new owned directory and verify every byte."""
+    """Extract only regular files into a new owned directory and verify every byte.
+
+    Bound-based posture (deliberate): third-party source companions carry no
+    install manifest, so there is no roster to be strict against; safety comes
+    from regular-file-only extraction plus per-member/total/count bounds, with
+    identity proven by the outer archive digest. Manifest-rostered bundles use
+    the stricter check in bundle.py instead.
+    """
     from .licenses import relative_path
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=False)

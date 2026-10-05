@@ -319,3 +319,19 @@ def test_missing_label_still_refuses(tmp_path):
     completed = _run(driver, module, "Absent")
     assert completed.returncode == 1
     assert "labelled token not present" in completed.stderr
+
+
+def test_swtpm_listeners_bind_loopback_only():
+    """Both swtpm TCP listeners must loopback-bind explicitly (STRIDE S2/D4).
+
+    Shipped swtpm 0.7.1 already defaults both --ctrl/--server TCP
+    sockets to 127.0.0.1; the explicit bindaddr pins that property
+    in-tree against upstream default changes. The sentinel compile
+    above keeps covering buildability.
+    """
+    source = packaged_asset("tpm2", "provision.c").read_text()
+    assert "type=tcp,port=2322,bindaddr=127.0.0.1" in source
+    assert "type=tcp,port=2321,bindaddr=127.0.0.1" in source
+    for line in source.splitlines():
+        if "type=tcp,port=" in line and "snprintf" in line:
+            assert "bindaddr=127.0.0.1" in line

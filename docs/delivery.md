@@ -24,7 +24,7 @@ digest for images, the file digest for ORAS artifacts. Tag roles
 | `src` | Sealed source: exact upstream archives, patches, lock, recipe inputs | `provider-*.yml`, `native-delivery.yml` after the seal step |
 | `rt` | Runtime image (registry index digest) | expose job, only when admission is `eligible` |
 | `native` | Native bundle bytes (file digest) | expose job, only when admission is `eligible` |
-| `sbom` | SPDX inventory (when reviewed evidence exists) | expose job, with the binary |
+| `sbom` | SPDX inventory (when reviewed evidence exists) | planned/future: no push path exists yet |
 | `handoff` | Handoff manifest binding the digests above plus the verdict | finalize job, after binary readback |
 
 Source companions are retained durably in the registry, never as
@@ -37,8 +37,10 @@ the first publication to the package.
 
 ## Pipeline sequence
 
-`p11lab publish` implements the gates; it decides only and never pushes,
-publishes, or reaches the network. The workflows run this sequence:
+`p11lab publish` implements the gates; it decides only and never pushes or
+publishes. `seal-sources` is network-free; `seal-native` acquires upstream
+bytes and verifies them against the lock before sealing. The workflows run
+this sequence:
 
 1. **Seal** (`seal-sources` / `seal-native`): freeze the exact build-input
    bytes (retained upstream archives, patches, locks, recipe inputs) with
@@ -50,6 +52,10 @@ publishes, or reaches the network. The workflows run this sequence:
    credential state (empty ORAS auth file and home, no `packages`
    permission on the readback job) and verify every byte against the seal
    (`verify-readback`). The transcript is bound to the readback proof.
+   Anonymity of that pull holds by platform plus human review: the job
+   cannot present credentials it has no permission to hold, and reviewers
+   inspect the bound transcript itself — no code assertion proves the
+   absence of credentials.
 5. **Admit** (`check-inputs`, then `admit`): require the readback to match
    the seal, the built inputs to match the seal, and actual-content
    evidence to assess. Any failure blocks with its reason.
@@ -62,9 +68,9 @@ publishes, or reaches the network. The workflows run this sequence:
 These conditions stop binary upload and cache export, fail closed with
 the reason: a missing, private, expired, or altered source companion; an
 input mismatch between the seal and the build; a newly discovered,
-missing, or renamed build input. The `admit` CLI exits 3 on a blocked
-verdict (distinct from usage error 2); the expose jobs additionally carry
-an `if: eligible` gate so a blocked run can never upload.
+missing, or renamed build input. The `admit` and `expose` CLIs exit 3 on a
+blocked verdict (distinct from usage error 2); the expose jobs additionally
+carry an `if: eligible` gate so a blocked run can never upload.
 
 ## Reusable action
 
@@ -165,6 +171,11 @@ time, and `expose` rechecks the tag alias against the pushed digest. The
 handoff never embeds its own digest; its bytes are recorded externally
 (`sha256sum.txt` beside it, the registry digest after its push).
 
+Residual: handoffs are integrity-by-digest, not signed — authenticity
+rests on registry TLS plus digest pinning, with no provenance
+attestation. SLSA/cosign attestation is a follow-up; no key
+infrastructure is in scope for this work.
+
 After publication, the coordinator verifies anonymous readback with the
 manifest digests from the handoff (`source.reference`, `binary.reference`):
 
@@ -190,11 +201,11 @@ form in every T13-owned workflow):
 | actions/setup-dotnet | v4 | `67a3573c9a986a3f9c594539f4ab511d57bb3ce9` |
 | ilammy/msvc-dev-cmd | v1 | `0b201ec74fa43914dc39ae48a89fd1d8cb592756` |
 
-Tool images used by the pipeline and its proof (digests recorded at use):
+Tool images used by the pipeline and its proof (digests recorded at use;
+stand-ins must be pinned at use):
 
 | Image | Digest |
 | --- | --- |
-| registry:2 (local proof stand-in) | `sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373` |
 | debian:trixie-slim (native test floor) | `sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a` |
 
 ## Local proof versus publication
