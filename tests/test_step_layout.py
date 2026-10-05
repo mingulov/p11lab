@@ -2,12 +2,15 @@
 
 The direct lane copies the dual-mode step file flat to /workspace, where a
 ``parents[2]`` assumption raises IndexError at import. The file resolves its
-resources from the installed package instead; these tests pin that contract
-both behaviorally (a flat copy dispatches) and statically (no depth-indexed
-``parents`` access remains to regress).
+work directory for both layouts (repo root for checkouts, own dir for flat
+copies) and its resources from the installed package; these tests pin that
+contract behaviorally (a flat copy dispatches), statically (no depth-indexed
+``parents`` attribute access remains to regress), and by unit (the resolver
+maps both layouts).
 """
 
 import ast
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -45,3 +48,20 @@ def test_step_file_has_no_depth_indexed_parents():
         and isinstance(node.slice.value, int)
     ]
     assert hits == [], f"depth-indexed parents access at lines {hits}"
+
+
+def _load_step_module():
+    spec = importlib.util.spec_from_file_location("stepfile_layout", STEP_FILE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_work_dir_repo_layout():
+    module = _load_step_module()
+    assert module._work_dir("/repo/tests/integration/test_bouncyhsm.py") == Path("/repo")
+
+
+def test_work_dir_flat_copy():
+    module = _load_step_module()
+    assert module._work_dir("/workspace/test_bouncyhsm.py") == Path("/workspace")

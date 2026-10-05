@@ -30,7 +30,24 @@ except ImportError:  # pragma: no cover - step-execution contexts
 
     pytest = _Shim()
 
-from p11lab.catalog import package_data
+def _work_dir(start):
+    """Repo root for checkout layouts; own directory for flat copies.
+
+    The direct lane copies this file flat to /workspace, where parents[2]
+    does not exist. Flat copies run where P11Lab is installed (the image),
+    so a missing WORK/src entry is harmless: nonexistent sys.path entries
+    are ignored at import.
+    """
+    resolved = Path(start).resolve()
+    parents = resolved.parents
+    return parents[2] if len(parents) > 2 else resolved.parent
+
+
+WORK = _work_dir(__file__)
+if str(WORK / "src") not in sys.path:
+    sys.path.insert(0, str(WORK / "src"))
+
+from p11lab.catalog import package_data  # noqa: E402 - sys.path bootstrap above is load-bearing for flat copies
 
 # Script steps run from caller-owned paths such as /workspace/test_bouncyhsm.py.
 # Resolve the installed package's resources without assuming a checkout depth.
