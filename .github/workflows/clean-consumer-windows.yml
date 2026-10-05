@@ -55,7 +55,9 @@ jobs:
       - name: Set up .NET runtime
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: '10.0.x'
+          # Exact SDK matching the bouncyhsm lock toolchain; the bundled
+          # runtime serves the consumer deterministically.
+          dotnet-version: '10.0.401'
 
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
@@ -151,6 +153,8 @@ jobs:
           python -m pip install ./checker-src
           if ($LASTEXITCODE) { throw "checker install failed" }
           python -c "import importlib.metadata; v = importlib.metadata.version('pkcs11-check'); assert v == '0.2.2', v; print('pkcs11-check', v)"
+          python -m pip freeze | Sort-Object | Tee-Object -FilePath checker-pip-freeze.txt
+          Get-Content checker-pip-freeze.txt
           @'
           import os
           import subprocess

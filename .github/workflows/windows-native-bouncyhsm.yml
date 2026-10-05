@@ -32,6 +32,9 @@ on:
       - "examples/windows/**"
       - ".github/workflows/windows-native-bouncyhsm.yml"
 
+permissions:
+  contents: read
+
 concurrency:
   group: windows-native-bouncyhsm-${{ github.ref }}
   cancel-in-progress: true
@@ -45,15 +48,15 @@ jobs:
         shell: pwsh
     steps:
       - name: Checkout P11Lab
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           # Pinned build SDK plus the current 10.0 patch band that satisfies
           # the bundle runtime floor; the rolling build is fenced to the pin
@@ -63,7 +66,7 @@ jobs:
             10.0.x
 
       - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
         with:
           arch: x64
 
@@ -220,7 +223,7 @@ jobs:
 
       - name: Upload restore binlog on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rolling-msbuild-binlog
           path: upstream/msbuild.binlog
@@ -248,6 +251,7 @@ jobs:
           python -m pip install ./checker-src
           python -c "import importlib.metadata; v = importlib.metadata.version('pkcs11-check'); assert v == '0.2.2', v; print('pkcs11-check', v)"
           python -m pip freeze | Sort-Object | Tee-Object -FilePath checker-pip-freeze.txt
+          Get-Content checker-pip-freeze.txt
 
       - name: Export native lane inputs
         run: |

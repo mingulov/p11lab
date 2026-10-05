@@ -106,6 +106,22 @@ jobs:
             "debian:trixie-slim@$DEBIAN_DIGEST" \
             bash -c '
               set -eu
+              # Frozen package universe: same snapshot the provider locks
+              # record (apt_snapshot) and the same .sources shape
+              # src/p11lab/build.py generates for provider images.
+              # printf lines: a heredoc would carry YAML indentation into
+              # the file and break DEB822 parsing.
+              SNAP=/etc/apt/sources.list.d/p11lab-snapshot.sources
+              printf "%s\n" "Types: deb deb-src" \
+                "URIs: http://snapshot.debian.org/archive/debian/20260918T000000Z/" \
+                "Suites: trixie trixie-updates" "Components: main" \
+                "Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp" \
+                "Check-Valid-Until: no" "" "Types: deb deb-src" \
+                "URIs: http://snapshot.debian.org/archive/debian-security/20260918T000000Z/" \
+                "Suites: trixie-security" "Components: main" \
+                "Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp" \
+                "Check-Valid-Until: no" > "$SNAP"
+              rm -f /etc/apt/sources.list.d/debian.sources
               apt-get update -qq
               apt-get install -y -qq --no-install-recommends python3 python3-pip libc6 libstdc++6 libgcc-s1 libssl3t64 zlib1g libzstd1 dash coreutils findutils mawk
               dpkg-query -W -f=\${Package}\\t\${Version}\\t\${Architecture}\\n libc6 libstdc++6 libgcc-s1 libssl3t64 zlib1g libzstd1 dash coreutils findutils mawk
