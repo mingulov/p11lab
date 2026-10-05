@@ -15,7 +15,7 @@
     "linux/amd64"
   ],
   "state_mode": "ephemeral",
-  "module_path": "/usr/local/lib/p11lab/libykcs11.so",
+  "module_path": "/usr/local/lib/libykcs11.so.2",
   "inputs": {
     "P11LAB_PIN_FILE": {
       "secret": true,
@@ -24,6 +24,11 @@
     "P11LAB_SO_PIN_FILE": {
       "secret": true,
       "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "YubiKey PIV #0"
     }
   },
   "services": [
@@ -31,44 +36,32 @@
   ],
   "channels": {
     "rolling": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/Yubico/yubico-piv-tool.git",
-        "selector": {
-          "kind": "branch",
-          "value": "master"
-        },
-        "license_status": "unreviewed",
-        "revision": "c987afb892a565d210d5d674fa2e3300e19e14da",
-        "license_observation": "BSD-2-Clause"
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "rolling.lock.json"
     },
     "release": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/Yubico/yubico-piv-tool.git",
-        "selector": {
-          "kind": "tag",
-          "value": "yubico-piv-tool-2.7.3"
-        },
-        "license_status": "unreviewed",
-        "revision": "ed1cd7862d39a92502c0476f53dfcf93f195007a",
-        "license_observation": "BSD-2-Clause"
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "release.lock.json"
     }
   },
   "application_profile": "general-token",
   "distribution": {
-    "status": "unreviewed",
-    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+    "status": "blocked",
+    "reason": "Local virtual-card candidate. Observed closure flags (virt-card patch without an explicit grant, LGPL glib, GPL-2.0-or-later dual-license options in TF-PSA-Crypto/framework sources), actual-layer/generated-content review and digest-bound source-companion delivery remain incomplete; checker/consumer/proxy admission is separate."
   },
   "constraints": [
-    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified.",
-    "Opening the virtual card resets state; persistent-token requests are unsupported.",
-    "CanoKey-core backend pins are independent of the Yubico module channel; unrelated canokey-pkcs11 is excluded."
+    "Linux amd64/glibc, virtual PIV card only. YubiKey hardware, other readers, other backends, FIPS claims and other architectures/libcs are excluded. This qualifies libykcs11 against CanoKey, never YubiKey hardware.",
+    "Both channels source-build unpatched yubico-piv-tool (release 2.7.3, rolling 2.7.3-5-gc987afb) with system OpenSSL 3.5.7 libcrypto.so.3; no legacy provider and no from-source OpenSSL. The CanoKey-core backend pin (e4a756d6 plus 7 pinned submodules) is shared across channels with two virt-card patches (target without sanitizers; IFD entry-trace silenced, warnings kept); upstream PKCS#11 semantics are unchanged.",
+    "Basic runtime has the module, libykpiv, yubico-piv-tool, the virt-card IFD handler with its reader.conf entry, pcscd, the openssl CLI, base libraries and the exact extracted closure (7 whole packages, audited with ldd receipts). USB CCID drivers, the polkitd/dbus daemons, opensc, Python, checker, datasets and tracing are excluded; nothing links them.",
+    "The caller UID may be root or non-root with any primary group; both are qualified. No NSS wrapper or fixed group is required.",
+    "Bind writable /var/lib/p11lab; private ephemeral /run/p11lab and writable /tmp (fixed virtual-card flash path) are required. /run/pcscd is an in-image symlink into the control tmpfs so the fixed daemon socket path works without a caller mount. Never share /run or /tmp with another runtime. Each shard/client owns a separate volume, container and daemon. Logs and pid state live under /run; the slot-9a key, certificate, lease and marker persist under /var/lib/p11lab/ykcs11.",
+    "The card is factory-fresh every operation by construction (reset on daemon load, not a failure mode). First init generates the slot-9a P-256 key and self-signed certificate into caller state; every operation re-personalizes the fresh card with the caller PIN/PUK and re-imports the stored identity, so card objects are byte-stable across operations. Persistent-token requests are unsupported.",
+    "Caller user/SO PINs are the PIV PIN/PUK, each 6..8 bytes single-line; init, health and exec all require both because every operation re-personalizes a fresh card. No baked caller credentials or initialized card state. The management key stays the public factory default and is never passed on argv or stdin.",
+    "The token label is fixed natively as YubiKey PIV #0 at slot 0, token-present index 0; P11LAB_LABEL defaults to it and any other value is refused. SO (PUK) login is not a PKCS#11 credential: C_Login as SO takes the user PIN or a management-key hex, and the PUK serves only PIN unblock and rotation.",
+    "init/health/exec supervise pcscd for that operation only: subreaper adoption, volume/control leases, socket plus exactly-one-CanoKey-reader plus Yubico-handshake plus native pre-login token readiness, daemon-death detection, signal forwarding, bounded logs and bounded terminate/kill/reap. exec retains pcscd for the complete application lifetime and preserves argv/status.",
+    "Provisioning uses only pinned yubico-piv-tool and openssl argv with caller secrets on bounded private stdin pipes, never argv/logs. The provision log carries only prompt names and native status lines. A card that cannot answer the Yubico handshake is refused before any PKCS#11 call.",
+    "Unknown/hidden entries, unsafe links/hardlinks/modes, changed non-secret configuration, stale daemon debris, missing key/certificate and busy state are refused before native open. Failures retain partial state for investigation.",
+    "The general-token profile is retained after native P-256 independent verification and altered-message rejection in both channels; other slots, wider mechanisms, multi-client concurrency, other readers/backends and provider-wide qualification are not asserted.",
+    "All runtime/consumer/checker/proxy artifacts remain blocked for distribution. Preserve exact provider sources, the 8-repository CanoKey closure, Debian closure sources/notices and generated build inputs; source admission, public delivery and publication are separate gates."
   ]
 }

@@ -1,0 +1,92 @@
+Silence the CanoKey virt-card IFD entry tracing by default.
+
+Upstream ifdhandler.c printf()s one line per IFD call (CreateChannel,
+CloseChannel, GetCapabilities, SetCapabilities, SetProtocolParameters,
+PowerICC, TransmitToICC). pcscd loads this handler in-process, so every
+APDU appends a line to the supervised pcscd.log; long operations (checker
+profiles) would trip the 64 KiB service-log bound and abort. The per-call
+lines carry no diagnostic content beyond call frequency.
+
+This patch guards the seven tracing printfs with VIRTCARD_TRACE_IFD
+(default off; define it to restore the trace). The anomaly warnings
+(TxLength overflow, XfrBlock errors, oversize responses) stay
+unconditional. Log output only; no APDU, protocol, card-state or
+PKCS#11-visible change. Provisioning/log-hygiene extension, not a
+semantic change.
+
+P11Lab-authored for the ykcs11 provider recipe.
+SPDX-License-Identifier: Apache-2.0
+Applies to canokey-core at
+e4a756d61e7a094f84895c7042d4029f7c135820 (both channels share one
+backend pin).
+
+Upstream: https://github.com/canokeys/canokey-core (commit e4a756d61e7a094f84895c7042d4029f7c135820)
+
+--- a/virt-card/ifdhandler.c
++++ b/virt-card/ifdhandler.c
+@@ -58,7 +58,9 @@
+ }
+ 
+ RESPONSECODE IFDHCreateChannel(DWORD Lun, DWORD Channel) {
++#ifdef VIRTCARD_TRACE_IFD
+   printf("IFDHCreateChannel %ld %ld\n", Lun, Channel);
++#endif
+   if (!applet_init) {
+     CTAPHID_Init(send_hid_report);
+     CCID_Init();
+@@ -69,7 +71,9 @@
+ }
+ 
+ RESPONSECODE IFDHCloseChannel(DWORD Lun) {
++#ifdef VIRTCARD_TRACE_IFD
+   printf("IFDHCloseChannel %ld\n", Lun);
++#endif
+   return IFD_SUCCESS;
+ }
+ 
+@@ -80,7 +84,9 @@
+ }
+ 
+ RESPONSECODE IFDHGetCapabilities(DWORD Lun, DWORD Tag, PDWORD Length, PUCHAR Value) {
++#ifdef VIRTCARD_TRACE_IFD
+   printf("IFDHGetCapabilities %ld %#lx\n", Lun, Tag);
++#endif
+   switch (Tag) {
+   case TAG_IFD_ATR:
+   case SCARD_ATTR_ATR_STRING:
+@@ -113,19 +119,25 @@
+ 
+ RESPONSECODE IFDHSetCapabilities(DWORD Lun, DWORD Tag, DWORD Length, PUCHAR Value) {
+ 
++#ifdef VIRTCARD_TRACE_IFD
+   printf("IFDHSetCapabilities %ld %#lx %ld\n", Lun, Tag, Length);
++#endif
+   return IFD_ERROR_TAG;
+ }
+ 
+ RESPONSECODE IFDHSetProtocolParameters(DWORD Lun, DWORD Protocol, UCHAR Flags, UCHAR PTS1, UCHAR PTS2, UCHAR PTS3) {
+ 
++#ifdef VIRTCARD_TRACE_IFD
+   printf("IFDHSetProtocolParameters %ld %ld %#x\n", Lun, Protocol, Flags);
++#endif
+   if (Protocol != SCARD_PROTOCOL_T1) return IFD_PROTOCOL_NOT_SUPPORTED;
+   return IFD_SUCCESS;
+ }
+ 
+ RESPONSECODE IFDHPowerICC(DWORD Lun, DWORD Action, PUCHAR Atr, PDWORD AtrLength) {
++#ifdef VIRTCARD_TRACE_IFD
+   printf("IFDHPowerICC %ld Action=%#lx\n", Lun, Action);
++#endif
+   if (Action == IFD_POWER_UP || Action == IFD_RESET) {
+     init_apdu_buffer();
+     device_init();
+@@ -142,7 +154,9 @@
+ RESPONSECODE IFDHTransmitToICC(DWORD Lun, SCARD_IO_HEADER SendPci, PUCHAR TxBuffer, DWORD TxLength, PUCHAR RxBuffer,
+                                PDWORD RxLength, PSCARD_IO_HEADER RecvPci) {
+ 
++#ifdef VIRTCARD_TRACE_IFD
+   printf("IFDHTransmitToICC %ld T=%ld\n", Lun, SendPci.Protocol);
++#endif
+   RecvPci->Protocol = SendPci.Protocol;
+   // SCARD_IO_HEADER::Length is not used according to document
+ 

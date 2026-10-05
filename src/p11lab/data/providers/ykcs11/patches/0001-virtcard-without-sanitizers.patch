@@ -1,0 +1,68 @@
+Build CanoKey's virt-card IFD handler without sanitizers.
+
+Upstream defines the u2f-virt-card target ONLY inside `if(ENABLE_TESTS)`, and ENABLE_TESTS
+unconditionally adds `--coverage -fsanitize=address -fsanitize=undefined` to every target
+(CMakeLists.txt:60-67). pcscd loads this driver with dlopen(), and an ASan runtime that
+arrives that late refuses to start:
+
+    ==23==ASan runtime does not come first in initial library list; you should either
+    link runtime to your application or manually preload it with LD_PRELOAD.
+
+pcscd then reports "No smart card readers found" and the lane produces nothing.
+
+Upstream's own answer is to LD_PRELOAD libasan/libubsan into pcscd
+(.github/workflows/tests.yml:184, test-via-pcsc/run-fido-ci-local.sh:65). That is wrong for
+this matrix: it would run the CARD EMULATOR under ASan/UBSan inside a lane that is not an
+ASan lane, so a sanitizer abort in CanoKey would be reported as a crash finding against the
+module under test (libykcs11.so) -- misattribution of exactly the kind the pool's memory
+limits are tuned to avoid. Sanitizer coverage in this repo lives in dedicated *-asan lanes.
+
+The existing VIRTCARD option already gates the virt-card revision-header helper but does
+not build the library itself.
+This patch exposes the same u2f-virt-card target under VIRTCARD, unchanged apart from
+indentation, so `-DVIRTCARD=ON` (without ENABLE_TESTS) yields a clean, uninstrumented
+driver. The ENABLE_TESTS path is untouched.
+
+Upstream: https://github.com/canokeys/canokey-core (commit e4a756d61e7a094f84895c7042d4029f7c135820)
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -294,6 +294,37 @@
+         add_virt_card_git_revision(u2f-virt-card)
+     endif()
+ endif(ENABLE_TESTS)
+ 
++# pkcs11-check: build the virt-card IFD handler WITHOUT sanitizers.
++# Upstream defines u2f-virt-card only under ENABLE_TESTS, which unconditionally adds
++# --coverage -fsanitize=address -fsanitize=undefined. pcscd dlopen()s this driver, and an
++# ASan runtime loaded that late aborts with "ASan runtime does not come first in initial
++# library list"; upstream works around that by LD_PRELOADing libasan into pcscd. Doing so
++# here would run the card emulator under ASan inside a NON-asan lane, so any sanitizer
++# abort would surface as a crash finding against the module under test. This repo keeps
++# sanitizer coverage in dedicated *-asan lanes instead, so expose the same target under
++# VIRTCARD, which carries no sanitizer flags.
++if(VIRTCARD AND NOT ENABLE_TESTS)
++pkg_search_module(PCSCLITE libpcsclite)
++if(PCSCLITE_FOUND)
++    add_library(
++        u2f-virt-card
++        SHARED
++        virt-card/usb-dummy.c
++        virt-card/device-sim.c
++        virt-card/ifdhandler.c
++        virt-card/fabrication.c
++        littlefs/bd/lfs_filebd.c
++    )
++    target_include_directories(
++        u2f-virt-card
++        SYSTEM
++        PRIVATE virt-card ${PCSCLITE_INCLUDE_DIRS} littlefs
++    )
++    target_link_libraries(u2f-virt-card ${PCSCLITE_LIBRARIES} canokey-core)
++    add_virt_card_git_revision(u2f-virt-card)
++endif()
++endif()
++
+ if(ENABLE_FUZZING)
+     add_executable(
+         afl-fuzzer

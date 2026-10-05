@@ -1321,3 +1321,135 @@ obligations, notice delivery and actual-layer review pending. See
 [FILE-NOTICES.txt](../src/p11lab/data/providers/tpm2/FILE-NOTICES.txt).
 Distribution remains blocked independently of local runtime or crypto
 results.
+
+## M6: ykcs11 release and rolling virtual-PIV tokens
+
+| Channel | Frozen source | Runtime contract | Application qualification | Distribution |
+| --- | --- | --- | --- | --- |
+| release | Tag `yubico-piv-tool-2.7.3`, revision `ed1cd7862d39a92502c0476f53dfcf93f195007a` | Source-built unpatched `libykcs11.so.2` plus `yubico-piv-tool` over supervised pcscd serving the CanoKey-core virtual PIV card, ephemeral per-operation card with re-imported stored slot-9a identity, amd64/glibc | `general-token` retained: fixed `YubiKey PIV #0` token at slot 0 with native flags `0x40d`, imported P-256 sign/verify with independent OpenSSL oracle and altered-message rejection, re-import stability and state isolation | BLOCKED: closure flags (unreviewed migrated patch grant, LGPL glib, GPL-2.0-or-later dual-license options in TF-PSA-Crypto/framework sources) with no completed corresponding-source, notice or actual-layer review |
+| rolling | `master` revision `c987afb892a565d210d5d674fa2e3300e19e14da` (`2.7.3-5-gc987afb`) | Same contract, same Debian trixie platform and frozen package roster, same shared CanoKey-core backend pin | Same `general-token` evidence, same checker outcome | Same blockers |
+
+Both channels source-build the unpatched Yubico module and tool
+(`cmake -DCMAKE_BUILD_TYPE=Release -DGENERATE_MAN_PAGES=OFF`,
+`make -j2`) against Debian system OpenSSL 3.5.7
+(`libcrypto.so.3`, no legacy provider, no from-source OpenSSL), and
+the CanoKey-core virtual-card IFD handler (`cmake -DVIRTCARD=ON
+-DCMAKE_POSITION_INDEPENDENT_CODE=ON -DENABLE_DEBUG_OUTPUT=OFF`,
+target `u2f-virt-card`) from the frozen 8-repository closure. Two
+virt-card patches apply in order through the source machinery: the
+migrated build-system patch exposing the driver target without
+sanitizers, and the P11Lab log-hygiene patch silencing the
+per-call IFD entry trace (anomaly warnings kept). Both are
+provisioning extensions; no card or PKCS#11 semantics change, and a
+declared patch that fails to apply fails the build. This lane
+qualifies libykcs11 against the CanoKey virtual card only, never
+YubiKey hardware; the excluded `canokey-pkcs11` module is not used.
+
+The caller user/SO PINs are the PIV PIN/PUK (each 6..8 bytes,
+single-line); init, health and exec all require both because every
+operation re-personalizes a factory-fresh card and re-imports the
+stored slot-9a key and certificate. The token label is fixed
+natively as `YubiKey PIV #0`; `P11LAB_LABEL` defaults to it and any
+other value is refused. On-card keygen stays native `0x13`, wrong
+PINs stay native `0xa0`, and the third consecutive wrong PIN locks
+with native `0xa4`, after which the correct PIN is also rejected
+until the next operation provisions a fresh card. The installed
+checker lane completes with full observations in both channels
+(smoke-v1, 23 nodes: 14 passed, 7 skipped, 2 xfailed, 0 failed
+in both channels); the proxy lane serves remote P-256 crypto
+verified by the independent oracle while the shared post-health
+check holds the known live-daemon state-lease ordering limit.
+Those runner outcomes stay separate from the completed provider
+observations. Acceptance is 78 passed with the 2 documented proxy
+lifecycle xfails.
+
+### Appendix: ykcs11 source, platform, credential and lifecycle boundary
+
+**Frozen source and build.** The builder compiles the module, tool
+and IFD handler from the pinned git archives with the pinned
+arguments above; the daemon closure (pcscd, openssl CLI,
+libpcsclite1 plus 4 support libraries) comes from the frozen Debian
+trixie roster (base
+`debian@sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c`,
+snapshot `20260918T000000Z`). The CanoKey-core backend pin
+(`e4a756d61e7a094f84895c7042d4029f7c135820` plus the full recursive
+submodule closure) is shared across channels. The basic runtime
+ships the module, libykpiv, the tool, the IFD handler with its
+reader.conf entry, pcscd, the openssl CLI, base libraries and the
+exact extracted closure (7 whole packages, audited with `ldd`
+receipts); USB CCID drivers, the polkitd/dbus daemons, opensc,
+Python, compilers, checker, datasets and tracing are excluded and
+nothing links them. Runtime images measure about 136 MB per
+channel. `/run/pcscd` is an in-image symlink into the private
+control tmpfs, so the fixed daemon socket path works under
+read-only runners with no caller mount.
+
+**Service topology and provisioning.** pcscd runs as a supervised
+foreground child for the operation/application lifetime only; each
+shard/client owns a separate volume, container, daemon and private
+network namespace. The supervisor gates readiness on socket accept
+plus exactly-one-CanoKey-reader plus a Yubico status handshake plus
+a native pre-login token round-trip (slot 0, label, flags `0x40d`,
+28 mechanisms, 1/1/6 object census), never process-alive alone.
+The virtual card fabricates its littlefs flash at a fixed path
+under `/tmp` on channel open, so card state is ephemeral by
+construction; first init generates the slot-9a P-256 key and
+self-signed certificate into caller state with the openssl CLI,
+and every operation re-personalizes the fresh card with the caller
+PIN/PUK and re-imports that stored identity. The daemon, socket,
+logs and pid files live under ephemeral `/run/p11lab/ykcs11`; the
+slot-9a key, certificate, lease and marker persist under
+`/var/lib/p11lab/ykcs11`. No baked credentials or initialized card
+state ship, and the management key stays the public factory
+default, never passed on argv or stdin.
+
+**PIN, label, token and retry budget.** The token reports native
+flags `0x40d` with pin lengths 6..64 (the module reports the
+management-key length as the maximum) and a 28-mechanism roster;
+`C_InitPIN` is natively unsupported (`0x54`) and SO login is not
+the PUK. Every wrong-PIN login burns one try natively, the third
+consecutive wrong attempt locks immediately, and PUK unblock and
+rotation follow the native 3-try budget. Re-provisioning accepts
+changed credential files because no cross-operation PIN continuity
+exists; the stored identity bytes are untouched. No silent reset
+or retry of native state-changing calls exists.
+
+**Readiness, supervision and reset.** Supply caller-owned
+mode-0700 writable `/var/lib/p11lab`, a private mode-0700
+`/run/p11lab` and writable `/tmp`; the caller UID may be root or
+non-root with any primary group. `init`, `health` and
+`exec -- ARGV...` share the entrypoint plus C supervisor:
+exclusive volume lease and private control lock, static
+ownership/mode/link/roster checks (exact owned roster, exact-byte
+marker binding the runtime artifact to the stored identity
+hashes) before any daemon starts, then real readiness gating,
+daemon-death detection, signal forwarding with TERM/KILL
+escalation, bounded logs and subreaper cleanup. The preferred
+proxy daemon uses the same supervised `exec` lifetime, so no
+permanent `server`/`server-ready` operation exists. All state
+files are byte-stable across operations, so every lane compares
+exact bytes. Reset is explicit caller removal/replacement of
+disposable state after all operations stop; persistent-token
+requests are unsupported. Crash/power-loss recovery is
+unqualified.
+
+**Qualification limits.** `general-token` means exactly the proven
+observation: the fixed-label token at slot 0 with the native
+roster, imported P-256 sign/verify with the independent oracle,
+re-import stability and state isolation, native
+generated-mode/wrong-PIN/lockout errors, the PIN hammer
+observation, and the completed checker profile. Other PIV slots,
+wider mechanisms, multi-client concurrency, other readers or
+backends, YubiKey hardware, FIPS claims and provider-wide
+qualification are not asserted. Optional checker/consumer/proxy
+artifacts have separate provenance and admission.
+
+The module source is BSD-2-Clause and the CanoKey core, crypto and
+PSA sources carry their own Apache/MIT/BSD/dual-license terms, but
+the image closure carries blocking flags: the unreviewed migrated
+patch grant, LGPL glib and GPL-2.0-or-later dual-license options
+in TF-PSA-Crypto/framework sources, with base-package source
+obligations, notice delivery and actual-layer review pending. See
+[FILE-NOTICES.txt](../src/p11lab/data/providers/ykcs11/FILE-NOTICES.txt).
+Distribution remains blocked independently of local runtime or crypto
+results.

@@ -1,0 +1,94 @@
+P11Lab ykcs11 provider file notices
+
+Original P11Lab Dockerfile, entrypoint.sh, provision.c,
+canokey-reader.conf and runtime-debs.txt: Apache-2.0, root LICENSE.
+These separate orchestration modules do not relicense Yubico,
+CanoKey or the Debian closure. No reference script text, credentials
+or initialized card data is copied. The pkcs11-check-ws reference lane
+(docker/ykcs11-canokey) informed only the pcscd/IFD topology, the
+provisioning sequence shape and the patch starting point; this recipe
+re-derives sources, pins, supervision and the credential model, and
+provisions caller PINs over stdin where the reference uses argv.
+No simulated PKCS#11 calls and no silent behavior changes exist.
+
+yubico-piv-tool: https://github.com/Yubico/yubico-piv-tool.git
+release yubico-piv-tool-2.7.3: ed1cd7862d39a92502c0476f53dfcf93f195007a
+rolling master snapshot 2.7.3-5-gc987afb: c987afb892a565d210d5d674fa2e3300e19e14da
+Root COPYING: BSD-2-Clause (identical in both channels). The build
+compiles the module (libykcs11), its support library (libykpiv) and
+the yubico-piv-tool provisioning CLI from the pinned archive with
+cmake Release defaults; only man-page generation is disabled. The
+management key stays the public factory default compiled into the
+tool; the recipe never passes it on argv or stdin.
+
+CanoKey-core backend (shared pin across both Yubico channels):
+https://github.com/canokeys/canokey-core.git at
+e4a756d61e7a094f84895c7042d4029f7c135820 (Apache-2.0), plus the full
+recursive submodule closure, each pinned by commit revision:
+canokey-crypto dfd44678ffbd8ffd4ae962e91bb288d09c854108
+(Apache-2.0), littlefs 6cb4e86540eca0d9ba62500a298385c9d863c8be
+(BSD-3-Clause ARM), tinycbor 6442e749ca811e24afad1551338a45c75e09808f
+(MIT), TF-PSA-Crypto 0ef26791ceb1445b0563c40b8e2c073000245a7d
+(Apache-2.0 OR GPL-2.0-or-later), mlkem-native
+d2cae2be522a67bfae26100fdb520576f1b2ef90 (Apache-2.0 OR ISC OR MIT),
+mldsa-native 5772b4f4a0105694b1203abb582273f78fa951b7
+(Apache-2.0 OR ISC OR MIT), mbedtls-framework
+e79f4fdd4877e79a92e6b1e5965132ff0c5cc729 (Apache-2.0 OR
+GPL-2.0-or-later). Only the u2f-virt-card IFD handler target is
+built; the dual-licensed TF-PSA-Crypto sources are taken under
+their Apache-2.0 option for this build, and the framework
+contributes build-time generation scripts. All eight license texts
+ship in-image. The unrelated canokey-pkcs11 module is excluded.
+
+Virt-card patch patches/0001-virtcard-without-sanitizers.patch:
+migrated byte-identical from the pkcs11-check-ws workspace
+(github.com/mingulov/pkcs11-check-ws,
+docker/ykcs11-canokey/patches/, added in 8f64c0e, last touched in
+4edfd88; no license file at the workspace root and no grant header
+in the patch file, so its own license stays UNREVIEWED). It exposes
+upstream's own u2f-virt-card target definition under the existing
+VIRTCARD option instead of ENABLE_TESTS, which would otherwise force
+AddressSanitizer/UBSanitizer flags onto a driver pcscd dlopen()s; a
+sanitizer-instrumented driver aborts inside pcscd and yields no
+readers. This is a build-system provisioning extension: the
+ENABLE_TESTS path is untouched, no card or PKCS#11 semantics change,
+and the build fails closed if the driver links sanitizer runtimes.
+A declared patch that fails to apply fails source resolution before
+any build starts.
+
+Virt-card patch patches/0002-virtcard-quiet-ifd.patch is P11Lab-authored
+for this recipe (SPDX-License-Identifier: Apache-2.0, same as the
+recipe). It guards the seven unconditional IFD entry-trace printfs in
+virt-card/ifdhandler.c with VIRTCARD_TRACE_IFD (default off); the
+anomaly warnings stay unconditional. Without it every APDU appends
+pcscd.log lines in-process and long operations trip the supervised
+64 KiB service-log bound. Log output only: no APDU, protocol,
+card-state or PKCS#11-visible change. This is a provisioning/log-hygiene
+extension, not a semantic change.
+
+Daemon closure ships as exact extracted Debian package bytes, not
+rebuilt sources: 7 whole packages (pcscd, openssl, libpcsclite1 plus
+the proven link closure), audited with ldd receipts. Whole-package
+/usr/share/doc copyright files ship inside the image. libccid (USB
+driver bundles) and the polkitd/dbus daemons are installed in the
+builder to satisfy dependencies but never extracted: nothing links
+them, and no USB driver may be visible to pcscd. The p11-kit PKCS#11
+build header has a permissive unrestricted-copy notice and the
+libpcsclite headers ship under their package copyright; both
+headers' notices are retained. libp11-kit itself is not linked.
+
+Observed closure license flags requiring review before any distribution:
+the virt-card patch without an explicit grant, LGPL terms in the glib
+stack, and GPL-2.0-or-later dual-license options in TF-PSA-Crypto and
+mbedtls-framework sources. Provider BSD/Apache licensing alone does
+not clear the image. Corresponding-source, notice and source-access
+obligations for the actual extracted set are incomplete; no source
+companion is delivered here. Build-only package presence in the lock
+does not mean its contents ship; the extraction manifest identifies
+runtime bytes exactly.
+
+POLICY: local candidate only. Actual-layer licensing, generated content,
+source companions, distributor source access and digest-bound delivery are
+incomplete. Distribution remains BLOCKED. Consumer, checker, proxy and
+datasets are separately assessed artifacts. No push, external cache export,
+tag, release or publication is authorized here.
