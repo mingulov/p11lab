@@ -1,14 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# Release-channel source-first delivery. Dispatch-only; the coordinator
-# triggers one run per provider. Sequence per run: seal licensed sources from
-# locked inputs -> build and test the exact binary -> publish the sealed
-# source -> read it back anonymously -> admit actual content -> expose the
-# binary (verdict-gated) -> finalize the handoff. A missing/private/expired
+# Source-first delivery for one locked channel. Dispatch-only; the coordinator
+# triggers one run per provider and channel. Sequence per run: seal licensed
+# sources from locked inputs -> build and test the exact binary -> publish the
+# sealed source -> read it back anonymously -> admit actual content -> expose
+# the binary (verdict-gated) -> finalize the handoff. A missing/private/expired
 # source companion, input mismatch, or newly discovered dependency stops
 # binary upload: the admit job fails and expose-binary never runs.
 # Delivery opens per provider; the test step below covers softhsm2 and fails
 # closed for other environments until their delivery test is authored.
-name: provider-release
+# Release and rolling share this workflow; the channel input selects the lock,
+# and concurrency plus artifact names stay per-channel so runs never collide.
+name: provider-delivery
 
 on:
   workflow_dispatch:
@@ -17,6 +19,10 @@ on:
         description: 'Catalogue environment ID.'
         required: true
         default: 'softhsm2'
+      channel:
+        description: 'Locked channel: release or rolling.'
+        required: true
+        default: 'release'
       registry:
         description: 'Registry package for delivery artifacts.'
         required: true
@@ -26,7 +32,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: provider-release-${{ inputs.environment }}
+  group: provider-${{ inputs.channel }}-${{ inputs.environment }}
   cancel-in-progress: false
 
 jobs:
@@ -63,19 +69,19 @@ jobs:
           sha256sum dist-wheel/* > wheel.sha256
           cat wheel.sha256
 
-      - name: Resolve and seal release sources
+      - name: Resolve and seal ${{ inputs.channel }} sources
         shell: bash
         run: |
           set -eu
-          p11lab resolve "${{ inputs.environment }}" --channel release --output-dir resolve-out
-          p11lab publish seal-sources "${{ inputs.environment }}" --channel release \
+          p11lab resolve "${{ inputs.environment }}" --channel ${{ inputs.channel }} --output-dir resolve-out
+          p11lab publish seal-sources "${{ inputs.environment }}" --channel ${{ inputs.channel }} \
             --resolved-dir resolve-out --output-dir seal-out
 
       - name: Build the exact runtime binary
         shell: bash
         run: |
           set -eu
-          p11lab build "${{ inputs.environment }}" --channel release --output-dir build-out
+          p11lab build "${{ inputs.environment }}" --channel ${{ inputs.channel }} --output-dir build-out
           python -c 'import json; print(json.load(open("build-out/artifact.json"))["artifact"]["reference"])'
 
       - name: Test with the installed C consumer and OpenSSL oracle
@@ -85,7 +91,7 @@ jobs:
           PROVIDER_ID=$(python -c 'import json; print(json.load(open("build-out/artifact.json"))["artifact"]["reference"])')
           docker tag "$PROVIDER_ID" p11lab-local-provider:consumer-parent
           test "$(docker image inspect --format '{{.Id}}' p11lab-local-provider:consumer-parent)" = "$PROVIDER_ID"
-          python examples/linux/prepare-consumer.py --channel release --output-dir consumer-context
+          python examples/linux/prepare-consumer.py --channel ${{ inputs.channel }} --output-dir consumer-context
           docker build --platform linux/amd64 --provenance=false \
             --build-arg PROVIDER_IMAGE=p11lab-local-provider:consumer-parent \
             --iidfile consumer-id consumer-context
@@ -93,7 +99,7 @@ jobs:
           printf '1234' > pin
           printf '12345678' > so-pin
           chmod 600 pin so-pin
-          p11lab run softhsm2 --channel release --artifact "$CONSUMER_ID" \
+          p11lab run softhsm2 --channel ${{ inputs.channel }} --artifact "$CONSUMER_ID" \
             --input "P11LAB_PIN_FILE=$PWD/pin" --input "P11LAB_SO_PIN_FILE=$PWD/so-pin" \
             --output-dir smoke-run -- \
             p11lab-smoke --module /usr/local/lib/p11lab/libsofthsm2.so \
@@ -126,7 +132,7 @@ jobs:
       - name: Upload job transport (short-lived; registry is the durable record)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: provider-release-build
+          name: provider-${{ inputs.channel }}-build
           retention-days: 1
           path: transport-build.tar.gz
 
@@ -158,7 +164,7 @@ jobs:
       - name: Download job transport
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: provider-release-build
+          name: provider-${{ inputs.channel }}-build
           path: transport-dl
 
       - name: Unpack job transport
@@ -178,7 +184,7 @@ jobs:
           import json, sys
           from p11lab.publish import artifact_tag, verify_sealed_archive
           manifest = verify_sealed_archive("seal-out/sealed-source.tar.gz", "seal-check")
-          assert (manifest["environment"], manifest["channel"]) == ("${{ inputs.environment }}", "release"), manifest
+          assert (manifest["environment"], manifest["channel"]) == ("${{ inputs.environment }}", "${{ inputs.channel }}"), manifest
           receipt = json.load(open("seal-out/sealed-source.json"))
           tag = artifact_tag("src", receipt["environment"], receipt["channel"], receipt["archive_sha256"])
           Path = __import__("pathlib").Path
@@ -210,7 +216,7 @@ jobs:
       - name: Upload the sealed receipt for readback
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: provider-release-seal
+          name: provider-${{ inputs.channel }}-seal
           retention-days: 1
           path: transport-seal.tar.gz
 
@@ -243,7 +249,7 @@ jobs:
       - name: Download job transport
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: provider-release-seal
+          name: provider-${{ inputs.channel }}-seal
           path: transport-dl
 
       - name: Unpack job transport
@@ -292,7 +298,7 @@ jobs:
       - name: Upload the readback proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: provider-release-readback
+          name: provider-${{ inputs.channel }}-readback
           retention-days: 1
           path: transport-readback.tar.gz
 
@@ -318,13 +324,13 @@ jobs:
       - name: Download job transports
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: provider-release-build
+          name: provider-${{ inputs.channel }}-build
           path: build-dl
 
       - name: Download the readback proof
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: provider-release-readback
+          name: provider-${{ inputs.channel }}-readback
           path: readback-dl
 
       - name: Unpack job transports
@@ -344,11 +350,11 @@ jobs:
           BIN_SHA=$(python -c 'import json; print(json.load(open("build-transport/build-out/artifact.json"))["artifact"]["sha256"])')
           WHEEL_SHA=$(cut -d' ' -f1 build-transport/meta/wheel.sha256)
           SRC_MANIFEST_DIGEST=$(python -c 'import json; print(json.load(open("readback-transport/pushed-src.json"))["digest"].removeprefix("sha256:"))')
-          p11lab publish check-inputs "${{ inputs.environment }}" --channel release \
+          p11lab publish check-inputs "${{ inputs.environment }}" --channel ${{ inputs.channel }} \
             --sealed-manifest readback-transport/readback/extract/sealed.json \
             --build-receipt build-transport/build-out/artifact.json
           set +e
-          p11lab publish admit "${{ inputs.environment }}" --channel release \
+          p11lab publish admit "${{ inputs.environment }}" --channel ${{ inputs.channel }} \
             --sealed-receipt build-transport/seal-out/sealed-source.json \
             --sealed-manifest readback-transport/readback/extract/sealed.json \
             --readback-proof readback-transport/readback/readback-proof.json \
@@ -382,7 +388,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: provider-release-admission
+          name: provider-${{ inputs.channel }}-admission
           retention-days: 1
           path: transport-admission.tar.gz
 
@@ -418,13 +424,13 @@ jobs:
       - name: Download job transports
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: provider-release-build
+          name: provider-${{ inputs.channel }}-build
           path: build-dl
 
       - name: Download the admission record
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: provider-release-admission
+          name: provider-${{ inputs.channel }}-admission
           path: admit-dl
 
       - name: Unpack job transports
@@ -449,12 +455,12 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$(echo '${{ inputs.registry }}' | cut -d/ -f1)" --username "${{ github.actor }}" --password-stdin
           # The tag alias is computed after the push fixes the index digest.
           # One reused staging alias per environment: no tag accumulation.
-          STAGE_TAG="t13-staging-release-${{ inputs.environment }}"
+          STAGE_TAG="t13-staging-${{ inputs.channel }}-${{ inputs.environment }}"
           docker tag "$PROVIDER_ID" "${{ inputs.registry }}:$STAGE_TAG"
           docker push "${{ inputs.registry }}:$STAGE_TAG"
           docker buildx imagetools inspect "${{ inputs.registry }}:$STAGE_TAG" --raw > pushed-manifest.json
           INDEX_DIGEST="sha256:$(sha256sum pushed-manifest.json | cut -d' ' -f1)"
-          RT_TAG=$(python -c "from p11lab.publish import artifact_tag; print(artifact_tag('rt', '${{ inputs.environment }}', 'release', '$INDEX_DIGEST'.removeprefix('sha256:')))")
+          RT_TAG=$(python -c "from p11lab.publish import artifact_tag; print(artifact_tag('rt', '${{ inputs.environment }}', '${{ inputs.channel }}', '$INDEX_DIGEST'.removeprefix('sha256:')))")
           docker tag "$PROVIDER_ID" "${{ inputs.registry }}:$RT_TAG"
           docker push "${{ inputs.registry }}:$RT_TAG"
           docker buildx imagetools inspect "${{ inputs.registry }}:$RT_TAG" --raw > pushed-rt-manifest.json
@@ -485,7 +491,7 @@ jobs:
       - name: Upload the exposure evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: provider-release-exposure
+          name: provider-${{ inputs.channel }}-exposure
           retention-days: 1
           path: transport-exposure.tar.gz
 
@@ -519,13 +525,13 @@ jobs:
       - name: Download the admission record
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: provider-release-admission
+          name: provider-${{ inputs.channel }}-admission
           path: admit-dl
 
       - name: Download the exposure evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: provider-release-exposure
+          name: provider-${{ inputs.channel }}-exposure
           path: exposure-dl
 
       - name: Unpack job transports
@@ -550,7 +556,7 @@ jobs:
             --pulled-inspect exposure-transport/pulled-inspect.json \
             --registry "${{ inputs.registry }}" --output-dir handoff-out
           HANDOFF_SHA=$(sha256sum handoff-out/handoff.json | cut -d' ' -f1)
-          HANDOFF_TAG=$(python -c "from p11lab.publish import artifact_tag; print(artifact_tag('handoff', '${{ inputs.environment }}', 'release', '$HANDOFF_SHA'))")
+          HANDOFF_TAG=$(python -c "from p11lab.publish import artifact_tag; print(artifact_tag('handoff', '${{ inputs.environment }}', '${{ inputs.channel }}', '$HANDOFF_SHA'))")
           echo "${{ secrets.GITHUB_TOKEN }}" | "$P11LAB_ORAS" login "$(echo '${{ inputs.registry }}' | cut -d/ -f1)" --username "${{ github.actor }}" --password-stdin
           cd handoff-out
           "$P11LAB_ORAS" push --artifact-type application/vnd.p11lab.handoff.v1 \

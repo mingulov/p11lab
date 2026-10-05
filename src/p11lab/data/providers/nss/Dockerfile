@@ -20,6 +20,10 @@ COPY source.sha256 /tmp/source.sha256
 RUN cd /tmp && sha256sum -c source.sha256 && mkdir -p /build/nss && tar -xf source.tar -C /build/nss
 COPY nspr-manifest.txt /tmp/nspr-manifest.txt
 COPY nspr-manifest.sh /tmp/nspr-manifest.sh
+# NSPR_TAG in the manifest is evidence-only (which branch the revision came
+# from), never a fetch pin: the tarball below is revision-bound through
+# NSPR_URL and verified by NSPR_SHA256 plus NSPR_SIZE. The manifest file
+# itself stays a strict six-line machine format and cannot carry this note.
 RUN . /tmp/nspr-manifest.sh && p11lab_nspr_manifest /tmp/nspr-manifest.txt \
  && curl -fsSL --retry 3 --retry-all-errors -o /tmp/nspr.tar.gz "$NSPR_URL" \
  && echo "$NSPR_SHA256  /tmp/nspr.tar.gz" | sha256sum -c - \

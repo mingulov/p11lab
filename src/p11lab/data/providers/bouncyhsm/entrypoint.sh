@@ -223,13 +223,13 @@ case "${1-}" in
         ;;
     server-ready)
         # Verify an already-running server: HTTP health, native operation and
-        # the provisioned labeled slot. Used by external supervisors.
+        # the provisioned labeled slot. Used by external supervisors. No
+        # pidfile is consulted: nothing writes one, kill -0 cannot prove the
+        # PID still belongs to the server, and the health plus native checks
+        # below strictly dominate a liveness guess.
         [ "$#" -eq 1 ] || p11lab_die "server-ready takes no arguments"
         validate_label
         static_state complete
-        server_pid=$(cat "$control/server.pid" 2>/dev/null || true)
-        [ -n "$server_pid" ] || p11lab_die "server-ready requires a supervised server pid file"
-        kill -0 "$server_pid" 2>/dev/null || p11lab_die "supervised server is not running"
         wait_health || exit 1
         native_slots >/dev/null || p11lab_die "native readiness failed"
         complete

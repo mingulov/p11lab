@@ -34,7 +34,7 @@ done
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT INT TERM
 archive="$work/oras.tar.gz"
-curl --fail --silent --show-error --location --retry 3 --output "$archive" "$ORAS_URL"
+curl --fail --silent --show-error --location --proto '=https' --retry 3 --output "$archive" "$ORAS_URL"
 size="$(wc -c < "$archive")"
 if [ "$size" != "$ORAS_SIZE" ]; then
   echo "install-oras.sh: size mismatch: got $size want $ORAS_SIZE" >&2; exit 1

@@ -72,16 +72,17 @@ ACTION_PINS = {
     "ilammy/msvc-dev-cmd": {"tag": "v1", "sha": "0b201ec74fa43914dc39ae48a89fd1d8cb592756"},
 }
 PUBLISH_WORKFLOWS = (
-    "provider-release.yml",
-    "provider-rolling.yml",
+    "provider-delivery.yml",
     "native-delivery.yml",
     "clean-consumer-windows.yml",
+    "windows-native-bouncyhsm.yml",
 )
 
 # Registry tag roles inside the single package. Tags are aliases; only the
 # recorded digest identifies an artifact for acquisition.
 TAG_ROLES = ("src", "rt", "sbom", "native", "handoff")
 _TAG_ENV = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
+_PLATFORM = re.compile(r"[a-z0-9]+/[a-z0-9]+\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _DIGEST_REF = re.compile(r"(?P<repo>[a-z0-9._/-]+(?::[0-9]+)?/[a-z0-9._/-]+)@sha256:(?P<digest>[0-9a-f]{64})\Z")
 _REPO = re.compile(r"[a-z0-9._/-]+(?::[0-9]+)?/[a-z0-9._/-]+\Z")
@@ -187,8 +188,14 @@ def validate_action_inputs(values: dict) -> dict:
     normalized["command_argv"] = command
     entries = []
     if normalized["inputs"]:
+        # Names fail fast on padding (a padded name would fail opaquely in
+        # the runner); values pass through byte-identical unless empty.
+        # Duplicate names stay the CLI's job and are caught downstream.
         for line in normalized["inputs"].splitlines():
-            _require("=" in line and line.split("=", 1)[0].strip(), "action inputs must be NAME=VALUE lines")
+            name, sep, value = line.partition("=")
+            _require(sep, "action inputs must be NAME=VALUE lines")
+            _require(name and name == name.strip(), "action inputs names must not carry whitespace")
+            _require(value.strip(), "action inputs values must not be empty")
             entries.append(line)
     normalized["input_entries"] = entries
     try:
@@ -199,6 +206,8 @@ def validate_action_inputs(values: dict) -> dict:
     normalized["timeout_seconds"] = timeout
     _require("\0" not in normalized["state-dir"] and "\0" not in normalized["working-directory"],
              "action paths must not contain NUL bytes")
+    _require(".." not in normalized["working-directory"].replace("\\", "/").split("/"),
+             "action working-directory must stay inside the caller checkout")
     return normalized
 
 
@@ -376,6 +385,14 @@ def seal_native_source(spec: dict, output_dir: Path) -> dict:
     return _seal_common(output_dir, files, manifest, "native")
 
 
+# Tar-posture note (arch #8): this verifier is bound-based (1 GiB/member,
+# 4 GiB total, 50k members) rather than roster-strict like bundle.py
+# because the roster itself ships inside the archive: the caller first
+# authenticates the whole bytes against the seal receipt digest, and this
+# function then checks SHA256SUMS/sealed.json manifest-equality within
+# extraction bounds. bundle.py instead checks an externally declared
+# expected roster. sources.py shares these bounds for the same
+# inside-roster reason during companion verification.
 def verify_sealed_archive(archive: Path, output_dir: Path) -> dict:
     """Extract a sealed source into a new owned directory and verify every byte."""
     from .licenses import relative_path
@@ -618,6 +635,30 @@ def show_handoff(path: Path) -> dict:
     return value
 
 
+def _claimed_artifact_blocker(*, artifact_kind: str, artifact_reference: str, artifact_digest: str,
+                             build_receipt_path: Path) -> str | None:
+    """Bind the claimed artifact to the build receipt's own artifact field.
+
+    Input matching alone cannot catch a swapped claim: the sealed inputs
+    describe what was built, not which bytes the claim names. Images bind
+    by engine reference (an engine ID is the identity); bundles bind by
+    file digest only, since the claim path legitimately differs from the
+    build output path across CI jobs while the bytes must not.
+    """
+    built = _read_json(build_receipt_path).get("artifact")
+    if not isinstance(built, dict):
+        return "claimed artifact is unbound: build receipt carries no artifact identity"
+    if artifact_kind == "docker-local":
+        if built.get("reference") != artifact_reference or built.get("sha256") != artifact_digest:
+            return ("claimed artifact differs from the built artifact: "
+                    f"claim {artifact_reference} != receipt {built.get('reference')}")
+        return None
+    if built.get("sha256") != artifact_digest:
+        return ("claimed artifact differs from the built artifact: "
+                f"claim sha256:{artifact_digest} != receipt sha256:{built.get('sha256')}")
+    return None
+
+
 def admit(*, artifact_kind: str, artifact_reference: str, artifact_digest: str, platform: str,
          sealed_receipt_path: Path, sealed_manifest: dict, readback_proof: dict,
          build_receipt_path: Path, spec: dict, registry: str, evidence_dir: Path | None,
@@ -632,6 +673,8 @@ def admit(*, artifact_kind: str, artifact_reference: str, artifact_digest: str, 
     """
     _require(artifact_kind in {"docker-local", "bundle"}, "admission artifact kind must be docker-local or bundle")
     _require(_SHA256.fullmatch(artifact_digest), "admission artifact digest must be full lowercase SHA-256")
+    _require(isinstance(platform, str) and _PLATFORM.fullmatch(platform),
+             "admission platform must be os/arch in lowercase alphanumerics")
     if artifact_kind == "docker-local":
         _require(artifact_reference == "sha256:" + artifact_digest, "docker-local admission requires the exact engine image ID")
     else:
@@ -662,7 +705,19 @@ def admit(*, artifact_kind: str, artifact_reference: str, artifact_digest: str, 
              and "sha256:" + checksum(sealed_receipt_path) in layer_digests,
              "pushed source manifest does not carry the sealed bytes")
     match = check_input_match(sealed_manifest, build_receipt_path, spec, manifest=manifest)
+    if sealed_manifest.get("runtime_role") == "native":
+        # The native record keeps the verified value: a forgotten --platform
+        # (or garbage that passed the shape check) must not flow into the
+        # admission. The runtime role is cross-checked later against the
+        # pulled engine inspect at expose time instead.
+        built_platform = manifest.get("platform") if isinstance(manifest, dict) else None
+        _require(built_platform == platform,
+                 f"admission platform {platform} differs from the native manifest platform {built_platform}")
     blockers: list[str] = []
+    binding = _claimed_artifact_blocker(artifact_kind=artifact_kind, artifact_reference=artifact_reference,
+                                        artifact_digest=artifact_digest, build_receipt_path=build_receipt_path)
+    if binding is not None:
+        blockers.append(binding)
     content: dict = {"status": "blocked", "blockers": ["actual-content source/license evidence absent; distribution unreviewed"]}
     if evidence_dir is not None and (Path(evidence_dir) / "source-companion.json").is_file():
         from .licenses import assess_distribution

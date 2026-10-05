@@ -29,6 +29,16 @@ def _is_loopback(registry: str) -> bool:
     return host in {"localhost", "127.0.0.1", "::1"}
 
 
+def _local_proof_allowed() -> bool:
+    """--local-proof overrides a blocked verdict for local mechanics only.
+
+    Pasting the flag into a CI debug step would silently run blocked or
+    unreviewed content, so any CI marker refuses it. Locality beyond the
+    CI markers (loopback-only, no push) stays the operator's job.
+    """
+    return not os.environ.get("CI") and not os.environ.get("GITHUB_ACTIONS")
+
+
 def _display(argv):
     """Render argv for logs with `--input` values redacted to names only.
 
@@ -149,10 +159,14 @@ def main(argv=None) -> int:
         print(f"action-run: handoff runtime role {catalogue.get('runtime_role')} does not serve mode {values['mode']}",
               file=sys.stderr)
         return 1
-    if handoff["admission"]["status"] != "eligible" and not args.local_proof:
-        print("action-run: handoff admission is not eligible; refusing to run", file=sys.stderr)
-        return 1
     if handoff["admission"]["status"] != "eligible":
+        if not args.local_proof:
+            print("action-run: handoff admission is not eligible; refusing to run", file=sys.stderr)
+            return 1
+        if not _local_proof_allowed():
+            print("action-run: --local-proof refused: CI is set; local mechanics proof only",
+                  file=sys.stderr)
+            return 1
         print("action-run: LOCAL-PROOF OVERRIDE: proceeding despite blocked admission: "
               + "; ".join(handoff["admission"]["blockers"]))
     try:

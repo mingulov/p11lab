@@ -18,7 +18,8 @@
           "url": "https://raw.githubusercontent.com/GoogleCloudPlatform/kms-integrations/de849afa57f6e46c1268fbced15c161c532bff8b/LICENSE",
           "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
         }
-      ]
+      ],
+      "archive_sha256": "cb32ee69e591f418e5ec7f8b73e8bd0baf77a525b63947c6a43447622ff1174b"
     }
   ],
   "dependencies": [],

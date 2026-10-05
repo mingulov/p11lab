@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Frozen upstream server binaries are observed inputs, not source-built output.
-ARG BASE_IMAGE=alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
-FROM rust@sha256:7cc1c22d77d9432f7fe012a70e6d3e555af54c2a6832700ed7d553f1769ae89f AS rust-input
-FROM nitrokey/nethsm@sha256:4c9cf630aab7d4b9a76c7247844635d3dd1b78c34ff4fd473115cc59419f6e9b AS server-input
+ARG BASE_IMAGE=docker.io/library/alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+FROM docker.io/library/rust@sha256:7cc1c22d77d9432f7fe012a70e6d3e555af54c2a6832700ed7d553f1769ae89f AS rust-input
+FROM docker.io/nitrokey/nethsm@sha256:4c9cf630aab7d4b9a76c7247844635d3dd1b78c34ff4fd473115cc59419f6e9b AS server-input
 FROM ${BASE_IMAGE} AS runtime-base
 COPY apk-inputs.txt install-apks.sh apk-inventory.sh apk-indexes.txt /tmp/
 COPY expected-base.tsv expected-runtime.tsv /tmp/

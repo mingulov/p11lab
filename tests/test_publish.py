@@ -77,6 +77,37 @@ def test_validate_action_inputs_defaults_and_failures():
             publish.validate_action_inputs(values)
 
 
+def test_validate_action_inputs_rejects_parent_traversal():
+    """M6: working-directory must stay inside the caller checkout."""
+    base = {"environment": "softhsm2", "channel": "release",
+            "handoff-digest": "sha256:" + "ef" * 32, "command": '["app"]'}
+    for bad in ("..", "../x", "a/../../x", "a/..", "..\\x", "a\\..\\x"):
+        with pytest.raises(ValueError):
+            publish.validate_action_inputs(base | {"working-directory": bad})
+    for good in (".", "caller", "a/b", "a..b", "..x", "x.."):
+        assert publish.validate_action_inputs(base | {"working-directory": good})["working-directory"] == good
+
+
+def test_validate_action_inputs_hardens_input_lines():
+    """M8-code: padded names and empty values fail fast; bytes pass through."""
+    base = {"environment": "softhsm2", "channel": "release",
+            "handoff-digest": "sha256:" + "ef" * 32, "command": '["app"]'}
+    for bad in ("A=1\n FOO=x", "A=1\n\tFOO=x", "FOO =x", "A=", "A= ",
+                "A=1\n\nB=2", "=x", "NOEQUALS"):
+        with pytest.raises(ValueError):
+            publish.validate_action_inputs(base | {"inputs": bad})
+    # Boundary: the whole-block strip normalizes first-line padding (and the
+    # YAML trailing newline); inner padding is rejected, never normalized.
+    assert publish.validate_action_inputs(base | {"inputs": " FOO=x"})["input_entries"] == ["FOO=x"]
+    # Duplicates stay the CLI's job (caught downstream); values keep exact bytes.
+    assert publish.validate_action_inputs(base | {"inputs": "A=1\nA=2"})["input_entries"] == ["A=1", "A=2"]
+    assert publish.validate_action_inputs(
+        base | {"inputs": "A=x y\nP11LAB_STATE_DIR=/tmp/x"})["input_entries"] == ["A=x y", "P11LAB_STATE_DIR=/tmp/x"]
+    assert publish.validate_action_inputs(base | {"inputs": "A=x "})["input_entries"] == ["A=x"]
+    assert publish.validate_action_inputs(
+        base | {"inputs": "A=x \nB=2"})["input_entries"] == ["A=x ", "B=2"]
+
+
 def test_action_yml_matches_canonical_inputs():
     parsed = publish.action_inputs_from_yml((ROOT / "action.yml").read_text())
     assert set(parsed) == set(publish.ACTION_INPUTS)
@@ -84,6 +115,88 @@ def test_action_yml_matches_canonical_inputs():
         assert parsed[name].get("required", False) == spec.get("required", False), name
         assert parsed[name].get("default", "") == spec.get("default", ""), name
         assert parsed[name]["description"].strip(), name
+
+
+def test_action_yml_parser_pins_adversarial_but_valid_subset():
+    """A12: comments, quoting, and reordering pin the accepted subset."""
+    text = """# leading comment
+name: 'x'
+
+inputs:
+# column-zero comment inside the block
+  timeout:
+    default: "300"
+    required: false
+    description: Run timeout in seconds.
+
+  environment:
+    required: true
+    description: 'Catalogue environment ID (e.g. softhsm2).'
+
+# another column-zero comment
+  channel:
+    description: Locked channel: release or rolling.
+    required: true
+
+  mode:
+    description: 'Execution mode: direct or native.'
+    required: false
+    default: direct
+
+  registry:
+    default: 'ghcr.io/mingulov/p11lab'
+    description: Registry package holding the handoff.
+    required: false
+
+  handoff-digest:
+    required: true
+    description: Immutable handoff digest (sha256:<hex>).
+
+  command:
+    description: Application argv as a JSON array of strings.
+    required: true
+
+  inputs:
+    required: false
+    default: ''
+    description: Newline-separated NAME=VALUE provider inputs.
+
+  state-dir:
+    description: Caller-owned persistent state directory (else ephemeral).
+    default: ''
+    required: false
+
+  working-directory:
+    required: false
+    description: Caller application cwd, relative to the caller checkout.
+    default: "."
+
+outputs:
+  exit-code:
+    description: 'x'
+"""
+    parsed = publish.action_inputs_from_yml(text)
+    assert set(parsed) == set(publish.ACTION_INPUTS)
+    for name, spec in publish.ACTION_INPUTS.items():
+        assert parsed[name].get("required", False) == spec.get("required", False), name
+        assert parsed[name].get("default", "") == spec.get("default", ""), name
+    # Subset boundaries: indented comments, duplicates, unknown fields fail.
+    # (A tab-indented line silently terminates the block instead; the
+    # parity test above is the backstop, since truncation drops inputs.)
+    bad_indented_comment = text.replace("# another column-zero comment", "  # indented comment")
+    with pytest.raises(ValueError):
+        publish.action_inputs_from_yml(bad_indented_comment)
+    with pytest.raises(ValueError):
+        publish.action_inputs_from_yml(text.replace("outputs:", "  mode:\n    required: false\n\noutputs:"))
+    with pytest.raises(ValueError):
+        publish.action_inputs_from_yml(text.replace("    required: true", "    unknown: true", 1))
+
+
+def test_tar_posture_rationale_is_recorded_in_publish():
+    """A8/A9: the bound-based posture here vs roster-strict in bundle.py."""
+    text = (ROOT / "src" / "p11lab" / "publish.py").read_text()
+    for keyword in ("bound-based", "roster-strict", "bundle.py", "seal receipt digest"):
+        assert keyword in text, keyword
 
 
 def test_t13_workflows_and_action_pin_every_used_action():
@@ -105,13 +218,32 @@ def test_t13_workflows_and_action_pin_every_used_action():
         repo, _, sha = entry.partition("@")
         assert sha == publish.ACTION_PINS[repo]["sha"], entry
         checked.append(("action.yml", entry))
-    assert ("provider-release.yml", "actions/checkout@" + publish.ACTION_PINS["actions/checkout"]["sha"]) in checked
+    assert ("provider-delivery.yml", "actions/checkout@" + publish.ACTION_PINS["actions/checkout"]["sha"]) in checked
     assert any(repo == "ilammy/msvc-dev-cmd" for _, entry in checked for repo in [entry.partition("@")[0]])
+
+
+def test_provider_delivery_is_the_single_channel_workflow():
+    """A5: release+rolling collapsed into one channel-parametrized workflow."""
+    workflows = ROOT / ".github" / "workflows"
+    assert not (workflows / "provider-release.yml").exists()
+    assert not (workflows / "provider-rolling.yml").exists()
+    text = (workflows / "provider-delivery.yml").read_text()
+    assert "provider-${{ inputs.channel }}-${{ inputs.environment }}" in text
+    assert "default: 'release'" in text
+    for literal in ("--channel release", "--channel rolling", "provider-release-", "provider-rolling-",
+                    "t13-staging-release-", "t13-staging-rolling-", "'release', '", "'rolling', '"):
+        assert literal not in text, literal
+    assert publish.PUBLISH_WORKFLOWS.count("provider-delivery.yml") == 1
+
+
+def test_windows_native_workflow_is_pin_gated():
+    """I3-gate: the Windows native workflow sits inside the action-pin gate."""
+    assert "windows-native-bouncyhsm.yml" in publish.PUBLISH_WORKFLOWS
 
 
 def test_delivery_workflows_pin_toolchain_versions():
     floats = []
-    for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+    for path in [*sorted((ROOT / ".github" / "workflows").glob("*.yml")), ROOT / "action.yml"]:
         for lineno, line in enumerate(path.read_text().splitlines(), 1):
             match = re.search(r"python-version:\s*['\"]?([\d.]+)", line)
             if match and not re.fullmatch(r"\d+\.\d+\.\d+", match.group(1)):
@@ -149,7 +281,7 @@ def seal_fixture(tmp_path):
     return spec, receipt, manifest
 
 
-def build_receipt_for(tmp_path, spec, receipt, manifest, *, name="artifact.json"):
+def build_receipt_for(tmp_path, spec, receipt, manifest, *, name="artifact.json", artifact=None):
     from p11lab.build import runtime_inputs
     from p11lab.identity import artifact_key
     lock = spec["lock"]
@@ -157,6 +289,8 @@ def build_receipt_for(tmp_path, spec, receipt, manifest, *, name="artifact.json"
                         "dependencies": []}
     assert artifact_key("runtime", runtime_inputs(spec)) == manifest["build_key"]
     record = {"schema_version": 1, "build_key": manifest["build_key"], "resolved_sources": resolved_sources}
+    if artifact is not None:
+        record["artifact"] = artifact
     path = tmp_path / name
     path.write_text(json.dumps(record))
     return path
@@ -338,6 +472,161 @@ def test_admit_blocks_without_evidence_and_stamps_verdict(tmp_path):
     assert verdict["status"] == "blocked" and verdict["blockers"]
 
 
+def test_admit_binds_claimed_runtime_artifact_to_build_receipt(tmp_path):
+    """H1: a swapped engine ID is blocked even with otherwise-valid inputs."""
+    spec, receipt, manifest = seal_fixture(tmp_path)
+    built_engine = "aa" * 32
+    build = build_receipt_for(tmp_path, spec, receipt, manifest, artifact={
+        "kind": "docker-local", "reference": "sha256:" + built_engine,
+        "sha256": built_engine, "platform": "linux/amd64"})
+    proof = readback_proof_for(tmp_path, spec, receipt, manifest, name="h1rt")
+    manifest_digest, manifest_path = pushed_manifest_for(tmp_path)
+    swapped = "bb" * 32
+    result = publish.admit(artifact_kind="docker-local", artifact_reference="sha256:" + swapped,
+        artifact_digest=swapped, platform="linux/amd64",
+        sealed_receipt_path=tmp_path / "seal" / "sealed-source.json", sealed_manifest=manifest,
+        readback_proof=proof, build_receipt_path=build, spec=spec,
+        registry="127.0.0.1:5050/p11lab", evidence_dir=None, out_dir=tmp_path / "admission-h1rt",
+        producer={"p11lab_wheel_sha256": "ab" * 32},
+        source_manifest_digest=manifest_digest, source_manifest_path=manifest_path)
+    assert result["status"] == "blocked"
+    assert any("built artifact" in blocker for blocker in result["blockers"]), result["blockers"]
+
+
+def test_admit_accepts_honest_runtime_artifact_binding(tmp_path):
+    """H1: the honestly claimed engine ID carries no artifact blocker."""
+    spec, receipt, manifest = seal_fixture(tmp_path)
+    built_engine = "aa" * 32
+    build = build_receipt_for(tmp_path, spec, receipt, manifest, artifact={
+        "kind": "docker-local", "reference": "sha256:" + built_engine,
+        "sha256": built_engine, "platform": "linux/amd64"})
+    proof = readback_proof_for(tmp_path, spec, receipt, manifest, name="h1rt-ok")
+    manifest_digest, manifest_path = pushed_manifest_for(tmp_path)
+    result = publish.admit(artifact_kind="docker-local", artifact_reference="sha256:" + built_engine,
+        artifact_digest=built_engine, platform="linux/amd64",
+        sealed_receipt_path=tmp_path / "seal" / "sealed-source.json", sealed_manifest=manifest,
+        readback_proof=proof, build_receipt_path=build, spec=spec,
+        registry="127.0.0.1:5050/p11lab", evidence_dir=None, out_dir=tmp_path / "admission-h1rt-ok",
+        producer={"p11lab_wheel_sha256": "ab" * 32},
+        source_manifest_digest=manifest_digest, source_manifest_path=manifest_path)
+    assert result["status"] == "blocked"  # no content evidence
+    assert not any("built artifact" in blocker or "unbound" in blocker
+                   for blocker in result["blockers"]), result["blockers"]
+
+
+def _native_admit_fixture(tmp_path):
+    spec, receipt, manifest = seal_fixture(tmp_path)
+    binary = tmp_path / "binary.tar"
+    tiny_tar(binary)
+    digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    native_sealed = dict(manifest, runtime_role="native", target="debian13-amd64", binaries=[],
+                         parent={"reference": "sha256:" + "cc" * 32}, target_lock_sha256="dd" * 32,
+                         sources=[{"sha256": manifest["sources"][0]["sha256"],
+                                   "source": {"archive_sha256": manifest["sources"][0]["sha256"], "id": "demo"}}])
+    bundle_manifest = {"source": {"sources": [dict(native_sealed["sources"][0]["source"])],
+        "patches": []}, "build": {"identity": {"inputs": {"features": {"target_lock_sha256": "dd" * 32}}}},
+        "platform": "linux/amd64"}
+    native_spec = {"id": "softhsm2", "channel": "release", "native_target": "debian13-amd64"}
+    proof = readback_proof_for(tmp_path, spec, receipt, manifest, name="h1native")
+    proof["runtime_role"] = "native"
+    (tmp_path / "seal" / "sealed-source.json").write_text(json.dumps(
+        json.loads((tmp_path / "seal" / "sealed-source.json").read_text()) | {"runtime_role": "native"}))
+    manifest_digest, manifest_path = pushed_manifest_for(tmp_path)
+    return {"spec": native_spec, "sealed": native_sealed, "bundle_manifest": bundle_manifest,
+            "proof": proof, "binary": binary, "digest": digest, "build_key": manifest["build_key"],
+            "parent": {"reference": "sha256:" + "cc" * 32},
+            "manifest_digest": manifest_digest, "manifest_path": manifest_path}
+
+
+def _native_build_receipt(tmp_path, fixture, *, name, artifact):
+    path = tmp_path / name
+    path.write_text(json.dumps({"build_key": fixture["build_key"], "parent": fixture["parent"],
+                                "files": [], "artifact": artifact}))
+    return path
+
+
+def test_admit_binds_claimed_bundle_to_native_build_receipt(tmp_path):
+    """H1 (native): a swapped bundle digest is blocked."""
+    fixture = _native_admit_fixture(tmp_path)
+    claimed = tmp_path / "claimed.tar"
+    tiny_tar(claimed, data=b"attacker bytes")
+    swapped = hashlib.sha256(claimed.read_bytes()).hexdigest()
+    assert swapped != fixture["digest"]
+    build = _native_build_receipt(tmp_path, fixture, name="native-build-h1.json", artifact={
+        "kind": "bundle", "reference": str(fixture["binary"]), "sha256": fixture["digest"],
+        "platform": "linux/amd64"})
+    result = publish.admit(artifact_kind="bundle", artifact_reference=str(claimed),
+        artifact_digest=swapped, platform="linux/amd64",
+        sealed_receipt_path=tmp_path / "seal" / "sealed-source.json",
+        sealed_manifest=fixture["sealed"], readback_proof=fixture["proof"],
+        build_receipt_path=build, spec=fixture["spec"],
+        registry="127.0.0.1:5050/p11lab", evidence_dir=None, out_dir=tmp_path / "admission-h1native",
+        producer={"p11lab_wheel_sha256": "ab" * 32}, manifest=fixture["bundle_manifest"],
+        source_manifest_digest=fixture["manifest_digest"], source_manifest_path=fixture["manifest_path"])
+    assert result["status"] == "blocked"
+    assert any("built artifact" in blocker for blocker in result["blockers"]), result["blockers"]
+
+
+def test_admit_accepts_honest_native_bundle_binding(tmp_path):
+    """H1 (native): the honestly claimed bundle digest carries no artifact blocker."""
+    fixture = _native_admit_fixture(tmp_path)
+    build = _native_build_receipt(tmp_path, fixture, name="native-build-h1-ok.json", artifact={
+        "kind": "bundle", "reference": str(fixture["binary"]), "sha256": fixture["digest"],
+        "platform": "linux/amd64"})
+    result = publish.admit(artifact_kind="bundle", artifact_reference=str(fixture["binary"]),
+        artifact_digest=fixture["digest"], platform="linux/amd64",
+        sealed_receipt_path=tmp_path / "seal" / "sealed-source.json",
+        sealed_manifest=fixture["sealed"], readback_proof=fixture["proof"],
+        build_receipt_path=build, spec=fixture["spec"],
+        registry="127.0.0.1:5050/p11lab", evidence_dir=None, out_dir=tmp_path / "admission-h1native-ok",
+        producer={"p11lab_wheel_sha256": "ab" * 32}, manifest=fixture["bundle_manifest"],
+        source_manifest_digest=fixture["manifest_digest"], source_manifest_path=fixture["manifest_path"])
+    assert result["status"] == "blocked"  # no content evidence
+    assert not any("built artifact" in blocker or "unbound" in blocker
+                   for blocker in result["blockers"]), result["blockers"]
+
+
+def test_admit_rejects_malformed_platform(tmp_path):
+    """M7-lib: the claimed platform must be os/arch, never garbage."""
+    spec, receipt, manifest = seal_fixture(tmp_path)
+    build = build_receipt_for(tmp_path, spec, receipt, manifest)
+    proof = readback_proof_for(tmp_path, spec, receipt, manifest, name="m7shape")
+    binary = tmp_path / "binary.tar"
+    tiny_tar(binary)
+    digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    manifest_digest, manifest_path = pushed_manifest_for(tmp_path)
+    for index, bad in enumerate(["../../", "linux", "", "Linux/amd64", "linux/amd64 ",
+                                "linux//amd64", "linux/amd64\n", "x/y/z"]):
+        with pytest.raises(ValueError, match="platform"):
+            publish.admit(artifact_kind="bundle", artifact_reference=str(binary),
+                artifact_digest=digest, platform=bad,
+                sealed_receipt_path=tmp_path / "seal" / "sealed-source.json",
+                sealed_manifest=manifest, readback_proof=proof, build_receipt_path=build,
+                spec=spec, registry="127.0.0.1:5050/p11lab", evidence_dir=None,
+                out_dir=tmp_path / f"admission-m7shape-{index}",
+                producer={"p11lab_wheel_sha256": "ab" * 32},
+                source_manifest_digest=manifest_digest, source_manifest_path=manifest_path)
+
+
+def test_admit_binds_native_platform_to_bundle_manifest(tmp_path):
+    """M7-lib: a wrong-default platform never reaches the native record."""
+    fixture = _native_admit_fixture(tmp_path)
+    build = _native_build_receipt(tmp_path, fixture, name="native-build-m7.json", artifact={
+        "kind": "bundle", "reference": str(fixture["binary"]), "sha256": fixture["digest"],
+        "platform": "linux/amd64"})
+    with pytest.raises(ValueError, match="platform"):
+        publish.admit(artifact_kind="bundle", artifact_reference=str(fixture["binary"]),
+            artifact_digest=fixture["digest"], platform="windows/amd64",
+            sealed_receipt_path=tmp_path / "seal" / "sealed-source.json",
+            sealed_manifest=fixture["sealed"], readback_proof=fixture["proof"],
+            build_receipt_path=build, spec=fixture["spec"],
+            registry="127.0.0.1:5050/p11lab", evidence_dir=None,
+            out_dir=tmp_path / "admission-m7native",
+            producer={"p11lab_wheel_sha256": "ab" * 32}, manifest=fixture["bundle_manifest"],
+            source_manifest_digest=fixture["manifest_digest"],
+            source_manifest_path=fixture["manifest_path"])
+
+
 def test_admit_refuses_readback_mismatch(tmp_path):
     spec, receipt, manifest = seal_fixture(tmp_path)
     build = build_receipt_for(tmp_path, spec, receipt, manifest)
@@ -391,12 +680,13 @@ def admission_inventory(tmp_path):
 
 
 def test_admit_eligible_with_complete_evidence(tmp_path):
+    import dataclasses
     from p11lab import sources
     spec, receipt, manifest = seal_fixture(tmp_path)
     artifact, inventory = admission_inventory(tmp_path)
     evidence = tmp_path / "evidence"
     sources.collect_source_bundle(artifact, inventory, evidence)
-    build = build_receipt_for(tmp_path, spec, receipt, manifest)
+    build = build_receipt_for(tmp_path, spec, receipt, manifest, artifact=dataclasses.asdict(artifact))
     proof = readback_proof_for(tmp_path, spec, receipt, manifest, name="ok")
     manifest_digest, manifest_path = pushed_manifest_for(tmp_path)
     result = publish.admit(artifact_kind="bundle", artifact_reference=str(artifact.reference),
@@ -424,7 +714,8 @@ def test_expose_binds_pushed_bundle_after_readback(tmp_path):
     native_build_path = tmp_path / "native-build.json"
     native_build_path.write_text(json.dumps(native_build))
     bundle_manifest = {"source": {"sources": [dict(native_sealed["sources"][0]["source"])],
-        "patches": []}, "build": {"identity": {"inputs": {"features": {"target_lock_sha256": "dd" * 32}}}}}
+        "patches": []}, "build": {"identity": {"inputs": {"features": {"target_lock_sha256": "dd" * 32}}}},
+        "platform": "linux/amd64"}
     native_sealed["target_lock_sha256"] = "dd" * 32
     native_spec = {"id": "softhsm2", "channel": "release", "native_target": "debian13-amd64"}
     proof = readback_proof_for(tmp_path, spec, receipt, manifest, name="native")
@@ -468,7 +759,8 @@ def test_expose_refuses_mismatched_bytes_or_tag(tmp_path):
     native_build_path.write_text(json.dumps({"build_key": manifest["build_key"],
         "parent": {"reference": "sha256:" + "cc" * 32}, "files": []}))
     bundle_manifest = {"source": {"sources": [dict(native_sealed["sources"][0]["source"])],
-        "patches": []}, "build": {"identity": {"inputs": {"features": {"target_lock_sha256": "dd" * 32}}}}}
+        "patches": []}, "build": {"identity": {"inputs": {"features": {"target_lock_sha256": "dd" * 32}}}},
+        "platform": "linux/amd64"}
     proof = readback_proof_for(tmp_path, spec, receipt, manifest, name="refuse")
     proof["runtime_role"] = "native"
     (tmp_path / "seal" / "sealed-source.json").write_text(json.dumps(
@@ -574,6 +866,28 @@ def test_publish_cli_wiring(tmp_path, capsys):
                  "--source-manifest", str(pushed_manifest_for(tmp_path, name="cli")[1])]) == 3
     assert main(["publish", "show-handoff"]) == 2
     capsys.readouterr()
+
+
+def _action_run_module():
+    import importlib.util
+    path = ROOT / "src/p11lab/data/delivery/action-run.py"
+    spec = importlib.util.spec_from_file_location("action_run", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_local_proof_refused_on_ci(monkeypatch):
+    """H3: --local-proof is a local-mechanics hatch; CI must never use it."""
+    module = _action_run_module()
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert module._local_proof_allowed()
+    monkeypatch.setenv("CI", "true")
+    assert not module._local_proof_allowed()
+    monkeypatch.delenv("CI")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert not module._local_proof_allowed()
 
 
 def test_action_run_echo_redacts_input_values():
