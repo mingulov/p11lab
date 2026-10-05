@@ -6880,22 +6880,22 @@
     {
       "role": "recipe",
       "path": "Dockerfile",
-      "sha256": "4f94a1b808e42b8474691c8c4b9b66277829ec68c11fe9504d455260843ac9bb"
+      "sha256": "df5d04be84a5f762f891cdfd7157669a4334724f9481cc860d4553576b1cf94e"
     },
     {
       "role": "adapter",
       "path": "entrypoint.sh",
-      "sha256": "7c610c77dff0950dcc9986a57759acd6fffb332f79352fc81ff917464c195ac1"
+      "sha256": "baad913053964e0b9c485e179dfd0dae084b977b744860fb9357c54f5412836e"
     },
     {
       "role": "build-helper",
       "path": "provision.c",
-      "sha256": "0653a4478a03351108860297770a592a77934d509d1285d424353a515b991f14"
+      "sha256": "3b91171e62e86c737d951c791d0eaf3b0a5a7c6d6610d0077b893679dfd1193b"
     },
     {
       "role": "build-helper",
       "path": "IsoAppletCard.java",
-      "sha256": "73e9bb8856ea982c1b5b281b60d09f72eb6c418b8224891b9300ae21083a6d58"
+      "sha256": "02cff4711bacff5f65cbd245930329091ace49cd8959702523a69d8769e47ac1"
     },
     {
       "role": "build-helper",

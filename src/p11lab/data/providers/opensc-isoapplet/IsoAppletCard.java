@@ -15,7 +15,8 @@
 //   IsoAppletCard <host> <port> <atr-hex> <aid-hex> <applet-class>
 // The JVM exits nonzero when vpcd is unreachable, the applet cannot be
 // installed, or any input is malformed. On success it blocks forever;
-// the non-daemon IO/reloader threads keep the card serving.
+// the non-daemon IO thread keeps the card serving (the reloader thread
+// is disabled below, so it cannot keep anything alive).
 import com.licel.jcardsim.base.Simulator;
 import com.licel.jcardsim.remote.VSmartCard;
 import javacard.framework.AID;
@@ -46,10 +47,17 @@ public class IsoAppletCard {
         System.setProperty("com.licel.jcardsim.vsmartcard.host", host);
         System.setProperty("com.licel.jcardsim.vsmartcard.port", Integer.toString(port));
         System.setProperty("com.licel.jcardsim.card.ATR", args[2]);
-        // The frozen VSmartCard reloader default. The listener binds all
-        // interfaces, which under the required isolated network namespace
-        // is loopback-only; see the recipe docs.
-        System.setProperty("com.licel.jcardsim.vsmartcard.reloader.port", "8099");
+        // The frozen VSmartCard unconditionally starts its reloader
+        // thread, whose listener binds all interfaces: on the proxy
+        // bridge any peer could tear down the card and re-run
+        // VSmartCard.main with attacker-controlled config ("isolated
+        // netns is loopback-only" does not hold there). The jar is
+        // sealed, so the reloader is disabled here instead: a
+        // non-numeric port makes the thread die at Integer.parseInt
+        // before any socket exists (the NumberFormatException trace in
+        // emulator.log is the death marker), while the IO thread keeps
+        // the card serving (proven by the native census).
+        System.setProperty("com.licel.jcardsim.vsmartcard.reloader.port", "disabled");
         System.setProperty("com.licel.jcardsim.vsmartcard.reloader.delay", "1000");
 
         // Connects to vpcd (single attempt, no retry) and starts the
@@ -66,7 +74,7 @@ public class IsoAppletCard {
         sim.installApplet(aid, args[4], new byte[0], (short) 0, (byte) 0);
         System.out.println("IsoAppletCard: installed " + args[4] + " AID=" + args[3]);
         System.out.println("IsoAppletCard: card ready atr=" + args[2].toUpperCase());
-        // Block forever; the IO/reloader threads keep the JVM alive.
+        // Block forever; the IO thread keeps the JVM alive.
         Thread.currentThread().join();
     }
 

@@ -1766,7 +1766,7 @@ results.
 
 | Channel | Frozen source | Runtime contract | Application qualification | Distribution |
 | --- | --- | --- | --- | --- |
-| release | Tag `0.27.1`, revision `19868984dc4dc697af6a86d65ab32a1f19a43ea4` | Source-built `opensc-pkcs11.so` plus `pkcs15-init` over supervised pcscd and the jcardsim VSmartCard JVM emulator through the ifd-vpcd loopback handler, RAM-only card re-provisioned every operation, amd64/glibc | `general-token` falsified natively (no raw CKM_ECDSA); `isoapplet-signing` holds narrowly: fixed `JavaCard isoApplet` token at slot 0 with native flags `0x40d`, provisioned P-256/RSA-2048/P-384 keygen, RSA-2048 SHA256/RSA-PKCS sign with on-card verify and independent OpenSSL oracles plus altered-message rejection in existing, session-generated and proxy modes, P-256 ECDSA_SHA1 with oracle, SHA-256 digests, session AES and token DATA lifecycle | BLOCKED: closure flags (GPL-3.0-or-later IsoApplet and vpcd handler, Oracle-licensed javacard classes plus shaded BouncyCastle/kryo inside the pinned jar, GPL-2.0-only with Classpath exception JRE, LGPL glib) with no completed corresponding-source, notice or actual-layer review |
+| release | Tag `0.27.1`, revision `19868984dc4dc697af6a86d65ab32a1f19a43ea4` | Source-built `opensc-pkcs11.so` plus `pkcs15-init` over supervised pcscd and the jcardsim VSmartCard JVM emulator through the ifd-vpcd handler (the JVM dials 127.0.0.1:35963; the frozen handler listens wildcard), RAM-only card re-provisioned every operation, amd64/glibc | `general-token` falsified natively (no raw CKM_ECDSA); `isoapplet-signing` holds narrowly: fixed `JavaCard isoApplet` token at slot 0 with native flags `0x40d`, provisioned P-256/RSA-2048/P-384 keygen, RSA-2048 SHA256 sign with on-card verify plus raw RSA-PKCS sign with host-side oracle only, with independent OpenSSL oracles plus altered-message rejection in existing, session-generated and proxy modes for the SHA256 path (the generated-mode raw signature is produced without an independent oracle check), P-256 ECDSA_SHA1 with oracle, SHA-256 digests, session AES import/create/destroy-by-handle with the driver-dropped label and token DATA lifecycle | BLOCKED: closure flags (GPL-3.0-or-later IsoApplet and vpcd handler, Oracle-licensed javacard classes plus shaded BouncyCastle/kryo inside the pinned jar, GPL-2.0-only with Classpath exception JRE, LGPL glib) with no completed corresponding-source, notice or actual-layer review |
 | rolling | `master` revision `4f3ff5111314bde380c3d4e9e25bb1fa0169196d` (`0.27.1-339-g4f3ff51`) | Same contract, same Debian trixie platform and frozen package roster, same shared IsoApplet plus vsmartcard plus sealed-jar pins; mechanism roster, flags, bounds and keygen behavior proven identical | Same `isoapplet-signing` evidence, same checker outcome | Same blockers |
 
 Both channels source-build unpatched OpenSC
@@ -1815,10 +1815,13 @@ sign fails natively with `0x70`, session
 DATA/CERTIFICATE creation with `0x7`, and SO `C_SetPIN`
 with `0x102`. The installed checker lane completes
 with full observations in both channels (smoke-v1, 23
-nodes: 16 passed, 7 skipped, 0 failed); the proxy lane
-serves remote RSA crypto verified by the independent
-oracle while the shared post-health check holds the
-known live-daemon state-lease ordering limit. Those
+nodes; the lane gates 23 nodes plus slot identity plus
+zero failed/errors with observations complete, and the
+observed composition is 16 passed, 7 skipped, 0
+failed); the proxy lane serves remote RSA crypto
+verified by the independent oracle while the shared
+post-health check holds the known live-daemon
+state-lease ordering limit. Those
 runner outcomes stay separate from the completed
 provider observations. Acceptance is 112 passed with the 2
 documented proxy lifecycle xfails.
@@ -1858,10 +1861,18 @@ runners with no caller mount.
 JVM run as supervised foreground children for the
 operation/application lifetime only; each shard/client
 owns a separate volume, container, daemons and private
-network namespace (the emulator and vpcd use fixed
-loopback port 35963; the frozen VSmartCard reloader
-default also listens on 8099 inside that same
-namespace). The supervisor gates readiness
+network namespace. The JVM dials the frozen vpcd handler
+at 127.0.0.1:35963, but the handler itself listens
+wildcard on 35963/35964 (frozen `vicc opensock` binds
+`INADDR_ANY` with no loopback knob; only the loopback
+JVM is a legitimate peer, and the unoccupied 35964 slot
+stays exposed to bridge peers by frozen design). The
+frozen VSmartCard reloader is disabled by a non-numeric
+port (no 8099 listener exists; the NumberFormatException
+trace in emulator.log is the death marker): pre-fix, a
+bare bridge-peer TCP connect to 8099 tore down the card
+and killed the emulator. pcscd itself serves only its
+Unix socket. The supervisor gates readiness
 on socket accept plus listed vpcd slots (the JVM
 connects exactly once at startup with no retry, so it
 spawns only after pcscd listens) plus exactly one
@@ -1930,12 +1941,16 @@ recovery is unqualified.
 **Qualification limits.** `isoapplet-signing` means
 exactly the proven observation: the fixed-label token
 at slot 0 with the native roster, provisioned and
-application-provisioned RSA-2048 sign/verify with
-independent oracles, P-256 ECDSA_SHA1 with oracle,
-digests, session AES and token DATA behavior,
-keygen/wrong-PIN/lockout observations, state
-isolation via RAM-only freshness, and the completed
-checker profile. Raw ECDSA consumers, ECDH, other
+application-provisioned RSA-2048 SHA256 sign with
+on-card verify plus raw RSA-PKCS sign with host-side
+oracle only (independent oracles; the generated-mode
+raw signature has no oracle check), P-256 ECDSA_SHA1
+with oracle, digests, session AES
+import/create/destroy-by-handle with the
+driver-dropped label (find-by-label empty throughout)
+and token DATA lifecycle, keygen/wrong-PIN/lockout
+observations, state isolation via RAM-only freshness,
+and the completed checker profile. Raw ECDSA consumers, ECDH, other
 mechanisms, other key sizes, key uniqueness across
 operations, multi-client concurrency, other readers
 or backends, real smartcard hardware, FIPS claims and
@@ -1964,7 +1979,7 @@ results.
 
 | Channel | Frozen source | Runtime contract | Application qualification | Distribution |
 | --- | --- | --- | --- | --- |
-| release | Tag `0.27.1`, revision `19868984dc4dc697af6a86d65ab32a1f19a43ea4` | Source-built `opensc-pkcs11.so` over supervised pcscd and the jcardsim VSmartCard JVM emulator through the ifd-vpcd loopback handler, PIV generate plus selfsign plus import provisioning via the source-built yubico-piv-tool CLI, RAM-only card re-provisioned every operation, amd64/glibc | `general-token` holds: fixed `piv-9a` token at slot 0 with native flags `0x40d`, four provisioned identities (9a/9d ECCP256, 9c RSA2048, 9e ECCP384), raw CKM_ECDSA plus ECDSA_SHA1 P-256, ECDSA_SHA384 P-384 and RSA-2048 SHA256 plus raw RSA-PKCS sign with on-card verify and independent OpenSSL oracles plus altered-message rejection, SHA-256 digests, per-slot X.509 reads, session AES lifecycle. On-card keygen is natively absent (`0x54`) and SO login reports `0x5` | BLOCKED: closure flags (MPL-2.0 PivApplet, BSD-2-Clause yubico-piv-tool and libykpiv, GPL-3.0-or-later vpcd handler, Oracle-licensed javacard classes plus shaded BouncyCastle/kryo inside the pinned jar, GPL-2.0-only with Classpath exception JRE, LGPL glib) with no completed corresponding-source, notice or actual-layer review |
+| release | Tag `0.27.1`, revision `19868984dc4dc697af6a86d65ab32a1f19a43ea4` | Source-built `opensc-pkcs11.so` over supervised pcscd and the jcardsim VSmartCard JVM emulator through the ifd-vpcd handler (the JVM dials 127.0.0.1:35963; the frozen handler listens wildcard), PIV generate plus selfsign plus import provisioning via the source-built yubico-piv-tool CLI, RAM-only card re-provisioned every operation, amd64/glibc | `general-token` holds: fixed `piv-9a` token at slot 0 with native flags `0x40d`, four provisioned identities (9a/9d ECCP256, 9c RSA2048, 9e ECCP384), raw CKM_ECDSA plus ECDSA_SHA1 P-256, ECDSA_SHA384 P-384 and RSA-2048 SHA256 sign with on-card verify plus raw RSA-PKCS sign with host-side oracle only, all with independent OpenSSL oracles plus altered-message rejection, SHA-256 digests, per-slot X.509 reads, session AES import/create/destroy-by-handle with the driver-dropped label. On-card keygen is natively absent (`0x54`) and SO login reports `0x5` | BLOCKED: closure flags (MPL-2.0 PivApplet, BSD-2-Clause yubico-piv-tool and libykpiv, GPL-3.0-or-later vpcd handler, Oracle-licensed javacard classes plus shaded BouncyCastle/kryo inside the pinned jar, GPL-2.0-only with Classpath exception JRE, LGPL glib) with no completed corresponding-source, notice or actual-layer review |
 | rolling | `master` revision `804ad6d35c6674b8c2822228bb8b4764a775f478` (`0.27.1-346-g804ad6d3`) | Same contract, same Debian trixie platform and frozen package roster, same shared PivApplet plus piv-tool plus vsmartcard plus sealed-jar pins; mechanism IDs, flags, bounds and provisioning behavior proven identical except the RSA keySize bounds below | Same `general-token` evidence, same checker outcome; the RSA mechanism keySize bounds are `{2048,2048}` here against release `{1024,3072}` | Same blockers |
 
 Both channels source-build unpatched OpenSC
@@ -1989,11 +2004,14 @@ P11Lab host-transport patch applied, and build the
 vsmartcard ifd-vpcd handler unpatched from the frozen
 `virtualsmartcard-0.11` tree (`82bc5ad066b26ee057d2af200c1a66e3a65a9743`).
 The patch caps chained ykpiv command blocks at 254 data
-bytes so T=1 case-4S blocks never exceed the emulator's
-260-byte short-APDU ceiling; ISO 7816 chaining permits any
-block split, so the traffic stays protocol-valid for any
-peer with no PIV, PKCS#11 or simulation semantic change. A
-declared patch that fails to apply fails the build.
+bytes (Lc 0xfe) and chains while more than 254 bytes remain
+(threshold 0xfe), so no T=1 case-4S block exceeds the
+emulator's 260-byte short-APDU ceiling (a lone or final
+255-byte block would otherwise still travel as 261 bytes);
+ISO 7816 chaining permits any block split, so the traffic
+stays protocol-valid for any peer with no PIV, PKCS#11 or
+simulation semantic change. A declared patch that fails to
+apply fails the build.
 Source-building jcardsim is infeasible from freezable
 public inputs (its pom installs the proprietary Oracle
 JavaCard SDK from `JC_CLASSIC_HOME`), so the hash-sealed
@@ -2013,20 +2031,28 @@ while single-APDU operations succeeded: upstream ykpiv
 fragments chained commands into 255-byte blocks, which on
 T=1 travel as 261-byte case-4S APDUs (5 header plus 255
 data plus 1 Le) against the emulator's 260-byte buffer.
-The frozen provisioning tooling now emits 254-byte
-blocks; the emulator keeps its exact native behavior,
-including `6F00` on 261-byte short APDUs, which stays a
-disclosed unqualified surface. A second incompatibility
-found during acceptance is repaired the same way: the
-applet maps generate-with-default on slot 9c to
-PIN_ALWAYS (9a/9d map to ONCE, 9e to NEVER), which this
-driver can never serve (it reads only the discovery-object
-global policy and always issues a read between VERIFY and
-the GENERAL AUTHENTICATE final block, so the final block
-fails with 6982, surfaced as `0x101`); slot 9c is
-generated with the native `--pin-policy once`
-provisioning attribute while the applet's PIN_ALWAYS
-enforcement itself is untouched.
+The frozen provisioning tooling now emits at most
+254-byte blocks, chained and final; the emulator keeps its
+exact native behavior, including `6F00` on 261-byte short
+APDUs, which stays a disclosed unqualified surface. A
+second incompatibility
+found during acceptance is repaired the same way and
+isolated by experiment: with slot 9c generated at the
+applet default, RSA sign fails with `0x101`, while the
+identical provision with `--pin-policy once` signs,
+verifies on-card and passes the oracles. The APDU trace
+pins the mechanism: after a successful VERIFY the driver
+issues a discovery-object GET DATA (`00 CB 3F FF ...
+7E`), then the chained GENERAL AUTHENTICATE first block
+(`9000`), then the final block, which the card rejects
+with `6982`. That read between VERIFY and the GA final
+block is consistent with the source-read applet mapping
+(generate-with-default on 9c means PIN_ALWAYS, re-locked
+after any intervening command; 9a/9d map to ONCE and 9e
+to NEVER) and with a driver that never learns per-slot
+policies. Slot 9c is therefore generated with the native
+`--pin-policy once` provisioning attribute while the
+applet's PIN_ALWAYS enforcement itself is untouched.
 
 The caller user PIN and the caller SO-PUK (unblock code)
 are each 6..8 ASCII digits (the driver *reports* min 4
@@ -2049,7 +2075,8 @@ creation reports `0x54` (PIV carries fixed data objects
 only) and session DATA/CERTIFICATE creation reports
 `0x7`. The installed checker lane completes with full
 observations in both channels (smoke-v1, 23 nodes: 16
-passed, 7 skipped, 0 failed); the proxy lane serves
+passed, 7 skipped, 0 failed, composition pinned rather
+than merely zero-fail gated); the proxy lane serves
 remote RSA crypto verified by the independent oracles
 while the shared post-health check holds the known
 live-daemon state-lease ordering limit. Those runner
@@ -2093,10 +2120,18 @@ runners with no caller mount.
 JVM run as supervised foreground children for the
 operation/application lifetime only; each shard/client
 owns a separate volume, container, daemons and private
-network namespace (the emulator and vpcd use fixed
-loopback port 35963; the frozen VSmartCard reloader
-default also listens on 8099 inside that same
-namespace). The supervisor gates readiness on socket
+network namespace. The JVM dials the frozen vpcd handler
+at 127.0.0.1:35963, but the handler itself listens
+wildcard on 35963/35964 (frozen `vicc opensock` binds
+`INADDR_ANY` with no loopback knob; only the loopback
+JVM is a legitimate peer, and the unoccupied 35964 slot
+stays exposed to bridge peers by frozen design). The
+frozen VSmartCard reloader is disabled by a non-numeric
+port (no 8099 listener exists; the NumberFormatException
+trace in emulator.log is the death marker): pre-fix, a
+bare bridge-peer TCP connect to 8099 tore down the card
+and killed the emulator. pcscd itself serves only its
+Unix socket. The supervisor gates readiness on socket
 accept plus listed vpcd slots (the JVM connects exactly
 once at startup with no retry, so it spawns only after
 pcscd listens) plus exactly one vpcd reader with the
@@ -2145,10 +2180,16 @@ the setpin-then-original-PIN isolation lane re-proves
 freshness every run), so every operation provisions a
 fresh card and application objects never persist across
 operations; re-provisioning is explicit documented
-semantics, never a silent reset. Key-material
-determinism across fresh cards is unprobed for the
-ykpiv path (no modulus equality asserted). Every
-wrong-PIN login burns one try natively, the fifth
+semantics, never a silent reset. Fresh cards carry
+deterministic key material on the ykpiv path too: the
+exported RSA modulus hashes to sha256 `a3cd738f...`
+identically across 8 independent provisions spanning
+both channels (the same hash the sibling lane pins for
+its deterministic DRBG), so key uniqueness across
+operations is explicitly unqualified; isolation is
+proven by object absence and credential freshness
+instead. Every wrong-PIN login burns one try natively,
+the fifth
 consecutive wrong attempt locks (sticky `0xa4`,
 correct PIN then also rejected), and only the next
 operation's fresh provision restores the budget. No
@@ -2180,20 +2221,25 @@ Crash/power-loss recovery is unqualified.
 exactly the proven observation: the fixed-label token
 at slot 0 with the native roster, raw ECDSA plus
 ECDSA_SHA1 P-256 and ECDSA_SHA384 P-384 sign with
-independent oracles, RSA-2048 SHA256/RSA-PKCS and raw
-sign with on-card verify and independent oracles,
-SHA-256 digests, per-slot certificate reads, session
-AES behavior, keygen/SO/object-boundary observations,
+independent oracles, RSA-2048 SHA256 sign with on-card
+verify plus raw RSA-PKCS sign with host-side oracle
+only (both with independent oracles), SHA-256 digests,
+per-slot certificate reads, session AES
+import/create/destroy-by-handle with the
+driver-dropped label, the DATA/CERT boundary codes,
+the 3-cell keygen absence (session RSA, token RSA,
+session EC; no EC-token cell is run),
 wrong-PIN/lockout observations, state isolation via
-RAM-only freshness, and the completed checker
-profile. The emulator's `6F00` on 261-byte short
-APDUs, 9e PIN_NEVER pre-login use, 9d sign (same
-mechanism and curve as pinned 9a), key-material
-determinism across fresh cards, wider mechanisms,
-other key sizes, multi-client concurrency, other
-readers or backends, real smartcard hardware, FIPS
-claims and provider-wide qualification are not
-asserted. Optional checker/consumer/proxy artifacts
+RAM-only freshness, deterministic key material across
+fresh cards (uniqueness unqualified), and the
+completed checker profile. The emulator's `6F00` on
+261-byte short APDUs, 9e PIN_NEVER pre-login use, 9d
+sign (same mechanism and curve as pinned 9a), ECDH
+derive behavior (presence-gated only, no derive
+lane), wider mechanisms, other key sizes,
+multi-client concurrency, other readers or backends,
+real smartcard hardware, FIPS claims and
+provider-wide qualification are not asserted. Optional checker/consumer/proxy artifacts
 have separate provenance and admission.
 
 The OpenSC sources are LGPL-2.1 (root COPYING,

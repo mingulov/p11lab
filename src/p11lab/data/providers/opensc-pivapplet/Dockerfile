@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # OpenSC over a PivApplet card on the jcardsim VSmartCard emulator,
 # served by pcscd through the vsmartcard ifd-vpcd handler on fixed
-# loopback 35963. The module is source-built unpatched; PivApplet is
+# port 35963 (the JVM dials 127.0.0.1; the frozen handler listens
+# wildcard, disclosed in the recipe docs). The module is source-built
+# unpatched; PivApplet is
 # compiled from frozen source against the pinned Maven Central
 # jcardsim jar (source-building jcardsim needs the proprietary
 # Oracle JavaCard SDK, so the jar is the frozen input); the IFD
@@ -58,14 +60,20 @@ RUN test -f /stage-opensc/usr/local/lib/opensc-pkcs11.so \
  && test -n "$(find /stage-opensc -name 'libopensc.so.13*' -print -quit)" \
  && test -f /stage-opensc/usr/local/etc/opensc.conf
 # The frozen yubico-piv-tool chunk patch (host-transport
-# compatibility for the emulator's 255-byte send boundary; see
+# compatibility for the emulator's 260-byte short-APDU ceiling:
+# 254-byte chunks with the chain threshold at 0xfe; see
 # FILE-NOTICES) is applied by the source machinery before the
 # build context is assembled; a failed declared patch fails
-# acquisition. The post-image is asserted here as a receipt.
+# acquisition. The post-image is asserted here as a receipt,
+# covering both 0xfe sites (chained-block Lc and chain
+# threshold).
 WORKDIR /build/pivtool
 RUN --network=none grep -q 'templ\[3\], 0xfe}' lib/ykpiv.c \
  && grep -q 'never exceed 260 bytes' lib/ykpiv.c \
+ && grep -q 'in_len > 0xfe' lib/ykpiv.c \
+ && grep -q 'can never be exactly 255 bytes' lib/ykpiv.c \
  && ! grep -q 'templ\[3\], 0xff}' lib/ykpiv.c \
+ && ! grep -q 'in_len > 0xff' lib/ykpiv.c \
  && mkdir -p /build/pivtool-build && cd /build/pivtool-build \
  && cmake -DCMAKE_BUILD_TYPE=Release /build/pivtool \
  && make -j2 \

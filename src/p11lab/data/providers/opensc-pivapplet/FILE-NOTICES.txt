@@ -61,8 +61,11 @@ COPYING is the BSD 2-clause text. Built with cmake Release plus
 make -j2; only the CLI and libykpiv ship. One P11Lab-authored
 patch applies (Apache-2.0, SPDX header in the patch):
 patches/0001-ykpiv-short-apdu-chunks.patch caps chained command
-blocks at 254 data bytes so T=1 case-4S blocks never exceed the
-emulator's 260-byte short-APDU ceiling; it is a host-transport
+blocks at 254 data bytes (Lc 0xfe) and chains while more than
+254 bytes remain (threshold 0xfe), so T=1 case-4S blocks (5
+header plus data plus 1 Le) never exceed the emulator's 260-byte
+short-APDU ceiling: a lone or final 255-byte block would
+otherwise still travel as 261 bytes. It is a host-transport
 compatibility fix (ISO 7816 chaining permits any block split),
 not a provisioning extension and not a PIV, PKCS#11 or
 simulation semantic change. The emulator keeps its exact native

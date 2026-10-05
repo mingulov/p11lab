@@ -74,7 +74,16 @@ validate_static() {
         [ ! -L "$file" ] && [ -f "$file" ] && [ -r "$file" ] && [ -w "$file" ] || p11lab_die "partial or unsafe provisioned file"
         [ "$(stat -c %u "$file")" = "$(id -u)" ] && [ "$(stat -c %h "$file")" = 1 ] || p11lab_die "provisioned file ownership or hardlink mismatch"
     done
-    printf '%s\n' 'schema=1' 'provider=opensc-pivapplet' "artifact=$(cat /usr/share/p11lab/runtime-id)" "label=$marker_label" 'slot=0' 'keys=9a:eccp256,9c:rsa2048,9d:eccp256,9e:eccp384' > "$control/expected-marker"
+    # Write-then-rename: rename(2) replaces any pre-existing
+    # expected-marker entry without following a planted symlink or
+    # truncating through a planted hardlink (a direct > redirect
+    # would do either on a raced plant). The staging file is created
+    # 0600 by mktemp; a crashed run's leftover staging file is a
+    # regular owned 0600 file holding the same non-secret bytes and
+    # is ignored (never read).
+    marker_tmp=$(mktemp "$control/.expected-marker.XXXXXX") || p11lab_die "cannot stage expected marker"
+    printf '%s\n' 'schema=1' 'provider=opensc-pivapplet' "artifact=$(cat /usr/share/p11lab/runtime-id)" "label=$marker_label" 'slot=0' 'keys=9a:eccp256,9c:rsa2048,9d:eccp256,9e:eccp384' > "$marker_tmp"
+    mv -- "$marker_tmp" "$control/expected-marker"
     cmp -s -- "$control/expected-marker" "$owned/complete" || p11lab_die "incompatible non-secret initialization configuration"
 }
 

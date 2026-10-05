@@ -13,10 +13,12 @@ The marker binds the non-secret configuration only.
 The general-token profile is falsified natively (the card offers no raw
 CKM_ECDSA, so P-256 ECDSA consumers cannot run). The isoapplet-signing
 profile holds narrowly: on-card RSA-2048 plus P-256/P-384 keygen,
-RSA-2048 SHA256/RSA-PKCS sign with on-card verify and independent
-OpenSSL oracles in existing, generated and proxy modes, P-256
-ECDSA_SHA1 sign with independent oracle, SHA-256 digests, session AES
-import/create/destroy and token DATA lifecycle.
+RSA-2048 SHA256 sign with on-card verify plus raw RSA-PKCS sign with
+host-side oracle only (the generated-mode raw signature has no
+oracle check), P-256 ECDSA_SHA1 sign with independent oracle,
+SHA-256 digests, session AES import/create/destroy-by-handle with
+the driver-dropped label (find-by-label reads empty before and
+after destroy) and token DATA lifecycle.
 """
 from dataclasses import replace
 import base64
@@ -626,6 +628,79 @@ def test_state_lease_refuses_second_container(runtime):
         assert docker('wait', name).stdout.strip() == '143'
     finally:
         docker('rm', '-f', name, check=False)
+
+
+def _tcp_listeners(table):
+    # Parse /proc/net/tcp{,6}: (address-hex, port-hex) for LISTEN (0A) rows.
+    found = []
+    for line in table.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 4 and parts[3] == '0A':
+            addr, port = parts[1].rsplit(':', 1)
+            found.append((addr, port))
+    return found
+
+
+def test_reloader_8099_closed_to_bridge_peers(runtime):
+    # The frozen VSmartCard reloader is disabled via a non-numeric port
+    # (pre-fix, a bare bridge-peer TCP connect to 8099 tore down the
+    # card and killed the emulator). While a supervised application
+    # runs on a bridge network: no 8099 listener exists inside the
+    # runtime, the reloader death marker is in emulator.log, and a
+    # bridge-peer container gets ECONNREFUSED on 8099 while the
+    # disclosed wildcard vpcd listeners still answer (positive
+    # controls proving the peer really reaches the runtime).
+    channel, root, state, secrets, image, base, controls = runtime
+    assert channel in CHECKERS, 'explicit checker derivative required as bridge peer'
+    docker(*base, *controls, image, 'init')
+    net = 'p11lab-isoapplet-8099-' + uuid.uuid4().hex[:12]
+    name = 'p11lab-isoapplet-8099-' + uuid.uuid4().hex[:12]
+    docker('network', 'create', net)
+    try:
+        args = list(base[2:])
+        args[args.index('--network') + 1] = net
+        docker('run', '-d', '--name', name, *args, *controls, image, 'exec', '--', 'sh', '-c',
+               'touch /run/p11lab/app-started; sleep 300')
+        for _ in range(300):
+            started = docker('exec', name, 'test', '-f', '/run/p11lab/app-started', check=False)
+            if started.returncode == 0:
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail('supervised application did not start')
+        tcp = docker('exec', name, 'cat', '/proc/net/tcp').stdout
+        tcp6 = docker('exec', name, 'sh', '-c', 'cat /proc/net/tcp6 2>/dev/null || true').stdout
+        (root / 'tcp-listen.txt').write_text(tcp + tcp6)
+        listeners = _tcp_listeners(tcp) + _tcp_listeners(tcp6)
+        (root / 'tcp-listeners.json').write_text(json.dumps(listeners, indent=2) + '\n')
+        ports = {port for _, port in listeners}
+        assert '1FA3' not in ports, listeners
+        # The frozen vpcd handler listens wildcard (disclosed): pin it
+        # so a future loopback-only change forces a doc update.
+        assert ('00000000', '8C7B') in listeners and ('00000000', '8C7C') in listeners, listeners
+        emulator = docker('exec', name, 'cat', '/run/p11lab/opensc-isoapplet/logs/emulator.log').stdout
+        (root / 'emulator.log').write_text(emulator)
+        assert 'Start reloader server' not in emulator
+        assert 'NumberFormatException' in emulator and 'ReloadThread' in emulator
+        assert 'For input string: "disabled"' in emulator
+        runtime_ip = json.loads(docker('network', 'inspect', net).stdout)[0]['Containers']
+        runtime_ip = next(iter(runtime_ip.values()))['IPv4Address'].split('/')[0]
+        probe = ('import socket,sys;ip=sys.argv[1];'
+                 's=socket.create_connection((ip,35963),timeout=10);s.close();print("vpcd-35963:connected");'
+                 's=socket.create_connection((ip,35964),timeout=10);s.close();print("vpcd-35964:connected");'
+                 'print("reloader-8099:connect_ex=%d" % socket.socket().connect_ex((ip,8099)))')
+        peer = docker('run', '--rm', '--network', net, '--entrypoint', '/opt/p11lab-checker/bin/python3',
+                      CHECKERS[channel], '-c', probe, runtime_ip)
+        (root / 'bridge-peer.txt').write_text(peer.stdout)
+        assert 'vpcd-35963:connected' in peer.stdout
+        assert 'vpcd-35964:connected' in peer.stdout
+        assert 'reloader-8099:connect_ex=111' in peer.stdout, peer.stdout
+        # The positive-control probes are non-disruptive: the card
+        # keeps serving afterwards.
+        docker('exec', name, 'test', '-f', '/run/p11lab/app-started')
+    finally:
+        docker('rm', '-f', name, check=False)
+        docker('network', 'rm', net, check=False)
 
 
 NATIVE_PROBE = r'''

@@ -11,7 +11,11 @@ selfsign (chained GENERAL AUTHENTICATE) and every slot's
 import-certificate (chained PUT DATA) all fail natively with 6F00,
 while single-APDU operations succeed.
 
-This patch caps chained blocks at 254 data bytes (5 + 254 + 1 = 260),
+This patch caps chained blocks at 254 data bytes (Lc 0xfe) AND lowers
+the chain threshold to 0xfe (chain while in_len > 0xfe), so the final
+block can never be exactly 255 bytes either: a lone 255-byte transfer
+or a 255-byte remainder would otherwise still travel as 5 + 255 + 1 =
+261 on T=1. The maximum on-wire block is therefore 5 + 254 + 1 = 260,
 so no block can reach the emulator ceiling. ISO 7816 chaining permits
 any block split, so the resulting traffic stays protocol-valid for any
 peer, real or emulated; only transport fragmentation changes. No PIV
@@ -39,12 +43,23 @@ index b1520f6..30ae6e9 100644
 +++ b/lib/ykpiv.c
 @@ -1325,7 +1325,9 @@ ykpiv_rc _ykpiv_transfer_data(ykpiv_state *state,
    *out_len = 0;
- 
+
    do {
 -    APDU apdu = {templ[0], templ[1], templ[2], templ[3], 0xff};
 +    /* Cap chained command blocks at 254 data bytes so case-4S blocks
 +     * (5 header + data + 1 Le on T=1) never exceed 260 bytes. */
 +    APDU apdu = {templ[0], templ[1], templ[2], templ[3], 0xfe};
      unsigned char data[YKPIV_OBJ_MAX_SIZE] = {0};
- 
- 
+
+
+@@ -1339,7 +1341,9 @@ ykpiv_rc _ykpiv_transfer_data(ykpiv_state *state,
+       in_len = 0;
+       apdu_len = (pcsc_word)apdu_length;
+     } else {
+-      if(in_len > 0xff) {
++      /* Chain while more than 254 bytes remain so the final block
++       * can never be exactly 255 bytes (5+255+1=261 on T=1). */
++      if(in_len > 0xfe) {
+         apdu.st.cla |= 0x10;
+       } else {
+         apdu.st.lc = (unsigned char)in_len;

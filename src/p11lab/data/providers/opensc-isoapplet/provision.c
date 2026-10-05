@@ -172,7 +172,17 @@ static int count_objects(CK_FUNCTION_LIST_PTR f, CK_SESSION_HANDLE session,
         rv = f->C_FindObjectsInit(session, filter, 1);
     }
     if (rv) return report("C_FindObjectsInit", rv);
-    while (f->C_FindObjects(session, handles, 64, &got) == CKR_OK && got > 0) {
+    for (;;) {
+        CK_RV step = f->C_FindObjects(session, handles, 64, &got);
+        /* A mid-enumeration error is a native failure, never
+         * end-of-data: report it instead of hiding it. */
+        if (step != CKR_OK) {
+            report("C_FindObjects", step);
+            rv = f->C_FindObjectsFinal(session);
+            if (rv) return report("C_FindObjectsFinal", rv);
+            return 1;
+        }
+        if (got == 0) break;
         if (got > 64) return report("C_FindObjects", CKR_GENERAL_ERROR);
         *total += (unsigned)got;
     }
@@ -971,7 +981,9 @@ int main(int argc, char **argv)
     emulator = spawn_service(emulator_argv, LOGDIR "/emulator.log", CONTROL "/emulator.pid", CONTROL);
     if (emulator <= 0) goto cleanup;
     /* Phase 2: the emulator-backed reader with its ATR match, proving
-     * the vpcd loopback path plus the live card, never process-alive
+     * the vpcd path (the JVM dials 127.0.0.1; the frozen handler
+     * itself listens wildcard, disclosed in the recipe docs) plus
+     * the live card, never process-alive
      * alone. Then the per-operation fresh-card provisioning plus the
      * native census. Bounded; a dead service fails fast with its
      * logs. */

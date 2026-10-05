@@ -91,7 +91,7 @@
   "patches": [
     {
       "path": "patches/0001-ykpiv-short-apdu-chunks.patch",
-      "sha256": "12edf87ced3e1b5fc970605038d94c21215a448ef5f4821be392c71b7eacdf03",
+      "sha256": "6051d72b7873e11ad95128a9ff32d9e842a9bcd7c394eee337f7a8afa4a1040a",
       "license_status": "reviewed",
       "origin": "P11Lab-authored for the opensc-pivapplet provider recipe",
       "license": "Apache-2.0 (SPDX header in patch)",
@@ -7546,22 +7546,22 @@
     {
       "role": "recipe",
       "path": "Dockerfile",
-      "sha256": "39e48d08a267e19ea201b6fe640aae7176d6ccaf7606f54f6b50879075232a1b"
+      "sha256": "ca8aa8dbf4941087907fae943d5f900470cf5d11f6e6608f26036649dc166e9b"
     },
     {
       "role": "adapter",
       "path": "entrypoint.sh",
-      "sha256": "7bb1397080d22c348649fe4591dcd4d48b01981322402b3546d3bd9d78ff45af"
+      "sha256": "b9e805d093190727836ed8d325ebb7fc03c5c52853c8fdfce40f2cb3442599e2"
     },
     {
       "role": "build-helper",
       "path": "provision.c",
-      "sha256": "11c4abf16973390fbb03b9f2f6cc88a0c3feb9dbe0a43b314756c4226cd782ce"
+      "sha256": "36cfc10b39de4ad77078b36b9be8088aeec3f3801bc314e9d66376e745ff6114"
     },
     {
       "role": "build-helper",
       "path": "PivAppletCard.java",
-      "sha256": "f74c537a8092d2fb1e90b5fa7d5e79b9030b5d76492461431c91280caa0edbf7"
+      "sha256": "3c9d8308e2cd868346d9b4966b31678d5fb0b35a6beb40bcad88b60744de7744"
     },
     {
       "role": "build-helper",
@@ -7581,7 +7581,7 @@
     {
       "role": "notice",
       "path": "FILE-NOTICES.txt",
-      "sha256": "016eca1cf962a212920caba917586ca58b7152e26f6d2b2524ceed0e6723e223"
+      "sha256": "747f0f7bc843ed8e5fe5a661c5199f31b3ab99feb219df47e9c46c5de8fae3ec"
     },
     {
       "role": "adapter-common",

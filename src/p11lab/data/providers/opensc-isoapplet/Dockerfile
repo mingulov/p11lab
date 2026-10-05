@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # OpenSC over an IsoApplet card on the jcardsim VSmartCard emulator,
 # served by pcscd through the vsmartcard ifd-vpcd handler on fixed
-# loopback 35963. The module and pkcs15-init are source-built
+# port 35963 (the JVM dials 127.0.0.1; the frozen handler listens
+# wildcard, disclosed in the recipe docs). The module and
+# pkcs15-init are source-built
 # unpatched; IsoApplet is compiled from frozen source against the
 # pinned Maven Central jcardsim jar (source-building jcardsim needs
 # the proprietary Oracle JavaCard SDK, so the jar is the frozen

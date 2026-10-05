@@ -184,7 +184,17 @@ static int count_objects(CK_FUNCTION_LIST_PTR f, CK_SESSION_HANDLE session,
         rv = f->C_FindObjectsInit(session, filter, 1);
     }
     if (rv) return report("C_FindObjectsInit", rv);
-    while (f->C_FindObjects(session, handles, 64, &got) == CKR_OK && got > 0) {
+    for (;;) {
+        CK_RV step = f->C_FindObjects(session, handles, 64, &got);
+        /* A mid-enumeration error is a native failure, never
+         * end-of-data: report it instead of hiding it. */
+        if (step != CKR_OK) {
+            report("C_FindObjects", step);
+            rv = f->C_FindObjectsFinal(session);
+            if (rv) return report("C_FindObjectsFinal", rv);
+            return 1;
+        }
+        if (got == 0) break;
         if (got > 64) return report("C_FindObjects", CKR_GENERAL_ERROR);
         *total += (unsigned)got;
     }
@@ -285,9 +295,10 @@ static int native(int quiet, int *slot_id, int *present_index, unsigned *objects
      * exist). The census gates on the RSA pair plus raw ECDSA sign
      * plus ECDH derive, and requires both keygen mechanisms to be
      * absent. Mechanism flags are presence-gated because this
-     * driver reports ORed-across-algorithm flags, while actual
-     * sign/derive behavior is proven by the suite with independent
-     * oracles. */
+     * driver reports ORed-across-algorithm flags, while actual sign
+     * behavior is proven by the suite with independent oracles.
+     * ECDH derive is presence-gated only: no derive lane exists,
+     * so derive behavior is unpinned. */
     for (CK_ULONG i = 0; i < mechanisms; i++) {
         if (list[i] == CKM_RSA_PKCS_KEY_PAIR_GEN ||
             list[i] == CKM_EC_KEY_PAIR_GEN) have_keygen = 1;
@@ -724,17 +735,21 @@ static int provision_piv(const unsigned char *user, size_t ulen,
         if (seal_tmp(slots[k])) goto out;
         snprintf(pub, sizeof(pub), CONTROL "/prov-pub-%s", slots[k]);
         snprintf(cert, sizeof(cert), CONTROL "/prov-cert-%s", slots[k]);
-        /* Slot 9c is generated with --pin-policy once: the applet
-         * maps generate-with-default on 9c to PIN_ALWAYS (9a/9d map
-         * to ONCE, 9e to NEVER), and OpenSC never learns per-slot
-         * PIN policies (it reads only the discovery-object global
-         * policy) while always issuing a read between VERIFY and
-         * the GENERAL AUTHENTICATE final block -- so a
-         * PIN_ALWAYS 9c key could never sign through this
-         * driver (6982, surfaced as 0x101). The policy is a
-         * native provisioning-time key attribute (same class as
-         * the algorithm choice); the applet's PIN_ALWAYS
-         * enforcement itself is untouched. */
+        /* Slot 9c is generated with --pin-policy once: with the
+         * applet default, RSA sign on 9c fails with 0x101 while the
+         * identical provision with once succeeds (isolated by
+         * experiment; the only differing input is this flag). The
+         * APDU trace pins the mechanism: after VERIFY the driver
+         * issues a discovery-object GET DATA, then the chained
+         * GENERAL AUTHENTICATE first block (9000), then the final
+         * block, which the card rejects with 6982 -- consistent with
+         * the source-read applet mapping (generate-with-default on 9c
+         * means PIN_ALWAYS, re-locked after any intervening command;
+         * 9a/9d map to ONCE, 9e to NEVER) and a driver that never
+         * learns per-slot policies. The policy is a native
+         * provisioning-time key attribute (same class as the
+         * algorithm choice); the applet's PIN_ALWAYS enforcement
+         * itself is untouched. */
         argv[0] = TOOL; argv[1] = "-r"; argv[2] = at_reader;
         argv[3] = "-a"; argv[4] = "generate"; argv[5] = "-s"; argv[6] = (char *)slots[k];
         argv[7] = "-A"; argv[8] = (char *)algos[k];
@@ -950,10 +965,11 @@ int main(int argc, char **argv)
     emulator = spawn_service(emulator_argv, LOGDIR "/emulator.log", CONTROL "/emulator.pid", CONTROL);
     if (emulator <= 0) goto cleanup;
     /* Phase 2: the emulator-backed reader with its ATR match, proving
-     * the vpcd loopback path plus the live card, never process-alive
-     * alone. Then the per-operation fresh-card provisioning plus the
-     * native census. Bounded; a dead service fails fast with its
-     * logs. */
+     * the vpcd path (the JVM dials 127.0.0.1; the frozen handler
+     * itself listens wildcard, disclosed in the recipe docs) plus
+     * the live card, never process-alive alone. Then the
+     * per-operation fresh-card provisioning plus the native census.
+     * Bounded; a dead service fails fast with its logs. */
     {
         int ready = 0;
         for (int i = 0; i < 600 && !stopping; i++) {

@@ -11,11 +11,20 @@ across operations and re-provisioning is explicit documented semantics,
 never a silent reset. The marker binds the non-secret configuration only.
 
 The general-token profile holds in both channels: raw CKM_ECDSA plus
-ECDSA_SHA1 P-256 sign, P-384 ECDSA_SHA384 sign, RSA-2048 SHA256/RSA-PKCS
-sign with on-card verify, all with independent oracles plus
-altered-message rejection; SHA-256 digests, per-slot X.509 certificate
-reads, session AES import/create/destroy. On-card keygen is natively
-absent (C_GenerateKeyPair reports 0x54) and SO login reports 0x5.
+ECDSA_SHA1 P-256 sign, P-384 ECDSA_SHA384 sign, RSA-2048
+SHA256/RSA-PKCS sign with on-card verify plus RSA-2048 raw DigestInfo
+sign, all with independent host-side OpenSSL oracles plus
+altered-message rejection (only the SHA256 sign carries on-card
+verify; the raw sign is host-oracle-only); SHA-256 digests, per-slot
+X.509 certificate reads, session AES import/create/destroy-by-handle
+with the driver-dropped label (find-by-label reads empty before and
+after destroy, so post-destroy find-absence proves nothing). On-card
+keygen is natively absent (C_GenerateKeyPair reports 0x54 in the
+session-RSA, token-RSA and session-EC cells; no EC-token cell is run)
+and SO login reports 0x5. Fresh cards carry deterministic key
+material (RSA modulus sha256 a3cd738f... identical across
+independent provisions, both channels); key uniqueness across
+operations is explicitly unqualified.
 """
 from dataclasses import replace
 import base64
@@ -128,6 +137,9 @@ def test_installed_checker_observations(channel, tmp_path):
         print(f'checker direct/{channel}: exit={result.exit_code} evidence={record["evidence"]}')
         summary = record['evidence']['summary']
         assert summary['failed'] == 0 and summary['error'] == 0
+        # A zero-fail gate alone would pass with 0 passed; pin the
+        # observed composition too (stable across runs, both channels).
+        assert summary['passed'] == 16 and summary['skipped'] == 7
         if not record['evidence']['observations_complete']:
             error = (spec.output_dir / 'checker/checker.stderr.log').read_text()
             print(f'checker incomplete: exit={result.exit_code} returncode={record["returncode"]}')
@@ -637,7 +649,12 @@ def start_long_application(runtime):
             'touch /run/p11lab/app-started; sleep 300']
     # base begins run --rm; detached instances are explicitly removed here.
     docker('run', *args)
-    for _ in range(200):
+    # The whole lease test takes ~9s even solo (init + supervised
+    # startup + lease probe), so a 10s post-launch poll has no margin
+    # under full-file load (full2: release flaked here while rolling
+    # and the solo repro passed). 30s keeps the bound tight while
+    # clearing loaded startups; the lease assertion below is unchanged.
+    for _ in range(600):
         ready = docker('exec', name, 'test', '-f', '/run/p11lab/app-started', check=False)
         if ready.returncode == 0:
             return name
@@ -692,6 +709,131 @@ def test_state_lease_refuses_second_container(runtime):
         assert docker('wait', name).stdout.strip() == '143'
     finally:
         docker('rm', '-f', name, check=False)
+
+
+def _tcp_listeners(table):
+    # Parse /proc/net/tcp{,6}: (address-hex, port-hex) for LISTEN (0A) rows.
+    found = []
+    for line in table.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 4 and parts[3] == '0A':
+            addr, port = parts[1].rsplit(':', 1)
+            found.append((addr, port))
+    return found
+
+
+def test_reloader_8099_closed_to_bridge_peers(runtime):
+    # The frozen VSmartCard reloader is disabled via a non-numeric port
+    # (pre-fix, a bare bridge-peer TCP connect to 8099 tore down the
+    # card and killed the emulator). While a supervised application
+    # runs on a bridge network: no 8099 listener exists inside the
+    # runtime, the reloader death marker is in emulator.log, and a
+    # bridge-peer container gets ECONNREFUSED on 8099 while the
+    # disclosed wildcard vpcd listeners still answer (positive
+    # controls proving the peer really reaches the runtime).
+    channel, root, state, secrets, image, base, controls = runtime
+    assert channel in CHECKERS, 'explicit checker derivative required as bridge peer'
+    docker(*base, *controls, image, 'init')
+    net = 'p11lab-pivapplet-8099-' + uuid.uuid4().hex[:12]
+    name = 'p11lab-pivapplet-8099-' + uuid.uuid4().hex[:12]
+    docker('network', 'create', net)
+    try:
+        args = list(base[2:])
+        args[args.index('--network') + 1] = net
+        docker('run', '-d', '--name', name, *args, *controls, image, 'exec', '--', 'sh', '-c',
+               'touch /run/p11lab/app-started; sleep 300')
+        for _ in range(300):
+            started = docker('exec', name, 'test', '-f', '/run/p11lab/app-started', check=False)
+            if started.returncode == 0:
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail('supervised application did not start')
+        tcp = docker('exec', name, 'cat', '/proc/net/tcp').stdout
+        tcp6 = docker('exec', name, 'sh', '-c', 'cat /proc/net/tcp6 2>/dev/null || true').stdout
+        (root / 'tcp-listen.txt').write_text(tcp + tcp6)
+        listeners = _tcp_listeners(tcp) + _tcp_listeners(tcp6)
+        (root / 'tcp-listeners.json').write_text(json.dumps(listeners, indent=2) + '\n')
+        ports = {port for _, port in listeners}
+        assert '1FA3' not in ports, listeners
+        # The frozen vpcd handler listens wildcard (disclosed): pin it
+        # so a future loopback-only change forces a doc update.
+        assert ('00000000', '8C7B') in listeners and ('00000000', '8C7C') in listeners, listeners
+        emulator = docker('exec', name, 'cat', '/run/p11lab/opensc-pivapplet/logs/emulator.log').stdout
+        (root / 'emulator.log').write_text(emulator)
+        assert 'Start reloader server' not in emulator
+        assert 'NumberFormatException' in emulator and 'ReloadThread' in emulator
+        assert 'For input string: "disabled"' in emulator
+        runtime_ip = json.loads(docker('network', 'inspect', net).stdout)[0]['Containers']
+        runtime_ip = next(iter(runtime_ip.values()))['IPv4Address'].split('/')[0]
+        probe = ('import socket,sys;ip=sys.argv[1];'
+                 's=socket.create_connection((ip,35963),timeout=10);s.close();print("vpcd-35963:connected");'
+                 's=socket.create_connection((ip,35964),timeout=10);s.close();print("vpcd-35964:connected");'
+                 'print("reloader-8099:connect_ex=%d" % socket.socket().connect_ex((ip,8099)))')
+        peer = docker('run', '--rm', '--network', net, '--entrypoint', '/opt/p11lab-checker/bin/python3',
+                      CHECKERS[channel], '-c', probe, runtime_ip)
+        (root / 'bridge-peer.txt').write_text(peer.stdout)
+        assert 'vpcd-35963:connected' in peer.stdout
+        assert 'vpcd-35964:connected' in peer.stdout
+        assert 'reloader-8099:connect_ex=111' in peer.stdout, peer.stdout
+        # The positive-control probes are non-disruptive: the card
+        # keeps serving afterwards.
+        docker('exec', name, 'test', '-f', '/run/p11lab/app-started')
+    finally:
+        docker('rm', '-f', name, check=False)
+        docker('network', 'rm', net, check=False)
+
+
+@pytest.mark.parametrize('plant', ['expected-symlink', 'expected-junk', 'staging-debris',
+                                   'logs-symlink', 'dangling-socket'])
+def test_control_plants_refused_or_replaced(runtime, plant):
+    # The control tmpfs is caller-mountable, so pre-planted hostile
+    # entries must be refused (links, rosters) or replaced without
+    # being followed (the expected marker stages to a fresh mktemp
+    # file and renames over any pre-existing entry).
+    channel, root, state, secrets, image, base, controls = runtime
+    ctl = root / 'ctl'
+    ctl.mkdir(mode=0o700)
+    args = list(base)
+    for i, value in enumerate(args):
+        if value == '--tmpfs' and args[i + 1].startswith('/run/p11lab:'):
+            args[i:i + 2] = ['--mount', f'type=bind,src={ctl},dst=/run/p11lab']
+            break
+    else:
+        pytest.fail('control tmpfs mount not found')
+    docker(*args, *controls, image, 'init')
+    control = ctl / 'opensc-pivapplet'
+    if plant == 'expected-symlink':
+        # A fresh init writes only the owned complete file; the
+        # expected marker appears in control on health/exec. Plant
+        # the hostile link at the marker path directly.
+        (control / 'expected-marker').unlink(missing_ok=True)
+        (control / 'expected-marker').symlink_to('/var/lib/p11lab/pwned')
+    elif plant == 'expected-junk':
+        (control / 'expected-marker').write_bytes(b'junk\n')
+    elif plant == 'staging-debris':
+        (control / '.expected-marker.CRASHED').write_bytes(b'stale staging bytes\n')
+    elif plant == 'logs-symlink':
+        (control / 'logs/evil.log').symlink_to('/tmp/evil-log')
+    else:
+        (control / 'pcscd/pcscd.comm').symlink_to('absent-target')
+    before = snapshot(state)
+    result = docker(*args, *controls, image, 'health', check=False)
+    if plant in ('expected-junk', 'staging-debris'):
+        assert result.returncode == 0, result.stderr
+        marker = control / 'expected-marker'
+        assert marker.is_file() and not marker.is_symlink()
+        assert marker.read_bytes() == (state / 'opensc-pivapplet/complete').read_bytes()
+    else:
+        assert result.returncode != 0
+        if plant == 'expected-symlink':
+            assert 'unsafe control files' in result.stderr
+            assert not (state / 'pwned').exists()
+        elif plant == 'logs-symlink':
+            assert 'unsafe daemon logs' in result.stderr
+        else:
+            assert 'occupied daemon control state' in result.stderr
+        assert snapshot(state) == before
 
 
 NATIVE_PROBE = r'''
