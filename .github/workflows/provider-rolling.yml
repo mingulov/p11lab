@@ -1,0 +1,556 @@
+# SPDX-License-Identifier: Apache-2.0
+# Rolling-channel source-first delivery. Dispatch-only; the coordinator
+# triggers one run per provider. Sequence per run: seal licensed sources from
+# locked inputs -> build and test the exact binary -> publish the sealed
+# source -> read it back anonymously -> admit actual content -> expose the
+# binary (verdict-gated) -> finalize the handoff. A missing/private/expired
+# source companion, input mismatch, or newly discovered dependency stops
+# binary upload: the admit job fails and expose-binary never runs.
+# Delivery opens per provider; the test step below covers softhsm2 and fails
+# closed for other environments until their delivery test is authored.
+name: provider-rolling
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Catalogue environment ID.'
+        required: true
+        default: 'softhsm2'
+      registry:
+        description: 'Registry package for delivery artifacts.'
+        required: true
+        default: 'ghcr.io/mingulov/p11lab'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-rolling-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  seal-build-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Check delivery readiness
+        shell: bash
+        run: |
+          test "${{ inputs.environment }}" = "softhsm2" || {
+            echo "delivery test is not yet authored for ${{ inputs.environment }}" >&2
+            exit 1
+          }
+          python --version
+          docker version --format '{{.Server.Version}}'
+          echo "ImageVersion=$ImageVersion"
+
+      - name: Install P11Lab and build the producer wheel
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install .
+          python -m pip wheel --no-deps --wheel-dir dist-wheel .
+          ls dist-wheel
+          sha256sum dist-wheel/* > wheel.sha256
+          cat wheel.sha256
+
+      - name: Resolve and seal rolling sources
+        shell: bash
+        run: |
+          set -eu
+          p11lab resolve "${{ inputs.environment }}" --channel rolling --output-dir resolve-out
+          p11lab publish seal-sources "${{ inputs.environment }}" --channel rolling \
+            --resolved-dir resolve-out --output-dir seal-out
+
+      - name: Build the exact runtime binary
+        shell: bash
+        run: |
+          set -eu
+          p11lab build "${{ inputs.environment }}" --channel rolling --output-dir build-out
+          python -c 'import json; print(json.load(open("build-out/artifact.json"))["artifact"]["reference"])'
+
+      - name: Test with the installed C consumer and OpenSSL oracle
+        shell: bash
+        run: |
+          set -eu
+          PROVIDER_ID=$(python -c 'import json; print(json.load(open("build-out/artifact.json"))["artifact"]["reference"])')
+          docker tag "$PROVIDER_ID" p11lab-local-provider:consumer-parent
+          test "$(docker image inspect --format '{{.Id}}' p11lab-local-provider:consumer-parent)" = "$PROVIDER_ID"
+          python examples/linux/prepare-consumer.py --channel rolling --output-dir consumer-context
+          docker build --platform linux/amd64 --provenance=false \
+            --build-arg PROVIDER_IMAGE=p11lab-local-provider:consumer-parent \
+            --iidfile consumer-id consumer-context
+          CONSUMER_ID=$(cat consumer-id)
+          printf '1234' > pin
+          printf '12345678' > so-pin
+          chmod 600 pin so-pin
+          p11lab run softhsm2 --channel rolling --artifact "$CONSUMER_ID" \
+            --input "P11LAB_PIN_FILE=$PWD/pin" --input "P11LAB_SO_PIN_FILE=$PWD/so-pin" \
+            --output-dir smoke-run -- \
+            p11lab-smoke --module /usr/local/lib/p11lab/libsofthsm2.so \
+            --token-label P11Lab --pin-file /run/p11lab-input/P11LAB_PIN_FILE \
+            --output /p11lab-output/crypto --key-mode generated
+          python -c 'from p11lab.catalog import package_data; from pathlib import Path; Path("verify.py").write_bytes(package_data("consumer/verify.py").read_bytes())'
+          python verify.py smoke-run/crypto
+          openssl version
+
+      - name: Save the runtime image for the gated expose job
+        shell: bash
+        run: |
+          set -eu
+          PROVIDER_ID=$(python -c 'import json; print(json.load(open("build-out/artifact.json"))["artifact"]["reference"])')
+          docker image inspect "$PROVIDER_ID" > local-inspect.json
+          docker save "$PROVIDER_ID" | gzip -n > runtime-image.tar.gz
+          sha256sum runtime-image.tar.gz > runtime-image.sha256
+          cat runtime-image.sha256
+          # One staged directory: artifact contents land deterministically.
+          mkdir -p staging/seal-out staging/build-out staging/meta staging/dist-wheel
+          cp seal-out/sealed-source.tar.gz seal-out/sealed-source.json staging/seal-out/
+          cp build-out/artifact.json build-out/context-manifest.json staging/build-out/
+          cp local-inspect.json runtime-image.tar.gz runtime-image.sha256 smoke-run/receipt.json staging/meta/
+          mv staging/meta/receipt.json staging/meta/smoke-receipt.json
+          cp dist-wheel/*.whl staging/dist-wheel/
+          cp wheel.sha256 staging/meta/
+          # Single-file job transport: deterministic placement, no layout guess.
+          tar -czf transport-build.tar.gz -C staging .
+
+      - name: Upload job transport (short-lived; registry is the durable record)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: provider-rolling-build
+          retention-days: 1
+          path: transport-build.tar.gz
+
+  publish-source:
+    needs: seal-build-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install P11Lab and pinned ORAS
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install .
+          bash src/p11lab/data/delivery/install-oras.sh --output-dir "$RUNNER_TEMP/p11lab-oras"
+          echo "$RUNNER_TEMP/p11lab-oras" >> "$GITHUB_PATH"
+          echo "P11LAB_ORAS=$RUNNER_TEMP/p11lab-oras/oras" >> "$GITHUB_ENV"
+
+      - name: Download job transport
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: provider-rolling-build
+          path: transport-dl
+
+      - name: Unpack job transport
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p transport
+          tar -xzf transport-dl/transport-build.tar.gz -C transport
+          find transport | sort | head -30
+
+      - name: Verify the seal before publishing
+        shell: bash
+        working-directory: transport
+        run: |
+          set -eu
+          python -c '
+          import json, sys
+          from p11lab.publish import artifact_tag, verify_sealed_archive
+          manifest = verify_sealed_archive("seal-out/sealed-source.tar.gz", "seal-check")
+          assert (manifest["environment"], manifest["channel"]) == ("${{ inputs.environment }}", "rolling"), manifest
+          receipt = json.load(open("seal-out/sealed-source.json"))
+          tag = artifact_tag("src", receipt["environment"], receipt["channel"], receipt["archive_sha256"])
+          Path = __import__("pathlib").Path
+          Path("src-tag.txt").write_text(tag + "\n")
+          print(tag, receipt["archive_sha256"])
+          '
+
+      - name: Publish the sealed source
+        shell: bash
+        working-directory: transport
+        run: |
+          set -eu
+          echo "${{ secrets.GITHUB_TOKEN }}" | "$P11LAB_ORAS" login "$(echo '${{ inputs.registry }}' | cut -d/ -f1)" --username "${{ github.actor }}" --password-stdin
+          cd seal-out
+          "$P11LAB_ORAS" push --artifact-type application/vnd.p11lab.sealed-source.v1 \
+            --format json --export-manifest ../pushed-src-manifest.json \
+            "${{ inputs.registry }}:$(cat ../src-tag.txt)" \
+            sealed-source.tar.gz sealed-source.json | tee ../pushed-src.json
+
+      - name: Pack the sealed receipt for readback
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p seal-stage/seal-out
+          cp transport/seal-out/sealed-source.json seal-stage/seal-out/
+          cp transport/pushed-src.json transport/pushed-src-manifest.json seal-stage/
+          tar -czf transport-seal.tar.gz -C seal-stage .
+
+      - name: Upload the sealed receipt for readback
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: provider-rolling-seal
+          retention-days: 1
+          path: transport-seal.tar.gz
+
+  readback:
+    needs: publish-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # No packages permission: this job cannot authenticate to the registry
+    # even if it tried. Anonymous pull with fresh empty credential state.
+    permissions:
+      contents: read
+      packages: none
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install P11Lab and pinned ORAS
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install .
+          bash src/p11lab/data/delivery/install-oras.sh --output-dir "$RUNNER_TEMP/p11lab-oras"
+          echo "P11LAB_ORAS=$RUNNER_TEMP/p11lab-oras/oras" >> "$GITHUB_ENV"
+
+      - name: Download job transport
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: provider-rolling-seal
+          path: transport-dl
+
+      - name: Unpack job transport
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p transport
+          tar -xzf transport-dl/transport-seal.tar.gz -C transport
+          find transport | sort | head -30
+
+      - name: Pull the sealed source anonymously
+        shell: bash
+        run: |
+          set -eu
+          MANIFEST_DIGEST=$(python -c 'import json; print(json.load(open("transport/pushed-src.json"))["digest"])')
+          echo "manifest=$MANIFEST_DIGEST"
+          mkdir -p "$RUNNER_TEMP/anon/home" "$RUNNER_TEMP/anon/xdg" pulled
+          printf '{"auths":{}}\n' > "$RUNNER_TEMP/anon/auth.json"
+          {
+            echo "=== empty credential state ==="
+            ls -la "$RUNNER_TEMP/anon"
+            echo "=== anonymous pull by manifest digest ==="
+            env -i "PATH=/usr/bin:/bin" "HOME=$RUNNER_TEMP/anon/home" "XDG_CONFIG_HOME=$RUNNER_TEMP/anon/xdg" \
+              "$P11LAB_ORAS" pull --registry-config "$RUNNER_TEMP/anon/auth.json" --no-tty \
+              -o "$PWD/pulled" "${{ inputs.registry }}@$MANIFEST_DIGEST"
+            echo "=== pulled ==="
+            ls -la pulled
+          } 2>&1 | tee readback-transcript.log
+
+      - name: Verify the readback byte for byte
+        shell: bash
+        run: |
+          set -eu
+          p11lab publish verify-readback --sealed-receipt transport/seal-out/sealed-source.json \
+            --pulled-dir pulled --transcript readback-transcript.log --extract-dir readback/extract
+
+      - name: Pack the readback proof
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p readback-stage
+          cp -r readback readback-transcript.log readback-stage/
+          cp transport/pushed-src.json transport/pushed-src-manifest.json readback-stage/
+          tar -czf transport-readback.tar.gz -C readback-stage .
+
+      - name: Upload the readback proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: provider-rolling-readback
+          retention-days: 1
+          path: transport-readback.tar.gz
+
+  admit:
+    needs: [seal-build-test, readback]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      status: ${{ steps.gate.outputs.status }}
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install P11Lab
+        shell: bash
+        run: python -m pip install .
+
+      - name: Download job transports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: provider-rolling-build
+          path: build-dl
+
+      - name: Download the readback proof
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: provider-rolling-readback
+          path: readback-dl
+
+      - name: Unpack job transports
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p build-transport readback-transport
+          tar -xzf build-dl/transport-build.tar.gz -C build-transport
+          tar -xzf readback-dl/transport-readback.tar.gz -C readback-transport
+          find build-transport readback-transport | sort | head -40
+
+      - name: Run the delivery gate
+        id: gate
+        shell: bash
+        run: |
+          set -eu -o pipefail
+          BIN_SHA=$(python -c 'import json; print(json.load(open("build-transport/build-out/artifact.json"))["artifact"]["sha256"])')
+          WHEEL_SHA=$(cut -d' ' -f1 build-transport/meta/wheel.sha256)
+          SRC_MANIFEST_DIGEST=$(python -c 'import json; print(json.load(open("readback-transport/pushed-src.json"))["digest"].removeprefix("sha256:"))')
+          p11lab publish check-inputs "${{ inputs.environment }}" --channel rolling \
+            --sealed-manifest readback-transport/readback/extract/sealed.json \
+            --build-receipt build-transport/build-out/artifact.json
+          set +e
+          p11lab publish admit "${{ inputs.environment }}" --channel rolling \
+            --sealed-receipt build-transport/seal-out/sealed-source.json \
+            --sealed-manifest readback-transport/readback/extract/sealed.json \
+            --readback-proof readback-transport/readback/readback-proof.json \
+            --build-receipt build-transport/build-out/artifact.json \
+            --artifact-kind docker-local --artifact-reference "sha256:$BIN_SHA" --artifact-digest "$BIN_SHA" \
+            --registry "${{ inputs.registry }}" --output-dir admission-out \
+            --producer-wheel-sha256 "$WHEEL_SHA" \
+            --source-manifest-digest "$SRC_MANIFEST_DIGEST" \
+            --source-manifest readback-transport/pushed-src-manifest.json | tee admit.json
+          code=$?
+          set -e
+          if [ -f admission-out/verdict.json ]; then
+            echo "status=$(python -c "import json; print(json.load(open('admission-out/verdict.json'))['status'])")" >> "$GITHUB_OUTPUT"
+            cat admission-out/verdict.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "status=crashed" >> "$GITHUB_OUTPUT"
+            echo "admit produced no verdict" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$code"
+
+      - name: Pack the admission record
+        if: always()
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p admit-stage
+          cp -r admission-out admit-stage/ 2>/dev/null || mkdir -p admit-stage/admission-out
+          tar -czf transport-admission.tar.gz -C admit-stage .
+
+      - name: Upload the admission record
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: provider-rolling-admission
+          retention-days: 1
+          path: transport-admission.tar.gz
+
+  expose-binary:
+    needs: admit
+    # Fail closed: a blocked verdict skips binary upload entirely.
+    if: needs.admit.outputs.status == 'eligible'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      pushed-digest: ${{ steps.push.outputs['pushed-digest'] }}
+      pushed-tag: ${{ steps.push.outputs['pushed-tag'] }}
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install P11Lab and pinned ORAS
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install .
+          bash src/p11lab/data/delivery/install-oras.sh --output-dir "$RUNNER_TEMP/p11lab-oras"
+          echo "P11LAB_ORAS=$RUNNER_TEMP/p11lab-oras/oras" >> "$GITHUB_ENV"
+
+      - name: Download job transports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: provider-rolling-build
+          path: build-dl
+
+      - name: Download the admission record
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: provider-rolling-admission
+          path: admit-dl
+
+      - name: Unpack job transports
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p build-transport admit-transport
+          tar -xzf build-dl/transport-build.tar.gz -C build-transport
+          tar -xzf admit-dl/transport-admission.tar.gz -C admit-transport
+          find build-transport admit-transport | sort | head -40
+
+      - name: Push the admitted binary and read it back anonymously
+        id: push
+        shell: bash
+        run: |
+          set -eu
+          cd build-transport
+          (cd meta && sha256sum -c runtime-image.sha256)
+          PROVIDER_ID=$(python -c 'import json; print(json.load(open("build-out/artifact.json"))["artifact"]["reference"])')
+          docker load -i meta/runtime-image.tar.gz
+          test "$(docker image inspect --format '{{.Id}}' "$PROVIDER_ID")" = "$PROVIDER_ID"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$(echo '${{ inputs.registry }}' | cut -d/ -f1)" --username "${{ github.actor }}" --password-stdin
+          # The tag alias is computed after the push fixes the index digest.
+          # One reused staging alias per environment: no tag accumulation.
+          STAGE_TAG="t13-staging-${{ inputs.environment }}"
+          docker tag "$PROVIDER_ID" "${{ inputs.registry }}:$STAGE_TAG"
+          docker push "${{ inputs.registry }}:$STAGE_TAG"
+          docker buildx imagetools inspect "${{ inputs.registry }}:$STAGE_TAG" --raw > pushed-manifest.json
+          INDEX_DIGEST="sha256:$(sha256sum pushed-manifest.json | cut -d' ' -f1)"
+          RT_TAG=$(python -c "from p11lab.publish import artifact_tag; print(artifact_tag('rt', '${{ inputs.environment }}', 'rolling', '$INDEX_DIGEST'.removeprefix('sha256:')))")
+          docker tag "$PROVIDER_ID" "${{ inputs.registry }}:$RT_TAG"
+          docker push "${{ inputs.registry }}:$RT_TAG"
+          docker buildx imagetools inspect "${{ inputs.registry }}:$RT_TAG" --raw > pushed-rt-manifest.json
+          test "sha256:$(sha256sum pushed-rt-manifest.json | cut -d' ' -f1)" = "$INDEX_DIGEST"
+          echo "pushed-tag=$RT_TAG" >> "$GITHUB_OUTPUT"
+          echo "pushed-digest=$INDEX_DIGEST" >> "$GITHUB_OUTPUT"
+          {
+            echo "=== empty docker credential state ==="
+            mkdir -p "$RUNNER_TEMP/anon-docker"
+            ls -la "$RUNNER_TEMP/anon-docker"
+            echo "=== remove local copy, pull anonymously by tag ==="
+            docker rmi "$PROVIDER_ID" "${{ inputs.registry }}:$RT_TAG" "${{ inputs.registry }}:$STAGE_TAG"
+            DOCKER_CONFIG="$RUNNER_TEMP/anon-docker" docker pull "${{ inputs.registry }}:$RT_TAG"
+            DOCKER_CONFIG="$RUNNER_TEMP/anon-docker" docker image inspect "${{ inputs.registry }}:$RT_TAG" > ../pulled-inspect.json
+          } 2>&1 | tee ../binary-readback-transcript.log
+          cp ../pulled-inspect.json .
+          docker logout "$(echo '${{ inputs.registry }}' | cut -d/ -f1)"
+
+      - name: Pack the exposure evidence
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p exposure-stage
+          cp build-transport/pulled-inspect.json build-transport/meta/local-inspect.json exposure-stage/
+          cp binary-readback-transcript.log exposure-stage/
+          tar -czf transport-exposure.tar.gz -C exposure-stage .
+
+      - name: Upload the exposure evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: provider-rolling-exposure
+          retention-days: 1
+          path: transport-exposure.tar.gz
+
+  finalize-handoff:
+    needs: [admit, expose-binary]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install P11Lab and pinned ORAS
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install .
+          bash src/p11lab/data/delivery/install-oras.sh --output-dir "$RUNNER_TEMP/p11lab-oras"
+          echo "P11LAB_ORAS=$RUNNER_TEMP/p11lab-oras/oras" >> "$GITHUB_ENV"
+
+      - name: Download the admission record
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: provider-rolling-admission
+          path: admit-dl
+
+      - name: Download the exposure evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: provider-rolling-exposure
+          path: exposure-dl
+
+      - name: Unpack job transports
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p admit-transport exposure-transport
+          tar -xzf admit-dl/transport-admission.tar.gz -C admit-transport
+          tar -xzf exposure-dl/transport-exposure.tar.gz -C exposure-transport
+          find admit-transport exposure-transport | sort | head -40
+
+      - name: Write and publish the handoff
+        shell: bash
+        run: |
+          set -eu
+          PUSHED_DIGEST="${{ needs['expose-binary'].outputs['pushed-digest'] }}"
+          PUSHED_TAG="${{ needs['expose-binary'].outputs['pushed-tag'] }}"
+          PUSHED_SIZE=$(python -c 'import json; print(json.load(open("exposure-transport/pulled-inspect.json"))[0]["Size"])')
+          p11lab publish expose --admission admit-transport/admission-out/admission.json \
+            --pushed-digest "${PUSHED_DIGEST#sha256:}" --pushed-tag "$PUSHED_TAG" --pushed-size "$PUSHED_SIZE" \
+            --local-inspect exposure-transport/local-inspect.json \
+            --pulled-inspect exposure-transport/pulled-inspect.json \
+            --registry "${{ inputs.registry }}" --output-dir handoff-out
+          HANDOFF_SHA=$(sha256sum handoff-out/handoff.json | cut -d' ' -f1)
+          HANDOFF_TAG=$(python -c "from p11lab.publish import artifact_tag; print(artifact_tag('handoff', '${{ inputs.environment }}', 'rolling', '$HANDOFF_SHA'))")
+          echo "${{ secrets.GITHUB_TOKEN }}" | "$P11LAB_ORAS" login "$(echo '${{ inputs.registry }}' | cut -d/ -f1)" --username "${{ github.actor }}" --password-stdin
+          cd handoff-out
+          "$P11LAB_ORAS" push --artifact-type application/vnd.p11lab.handoff.v1 \
+            --format json "${{ inputs.registry }}:$HANDOFF_TAG" handoff.json | tee ../pushed-handoff.json
+          echo "## Handoff" >> "$GITHUB_STEP_SUMMARY"
+          echo "tag: \`$HANDOFF_TAG\`, binary: \`$PUSHED_TAG\`" >> "$GITHUB_STEP_SUMMARY"
