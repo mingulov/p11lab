@@ -32,8 +32,8 @@ short-lived CI artifacts. CI artifacts carry job transport only
 (`retention-days: 1`) and must never be mistaken for publication.
 
 A newly created GHCR package may need an owner visibility setting before
-anonymous pulls work; the remaining-steps list in the T13 report records
-that as an explicit coordinator step.
+anonymous pulls work; that setting is an explicit coordinator step before
+the first publication to the package.
 
 ## Pipeline sequence
 
@@ -199,11 +199,11 @@ Tool images used by the pipeline and its proof (digests recorded at use):
 
 ## Local proof versus publication
 
-The T13 evidence proves the full sequence against a local registry with
-explicit local-proof acknowledgments wherever a blocked verdict is
-overridden for mechanics proof. Nothing in `main` is published by this
-work: no pushes, tags, releases, or cache exports. Publication additionally
-requires reviewed source/license evidence per artifact (admission
-`eligible`), the GHCR package visibility step, coordinator authorization
-for each push, and a recorded wheel-to-source-revision mapping for the
-producer wheel so consumers can fetch matching helper scripts.
+The sequence is proven against a local registry with explicit
+local-proof acknowledgments wherever a blocked verdict is overridden for
+mechanics proof. Nothing in `main` is published by this work: no pushes,
+tags, releases, or cache exports. Publication additionally requires
+reviewed source/license evidence per artifact (admission `eligible`),
+the GHCR package visibility step, coordinator authorization for each
+push, and a recorded wheel-to-source-revision mapping for the producer
+wheel so consumers can fetch matching helper scripts.

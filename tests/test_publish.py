@@ -558,5 +558,58 @@ def test_action_run_echo_redacts_input_values():
     shown = module._display(["p11lab", "run", "softhsm2", "--input", "P11LAB_PIN=1234",
                              "--input=P11LAB_SO_PIN_FILE=/run/so", "--", "my-app"])
     assert shown == ["p11lab", "run", "softhsm2", "--input", "P11LAB_PIN=***",
-                     "--input=P11LAB_SO_PIN_FILE=***", "--", "my-app"]
+                     "--input=P11LAB_SO_PIN_FILE=***", "--", "my-app", "(0 args)"]
     assert "1234" not in " ".join(shown) and "/run/so" not in " ".join(shown)
+
+
+def test_action_run_echo_hides_consumer_argv():
+    import importlib.util
+    path = ROOT / "src/p11lab/data/delivery/action-run.py"
+    spec = importlib.util.spec_from_file_location("action_run", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    shown = module._display(["p11lab", "run", "x", "--", "app", "--pin", "1234"])
+    assert shown == ["p11lab", "run", "x", "--", "app", "(2 args)"]
+    assert "1234" not in " ".join(shown) and "--pin" not in " ".join(shown)
+
+
+def test_malformed_documents_fail_as_gate_messages(tmp_path):
+    spec, receipt, manifest = seal_fixture(tmp_path)
+    broken_receipt = tmp_path / "broken-receipt.json"
+    record = json.loads((tmp_path / "seal" / "sealed-source.json").read_text())
+    del record["archive"]
+    broken_receipt.write_text(json.dumps(record))
+    pulled = tmp_path / "malformed-pulled"
+    pulled.mkdir()
+    transcript = tmp_path / "malformed-transcript.log"
+    transcript.write_text("anonymous pull ok\n")
+    with pytest.raises(publish.PublishError, match="lacks the sealed archive name"):
+        publish.verify_readback(broken_receipt, pulled, transcript_path=transcript,
+                                extract_dir=tmp_path / "malformed-extract")
+    broken_manifest = dict(manifest)
+    del broken_manifest["sources"]
+    build = build_receipt_for(tmp_path, spec, receipt, manifest)
+    with pytest.raises(publish.PublishError, match="lacks the source roster"):
+        publish.check_input_match(broken_manifest, build, spec)
+    no_digest = json.loads(json.dumps(manifest))
+    del no_digest["sources"][0]["sha256"]
+    with pytest.raises(publish.PublishError, match="lacks its digest"):
+        publish.check_input_match(no_digest, build, spec)
+
+
+def test_admit_malformed_proof_fails_as_gate_message(tmp_path):
+    spec, receipt, manifest = seal_fixture(tmp_path)
+    build = build_receipt_for(tmp_path, spec, receipt, manifest)
+    proof = readback_proof_for(tmp_path, spec, receipt, manifest)
+    del proof["transcript_sha256"]
+    binary = tmp_path / "binary.tar"
+    tiny_tar(binary)
+    digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    manifest_digest, manifest_path = pushed_manifest_for(tmp_path)
+    with pytest.raises(publish.PublishError, match="lacks the transcript digest"):
+        publish.admit(artifact_kind="bundle", artifact_reference=str(binary), artifact_digest=digest,
+            platform="linux/amd64", sealed_receipt_path=tmp_path / "seal" / "sealed-source.json",
+            sealed_manifest=manifest, readback_proof=proof, build_receipt_path=build, spec=spec,
+            registry="127.0.0.1:5050/p11lab", evidence_dir=None, out_dir=tmp_path / "admission-malformed",
+            producer={"p11lab_wheel_sha256": "ab" * 32},
+            source_manifest_digest=manifest_digest, source_manifest_path=manifest_path)

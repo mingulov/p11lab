@@ -449,7 +449,7 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$(echo '${{ inputs.registry }}' | cut -d/ -f1)" --username "${{ github.actor }}" --password-stdin
           # The tag alias is computed after the push fixes the index digest.
           # One reused staging alias per environment: no tag accumulation.
-          STAGE_TAG="t13-staging-${{ inputs.environment }}"
+          STAGE_TAG="t13-staging-rolling-${{ inputs.environment }}"
           docker tag "$PROVIDER_ID" "${{ inputs.registry }}:$STAGE_TAG"
           docker push "${{ inputs.registry }}:$STAGE_TAG"
           docker buildx imagetools inspect "${{ inputs.registry }}:$STAGE_TAG" --raw > pushed-manifest.json
@@ -465,10 +465,10 @@ jobs:
             echo "=== empty docker credential state ==="
             mkdir -p "$RUNNER_TEMP/anon-docker"
             ls -la "$RUNNER_TEMP/anon-docker"
-            echo "=== remove local copy, pull anonymously by tag ==="
+            echo "=== remove local copy, pull anonymously by digest ==="
             docker rmi "$PROVIDER_ID" "${{ inputs.registry }}:$RT_TAG" "${{ inputs.registry }}:$STAGE_TAG"
-            DOCKER_CONFIG="$RUNNER_TEMP/anon-docker" docker pull "${{ inputs.registry }}:$RT_TAG"
-            DOCKER_CONFIG="$RUNNER_TEMP/anon-docker" docker image inspect "${{ inputs.registry }}:$RT_TAG" > ../pulled-inspect.json
+            DOCKER_CONFIG="$RUNNER_TEMP/anon-docker" docker pull "${{ inputs.registry }}@$INDEX_DIGEST"
+            DOCKER_CONFIG="$RUNNER_TEMP/anon-docker" docker image inspect "${{ inputs.registry }}@$INDEX_DIGEST" > ../pulled-inspect.json
           } 2>&1 | tee ../binary-readback-transcript.log
           cp ../pulled-inspect.json .
           docker logout "$(echo '${{ inputs.registry }}' | cut -d/ -f1)"
@@ -491,6 +491,9 @@ jobs:
 
   finalize-handoff:
     needs: [admit, expose-binary]
+    # Defense in depth: the admit job already exits nonzero on a blocked
+    # verdict, but the handoff push must never run without eligibility.
+    if: needs.admit.outputs.status == 'eligible'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:

@@ -109,6 +109,12 @@ def _require(condition, message):
         raise PublishError(message)
 
 
+def _need(mapping, key, message):
+    """Fetch a required key as a gate message, never a KeyError traceback."""
+    _require(isinstance(mapping, dict) and key in mapping, message)
+    return mapping[key]
+
+
 def _read_json(path: Path):
     try:
         result = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -297,7 +303,8 @@ def seal_sources(spec: dict, resolved: dict, output_dir: Path) -> dict:
         archive = Path(record["archive"])
         data = archive.read_bytes()
         _require(hashlib.sha256(data).hexdigest() == record["sha256"], "acquired archive digest mismatch")
-        name = f"{kind}-{index if kind == 'dependency' else index}.tar"
+        # Global index across sources+dependencies: unique seal member names.
+        name = f"{kind}-{index}.tar"
         files[name] = data
         entries.append({"kind": kind, "id": record["source"].get("id", ""), "archive": name,
                         "sha256": record["sha256"], "size": len(data), "source": record["source"]})
@@ -426,27 +433,35 @@ def verify_readback(sealed_receipt_path: Path, pulled_dir: Path, *, transcript_p
     """
     receipt = _read_json(sealed_receipt_path)
     _require(receipt.get("role") == "sealed-source", "readback requires a sealed-source receipt")
+    sealed_name = _need(receipt, "archive", "sealed receipt lacks the sealed archive name")
+    sealed_digest = _need(receipt, "archive_sha256", "sealed receipt lacks the sealed archive digest")
     pulled_dir, extract_dir = Path(pulled_dir), Path(extract_dir)
-    archive = pulled_dir / receipt["archive"]
+    archive = pulled_dir / sealed_name
     _require(archive.is_file() and not archive.is_symlink(), "pulled sealed archive is missing")
     pulled_digest = checksum(archive)
-    _require(pulled_digest == receipt["archive_sha256"],
-             f"anonymous readback digest mismatch: pulled {pulled_digest} != sealed {receipt['archive_sha256']}")
+    _require(pulled_digest == sealed_digest,
+             f"anonymous readback digest mismatch: pulled {pulled_digest} != sealed {sealed_digest}")
     pulled_receipt = pulled_dir / "sealed-source.json"
     _require(pulled_receipt.is_file(), "pulled sealed receipt is missing")
     _require(pulled_receipt.read_bytes() == Path(sealed_receipt_path).read_bytes(),
              "pulled sealed receipt bytes differ from the sealed receipt")
     manifest = verify_sealed_archive(archive, extract_dir)
-    _require(manifest["environment"] == receipt["environment"] and manifest["channel"] == receipt["channel"],
+    manifest_env = _need(manifest, "environment", "sealed manifest lacks the environment identity")
+    manifest_channel = _need(manifest, "channel", "sealed manifest lacks the channel identity")
+    receipt_env = _need(receipt, "environment", "sealed receipt lacks the environment identity")
+    receipt_channel = _need(receipt, "channel", "sealed receipt lacks the channel identity")
+    _require(manifest_env == receipt_env and manifest_channel == receipt_channel,
              "readback manifest catalogue identity mismatch")
     transcript = Path(transcript_path)
     _require(transcript.is_file() and not transcript.is_symlink() and transcript.stat().st_size > 0,
              "anonymous-transport transcript is missing or empty")
+    receipt_role = _need(receipt, "runtime_role", "sealed receipt lacks the runtime role")
     proof = {"schema_version": SCHEMA_VERSION, "role": "readback-proof",
-             "sealed_archive_sha256": receipt["archive_sha256"], "pulled_archive_sha256": pulled_digest,
-             "manifest_sha256": receipt["manifest_sha256"], "member_count": receipt["member_count"],
-             "environment": receipt["environment"], "channel": receipt["channel"],
-             "runtime_role": receipt["runtime_role"],
+             "sealed_archive_sha256": sealed_digest, "pulled_archive_sha256": pulled_digest,
+             "manifest_sha256": _need(receipt, "manifest_sha256", "sealed receipt lacks the manifest digest"),
+             "member_count": _need(receipt, "member_count", "sealed receipt lacks the member count"),
+             "environment": receipt_env, "channel": receipt_channel,
+             "runtime_role": receipt_role,
              "transcript_sha256": checksum(transcript), "transcript_bytes": transcript.stat().st_size,
              "anonymous_transport": "caller-executed with fresh empty credential directories; see transcript bytes"}
     write_receipt(extract_dir.parent / "readback-proof.json", proof)
@@ -478,48 +493,69 @@ def _check_runtime_inputs(sealed: dict, receipt: dict, spec: dict) -> dict:
     resolved = list(receipt.get("resolved_sources", {}).get("sources", [])) + \
         list(receipt.get("resolved_sources", {}).get("dependencies", []))
     _require(resolved, "build receipt carries no resolved sources")
-    sealed_entries = sealed["sources"]
+    sealed_entries = _need(sealed, "sources", "sealed manifest lacks the source roster")
+    _require(isinstance(sealed_entries, list), "sealed manifest source roster must be a list")
     if len(resolved) != len(sealed_entries):
         if len(resolved) > len(sealed_entries):
             raise PublishError(f"newly discovered inputs: {len(resolved) - len(sealed_entries)} extra resolved source(s)")
         raise PublishError(f"missing sealed inputs: {len(sealed_entries) - len(resolved)} resolved source(s) absent")
-    sealed_sources = [e["source"] for e in sealed_entries]
+    for position, entry in enumerate(sealed_entries):
+        _require(isinstance(entry, dict), f"sealed manifest source record {position} must be an object")
+    sealed_sources = [_need(e, "source", f"sealed manifest source record {n} lacks its declaration")
+                      for n, e in enumerate(sealed_entries)]
     for position, record in enumerate(resolved):
         _require(isinstance(record, dict) and isinstance(record.get("source"), dict),
                  f"build receipt source record mismatch at position {position}")
         expected = sealed_entries[position]
+        expected_source = _need(expected, "source", f"sealed manifest source record {position} lacks its declaration")
         label = record["source"].get("id") or f"position {position}"
-        if record["source"] != expected["source"]:
+        if record["source"] != expected_source:
             if record["source"] not in sealed_sources:
                 raise PublishError(f"newly discovered input: {label}")
             raise PublishError(f"input declaration mismatch: {label}")
-        if record.get("sha256") != expected["sha256"]:
-            raise PublishError(f"input mismatch: {label} built {record.get('sha256')} != sealed {expected['sha256']}")
+        expected_digest = _need(expected, "sha256", f"sealed manifest source record {position} lacks its digest")
+        if record.get("sha256") != expected_digest:
+            raise PublishError(f"input mismatch: {label} built {record.get('sha256')} != sealed {expected_digest}")
     if receipt.get("build_key") != sealed.get("build_key"):
         raise PublishError("input mismatch: build key differs from the sealed build key")
     live_key = artifact_key("runtime", runtime_inputs(spec))
     if live_key != receipt.get("build_key"):
         raise PublishError("input mismatch: live catalogue inputs differ from the built key")
-    return {"role": "runtime", "matched_inputs": len(sealed_entries), "build_key": receipt["build_key"]}
+    build_key = _need(receipt, "build_key", "build receipt lacks the build key")
+    return {"role": "runtime", "matched_inputs": len(sealed_entries), "build_key": build_key}
 
 
 def _check_native_inputs(sealed: dict, receipt: dict, spec: dict, manifest: dict | None) -> dict:
     _require(isinstance(manifest, dict), "native input match requires the bundle manifest")
     built_sources = manifest.get("source", {}).get("sources", [])
-    sealed_sources = [e["source"] for e in sealed["sources"]]
+    sealed_entries = _need(sealed, "sources", "sealed manifest lacks the source roster")
+    _require(isinstance(sealed_entries, list), "sealed manifest source roster must be a list")
+    sealed_sources = []
+    for position, entry in enumerate(sealed_entries):
+        _require(isinstance(entry, dict), f"sealed manifest source record {position} must be an object")
+        sealed_sources.append(_need(entry, "source",
+                                    f"sealed manifest source record {position} lacks its declaration"))
     if len(built_sources) != len(sealed_sources):
         raise PublishError("newly discovered or missing native source inputs")
     for position, (built, expected) in enumerate(zip(built_sources, sealed_sources)):
         if built != expected:
             raise PublishError(f"input mismatch: native source {position} differs from sealed inputs")
-        if built.get("archive_sha256") != sealed["sources"][position]["sha256"]:
+        expected_digest = _need(sealed_entries[position], "sha256",
+                                f"sealed manifest source record {position} lacks its digest")
+        if not isinstance(built, dict) or built.get("archive_sha256") != expected_digest:
             raise PublishError(f"input mismatch: native source {position} bytes differ from sealed inputs")
     if manifest.get("source", {}).get("patches") != sealed.get("patches"):
         raise PublishError("input mismatch: native patches differ from sealed inputs")
-    roster = {entry["path"]: entry["sha256"] for entry in receipt.get("files", [])}
+    _require(isinstance(receipt.get("files", []), list), "build receipt file roster must be a list")
+    roster = {}
+    for entry in receipt.get("files", []):
+        path = _need(entry, "path", "build receipt file record lacks its path")
+        roster[path] = _need(entry, "sha256", f"build receipt file record {path} lacks its digest")
     for binary in sealed.get("binaries", []):
-        if roster.get(binary["path"]) != binary["sha256"]:
-            raise PublishError(f"input mismatch: native binary {binary['path']} differs from sealed inputs")
+        path = _need(binary, "path", "sealed manifest binary record lacks its path")
+        digest = _need(binary, "sha256", f"sealed manifest binary record {path} lacks its digest")
+        if roster.get(path) != digest:
+            raise PublishError(f"input mismatch: native binary {path} differs from sealed inputs")
     if receipt.get("parent") != sealed.get("parent"):
         raise PublishError("input mismatch: native parent differs from sealed inputs")
     features = manifest.get("build", {}).get("identity", {}).get("inputs", {}).get("features", {})
@@ -619,7 +655,8 @@ def admit(*, artifact_kind: str, artifact_reference: str, artifact_digest: str, 
              and all(isinstance(layer, dict) for layer in pushed_manifest["layers"]),
              "pushed source manifest shape mismatch")
     layer_digests = {layer.get("digest") for layer in pushed_manifest["layers"]}
-    _require("sha256:" + receipt["archive_sha256"] in layer_digests
+    sealed_digest = _need(receipt, "archive_sha256", "sealed receipt lacks the sealed archive digest")
+    _require("sha256:" + sealed_digest in layer_digests
              and "sha256:" + checksum(sealed_receipt_path) in layer_digests,
              "pushed source manifest does not carry the sealed bytes")
     match = check_input_match(sealed_manifest, build_receipt_path, spec, manifest=manifest)
@@ -635,21 +672,25 @@ def admit(*, artifact_kind: str, artifact_reference: str, artifact_digest: str, 
     else:
         blockers.extend(content["blockers"])
     _require(_REPO.fullmatch(registry), "admission registry must be a repository path")
-    role = sealed_manifest["runtime_role"]
-    environment, channel = sealed_manifest["environment"], sealed_manifest["channel"]
+    role = _need(sealed_manifest, "runtime_role", "sealed manifest lacks the runtime role")
+    environment = _need(sealed_manifest, "environment", "sealed manifest lacks the environment identity")
+    channel = _need(sealed_manifest, "channel", "sealed manifest lacks the channel identity")
+    proof_pulled = _need(readback_proof, "pulled_archive_sha256", "readback proof lacks the pulled archive digest")
+    proof_transcript = _need(readback_proof, "transcript_sha256", "readback proof lacks the transcript digest")
+    proof_transport = _need(readback_proof, "anonymous_transport", "readback proof lacks the transport record")
     admission = {"schema_version": SCHEMA_VERSION, "role": "admission", "registry": registry,
                  "catalogue": _catalogue_binding(spec) | {"build_key": match["build_key"], "runtime_role": role},
-                 "source": {"manifest_sha256": source_manifest_digest, "file_sha256": receipt["archive_sha256"],
-                            "size_bytes": receipt["size_bytes"],
-                            "tag": artifact_tag("src", environment, channel, receipt["archive_sha256"]),
+                 "source": {"manifest_sha256": source_manifest_digest, "file_sha256": sealed_digest,
+                            "size_bytes": _need(receipt, "size_bytes", "sealed receipt lacks the archive size"),
+                            "tag": artifact_tag("src", environment, channel, sealed_digest),
                             "reference": registry + "@sha256:" + source_manifest_digest},
                  "local_binary": {"kind": artifact_kind, "sha256": artifact_digest, "platform": platform},
                  "verdict": {"status": "eligible" if not blockers else "blocked", "blockers": sorted(set(blockers)),
                              "content_status": content.get("status"), "matched_inputs": match["matched_inputs"],
-                             "readback_transcript_sha256": readback_proof["transcript_sha256"]},
-                 "readback": {"pulled_archive_sha256": readback_proof["pulled_archive_sha256"],
-                              "transcript_sha256": readback_proof["transcript_sha256"],
-                              "anonymous_transport": readback_proof["anonymous_transport"]},
+                             "readback_transcript_sha256": proof_transcript},
+                 "readback": {"pulled_archive_sha256": proof_pulled,
+                              "transcript_sha256": proof_transcript,
+                              "anonymous_transport": proof_transport},
                  "producer": producer}
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=False)
@@ -728,8 +769,10 @@ def expose(*, admission_path: Path, pushed_digest: str, pushed_tag: str, pushed_
     # Tag aliases embed the digest the consumer verifies next: the registry
     # index digest for images, the file digest for ORAS artifacts.
     tag_digest = pushed_digest if role == "runtime" else local["sha256"]
-    expected_tag = artifact_tag("rt" if role == "runtime" else "native", catalogue["environment"],
-                                catalogue["channel"], tag_digest,
+    catalogue_env = _need(catalogue, "environment", "admission catalogue lacks the environment identity")
+    catalogue_channel = _need(catalogue, "channel", "admission catalogue lacks the channel identity")
+    expected_tag = artifact_tag("rt" if role == "runtime" else "native", catalogue_env,
+                                catalogue_channel, tag_digest,
                                 catalogue.get("target") if role == "native" else None)
     _require(pushed_tag == expected_tag, f"exposed tag {pushed_tag} is not the delivery alias {expected_tag}")
     binary["tag"] = pushed_tag

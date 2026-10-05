@@ -38,7 +38,19 @@ def _display(argv):
     """
     shown = []
     mask = False
-    for word in argv:
+    index = 0
+    total = len(argv)
+    while index < total:
+        word = argv[index]
+        if word == "--":
+            # Everything past the separator is consumer argv, which may
+            # carry inline secrets: name the executable, count the rest.
+            rest = argv[index + 1:]
+            shown.append("--")
+            if rest:
+                shown.append(rest[0])
+                shown.append(f"({len(rest) - 1} args)")
+            return shown
         if mask:
             shown.append(word.split("=", 1)[0] + "=***")
             mask = False
@@ -49,6 +61,7 @@ def _display(argv):
             shown.append("--input=" + word[len("--input="):].split("=", 1)[0] + "=***")
         else:
             shown.append(word)
+        index += 1
     return shown
 
 
@@ -202,7 +215,9 @@ def main(argv=None) -> int:
         command += ["--state-dir", values["state-dir"]]
     command += ["--", *values["command_argv"]]
     print(f"action-run: inputs: {', '.join(e.split('=', 1)[0] for e in values['input_entries']) or '(none)'}")
-    print(f"action-run: argv: {values['command_argv']!r}")
+    # Consumer argv may carry inline secrets: log the executable and the
+    # argument count, never the arguments themselves.
+    print(f"action-run: command: {values['command_argv'][0]} ({len(values['command_argv']) - 1} args)")
     code = _run(command, env=child_env, cwd=str(work))
     app_returncode = ""
     receipt = output_dir / "receipt.json"

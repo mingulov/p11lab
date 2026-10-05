@@ -26,6 +26,11 @@ runner-provided module/output locations from the environment);
 `checker-driver.py` is the optional checker lane (public checker CLI with
 the frozen smoke profile and the controlled checker environment).
 
+Checkout-less consumers fetch these example scripts from the P11Lab
+source revision matching the handoff's producer wheel (each release
+records the wheel-to-revision mapping), the same revision that
+supplies `prepare-consumer.py` below.
+
 ## Handoff bundle layout
 
 The proof bundle is a directory with:

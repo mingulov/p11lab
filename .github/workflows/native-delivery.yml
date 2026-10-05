@@ -498,6 +498,9 @@ jobs:
 
   finalize-handoff:
     needs: [admit, expose-binary]
+    # Defense in depth: the admit job already exits nonzero on a blocked
+    # verdict, but the handoff push must never run without eligibility.
+    if: needs.admit.outputs.status == 'eligible'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:

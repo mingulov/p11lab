@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # Windows clean-consumer proof (PENDING-CI: this host cannot run Windows).
-# Dispatch-only. Runs outside any development checkout against a published
-# native handoff by immutable digest: arbitrary caller application with real
-# crypto plus an OpenSSL oracle, the optional checker at its pinned revision,
-# and a deliberate wrong-PIN failure proving failure preservation. All lanes
-# run through the reusable action (`uses: ./`, self-pinning to this rev).
+# Dispatch-only. The consumer lanes run against a published native handoff
+# by immutable digest with no provider checkout or development mounts:
+# arbitrary caller application with real crypto plus an OpenSSL oracle,
+# the optional checker at its pinned revision, and a deliberate wrong-PIN
+# failure proving failure preservation. All lanes run through the reusable
+# action (`uses: ./`, self-pinning to this rev), so the workflow checks out
+# this repository at its pinned revision only to load the action definition.
 # Runnable once a windows-amd64 handoff is published; see delivery docs.
 name: clean-consumer-windows
 
