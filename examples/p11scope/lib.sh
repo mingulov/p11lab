@@ -19,3 +19,24 @@ verify_sha256() {
         return 1
     fi
 }
+
+# finalize_result RESULT_FILE CONTENT WORK UID GID
+# Record a completion marker only after caller ownership is proven.
+# Ownership first, marker last: chown the work tree, then write the
+# marker, then chown the marker itself so it stays caller-owned. Any
+# chown failure removes the marker (when written) and returns nonzero,
+# so a failed chown never leaves a success marker behind. The host
+# treats the RESULT file as authoritative, never the pipe status.
+finalize_result() {
+    _result_file=$1
+    _result_content=$2
+    _work=$3
+    _uid=$4
+    _gid=$5
+    chown -R "$_uid:$_gid" "$_work" || return 1
+    printf '%s\n' "$_result_content" >"$_result_file" || return 1
+    chown "$_uid:$_gid" "$_result_file" || {
+        rm -f "$_result_file"
+        return 1
+    }
+}

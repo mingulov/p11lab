@@ -74,12 +74,13 @@ chmod 700 "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR/work"
 chmod 700 "$OUTPUT_DIR/work"
 
-BUILD_ARGS="--platform linux/amd64 --provenance=false --tag $TAG --iidfile $OUTPUT_DIR/demo-image.id -f $EXAMPLE_DIR/Dockerfile.demo"
+# argv, not a string: every path stays one word even with spaces.
+set -- --platform linux/amd64 --provenance=false --tag "$TAG" \
+    --iidfile "$OUTPUT_DIR/demo-image.id" -f "$EXAMPLE_DIR/Dockerfile.demo"
 if [ "$REBUILD" = "1" ]; then
-    BUILD_ARGS="$BUILD_ARGS --no-cache"
+    set -- "$@" --no-cache
 fi
-# shellcheck disable=SC2086
-docker build $BUILD_ARGS "$EXAMPLE_DIR" >"$OUTPUT_DIR/docker-build.log" 2>&1
+docker build "$@" "$EXAMPLE_DIR" >"$OUTPUT_DIR/docker-build.log" 2>&1
 IMAGE_ID=$(cat "$OUTPUT_DIR/demo-image.id")
 docker image inspect --format '{{.Id}} {{.Size}} {{json .RepoDigests}}' "$IMAGE_ID" >"$OUTPUT_DIR/demo-image-inspect.txt" 2>&1
 printf 'vessel image: %s\n' "$IMAGE_ID"

@@ -1,9 +1,10 @@
 """Narrow deterministic checks for the p11-kit demonstration.
 
 Covers only what is cheap without Docker or network: example wiring
-(README links, vessel pin, CLI refusals) and the owned-socket guard
-refusal cases. The live server/client route stays in run.sh with its
-own retained evidence.
+(README links, vessel pin, CLI refusals), the owned-socket guard
+refusal cases, and regression probes for the docker-build argv quoting
+and the chown-free container phase. The live server/client route stays
+in run.sh with its own retained evidence.
 """
 import os
 import re
@@ -177,3 +178,74 @@ def test_single_socket_counts_entries(tmp_path):
     proc = guard_call('single_socket', str(one))
     assert proc.returncode == 0
     assert proc.stdout.strip() == str(only)
+
+
+def test_demo_inner_runs_chown_free_as_caller():
+    """The container phase runs as the caller and owns nothing to fix:
+    no chown anywhere, so the marker-before-chown class cannot recur
+    here (run.sh passes the caller's uid:gid to docker run)."""
+    inner = (EXAMPLE / 'demo-inner.sh').read_text()
+    assert 'chown' not in inner
+    driver = RUN.read_text()
+    assert '"$(id -u):$(id -g)"' in driver
+
+
+def test_docker_build_keeps_spaced_paths_whole(tmp_path):
+    """With spaces in the output dir, the build argv still carries each
+    path as one word (POSIX positional parameters, no word splitting).
+
+    A stub docker records its argv and emulates build/iidfile/inspect;
+    the stubbed container run writes no RESULT, so the driver must fail
+    honestly *after* a well-formed build, never at build-argument time.
+    """
+    archive = tmp_path / 'native.tar.gz'
+    archive.write_bytes(b'stub-archive')
+    pin = tmp_path / 'pin'
+    pin.write_bytes(b'1')
+    bindir = tmp_path / 'stubbin'
+    bindir.mkdir()
+    argv_log = tmp_path / 'docker-argv.log'
+    stub = bindir / 'docker'
+    stub.write_text('#!/bin/sh\n'
+                    '{\n'
+                    "  printf 'DOCKER-CALL\\n'\n"
+                    "  printf '<%s>\\n' \"$@\"\n"
+                    f'}} >>"{argv_log}"\n'
+                    'prev=\n'
+                    'for a in "$@"; do\n'
+                    '  if [ "$prev" = "--iidfile" ]; then '
+                    'printf "%s" "sha256:stub" >"$a"; fi\n'
+                    '  prev=$a\n'
+                    'done\n'
+                    'if [ "$1" = "image" ]; then '
+                    'printf "sha256:stub 1 []\\n"; fi\n'
+                    'exit 0\n')
+    stub.chmod(0o755)
+    env = dict(os.environ)
+    env['PATH'] = f'{bindir}{os.pathsep}{env["PATH"]}'
+    out = tmp_path / 'out dir with spaces'
+    proc = subprocess.run(
+        [str(RUN), '--archive', str(archive), '--sha256', '0' * 64,
+         '--pin-file', str(pin), '--so-pin-file', str(pin),
+         '--output-dir', str(out)],
+        capture_output=True, text=True, timeout=120, env=env)
+    assert proc.returncode == 1
+    assert 'demo failed' in proc.stderr
+    calls, current = [], []
+    for line in argv_log.read_text().splitlines():
+        if line == 'DOCKER-CALL':
+            if current:
+                calls.append(current)
+            current = []
+        else:
+            assert line.startswith('<') and line.endswith('>')
+            current.append(line[1:-1])
+    if current:
+        calls.append(current)
+    assert calls[0][0] == 'build'
+    build = calls[0]
+    iidflag = build.index('--iidfile')
+    assert build[iidflag + 1] == f'{out}/demo-image.id'
+    fflag = build.index('-f')
+    assert build[fflag + 1] == f'{EXAMPLE}/Dockerfile.demo'
+    assert build[-1] == str(EXAMPLE)

@@ -27,9 +27,11 @@ p11-kit has two distinct roles; do not confuse them:
 
 ## Prerequisites
 
-- Docker with `linux/amd64` support, and network access for the one-time
-  vessel build (Debian base pull plus `apt-get install`).
-- A P11Lab source checkout (only `src/` is mounted; no `.local/` content,
+- An x86-64 host with Docker (the vessel runs `linux/amd64`), and
+  network access for the one-time vessel build (Debian base pull plus
+  `apt-get install`).
+- Run from inside a P11Lab source checkout: `run.sh` bind-mounts its
+  `src/` directory into the vessel (only `src/`; no `.local/` content,
   no reference workspace, and no prebuilt provider image is needed).
 - A reviewed SoftHSM native archive for the release channel plus its
   SHA256, from your own reviewed build receipt
@@ -53,8 +55,9 @@ output directory: vessel image identity, package versions, install/init
 receipts, local and remote slot listings, the server address with socket
 ownership records, keygen/sign transcripts, the OpenSSL oracle verdicts
 (original accepted, altered message rejected), and the shutdown proof
-(socket gone). Reset is deleting the output directory; independent runs
-need fresh output directories and PIN files stay outside it.
+(socket gone). The output directory must be fresh: `run.sh` refuses a
+path that already exists. Reset is deleting the output directory; PIN
+files stay outside it.
 
 ## What is proven, and the boundary
 

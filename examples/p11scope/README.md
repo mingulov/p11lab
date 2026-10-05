@@ -64,14 +64,23 @@ release) and confirmed by `doctor` on the demo host:
 
 ## Run
 
-Prerequisites: `curl`, `sha256sum`, and — for the live-capture phase
-only — Docker with `linux/amd64` support. No checkout mounts, no
-`.local/` content, and no provider image are needed.
+Prerequisites: an x86-64 host with `curl`, `sha256sum`, and `tar`,
+plus — for the live-capture phase only — Docker with `linux/amd64`
+support. The pinned observer bundle is an `x86_64-linux-musl` binary
+that phase 1 executes directly on the host, so other architectures
+cannot run it. No checkout mounts, no `.local/` content, and no
+provider image are needed. The output directory must be fresh:
+`run.sh` refuses a path that already exists.
 
 ```sh
 ./run.sh --output-dir ./p11scope-demo-out            # preflight only
 ./run.sh --privileged --output-dir ./p11scope-demo-out  # + live capture
 ```
+
+Phase 1 validates the preflight outputs before reporting success: it
+refuses (keeping the evidence) unless `--version` prints the pinned
+release and both `doctor` runs complete with a capability-tier
+verdict.
 
 `--privileged` runs one disposable container with `--privileged`, the
 host PID namespace, root inside, debugfs/bpffs mounted inside that

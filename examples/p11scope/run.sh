@@ -39,6 +39,25 @@ refuse() {
     exit 2
 }
 
+# check_doctor_output OUTPUT RC_FILE
+# Refuse unless the recorded doctor invocation completed and printed a
+# verdict. doctor is a probe, not a gate: rc 0 (clean) and rc 1 (issues
+# found) are both honest reports. Anything else — usage error, exec
+# failure, signal death — means doctor itself failed. Either way the
+# capability-tier line must be present; without it there is no verdict
+# to report.
+check_doctor_output() {
+    _out=$1
+    _rc_file=$2
+    _rc=$(cat "$_rc_file" 2>/dev/null || true)
+    case "$_rc" in
+        0|1) ;;
+        *) refuse "doctor did not complete (rc ${_rc:-missing}), see $_out and $_rc_file" ;;
+    esac
+    grep -q -E '^capability tier: ' "$_out" 2>/dev/null || \
+        refuse "doctor printed no capability-tier verdict (rc $_rc), see $_out"
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --output-dir) OUTPUT_DIR=${2:-}; shift 2 ;;
@@ -54,6 +73,7 @@ done
 [ -e "$OUTPUT_DIR" ] && refuse "output dir already exists, pass a fresh path: $OUTPUT_DIR"
 command -v curl >/dev/null 2>&1 || refuse "curl is required on PATH"
 command -v sha256sum >/dev/null 2>&1 || refuse "sha256sum is required on PATH"
+command -v tar >/dev/null 2>&1 || refuse "tar is required on PATH"
 if [ "$PRIVILEGED" = "1" ]; then
     command -v docker >/dev/null 2>&1 || refuse "docker is required for --privileged"
 fi
@@ -77,15 +97,25 @@ BUNDLE_TOP=$(dirname "$P11SCOPE_BIN")
 test -f "$BUNDLE_TOP/LICENSE" || refuse "bundle carries no LICENSE"
 test -f "$BUNDLE_TOP/RELEASE.json" || refuse "bundle carries no RELEASE.json"
 
+set +e
 "$P11SCOPE_BIN" --version >"$OUTPUT_DIR/work/version.txt" 2>&1
+printf '%s\n' "$?" >"$OUTPUT_DIR/work/version-rc.txt"
+set -e
 cat "$OUTPUT_DIR/work/version.txt"
+VERSION_RC=$(cat "$OUTPUT_DIR/work/version-rc.txt")
+[ "$VERSION_RC" = "0" ] || refuse "p11scope --version exited $VERSION_RC, see $OUTPUT_DIR/work/version.txt"
+VERSION_LINE=$(head -n 1 "$OUTPUT_DIR/work/version.txt")
+[ "$VERSION_LINE" = "p11scope $P11SCOPE_VERSION" ] || \
+    refuse "p11scope --version is not 'p11scope $P11SCOPE_VERSION', see $OUTPUT_DIR/work/version.txt"
 set +e
 "$P11SCOPE_BIN" doctor >"$OUTPUT_DIR/work/doctor.txt" 2>&1
 printf '%s\n' "$?" >"$OUTPUT_DIR/work/doctor-rc.txt"
 "$P11SCOPE_BIN" doctor --extra-strict >"$OUTPUT_DIR/work/doctor-extra-strict.txt" 2>&1
 printf '%s\n' "$?" >"$OUTPUT_DIR/work/doctor-extra-strict-rc.txt"
 set -e
-TIER=$(grep -E '^capability tier:' "$OUTPUT_DIR/work/doctor.txt" || true)
+check_doctor_output "$OUTPUT_DIR/work/doctor.txt" "$OUTPUT_DIR/work/doctor-rc.txt"
+check_doctor_output "$OUTPUT_DIR/work/doctor-extra-strict.txt" "$OUTPUT_DIR/work/doctor-extra-strict-rc.txt"
+TIER=$(grep -E '^capability tier:' "$OUTPUT_DIR/work/doctor.txt")
 printf '%s\n' "$TIER" | tee "$OUTPUT_DIR/work/tier.txt"
 printf 'PHASE1_DONE\n' >"$OUTPUT_DIR/work/PHASE1"
 
@@ -98,12 +128,13 @@ fi
 printf '%s\n' 'privileged phase: disposable container, --privileged, host PID namespace,'
 printf '%s\n' 'root inside, debugfs/bpffs mounted inside, no network, caller-owned outputs.'
 
-BUILD_ARGS="--platform linux/amd64 --provenance=false --tag $TAG --iidfile $OUTPUT_DIR/demo-image.id -f $EXAMPLE_DIR/Dockerfile.demo"
+# argv, not a string: every path stays one word even with spaces.
+set -- --platform linux/amd64 --provenance=false --tag "$TAG" \
+    --iidfile "$OUTPUT_DIR/demo-image.id" -f "$EXAMPLE_DIR/Dockerfile.demo"
 if [ "$REBUILD" = "1" ]; then
-    BUILD_ARGS="$BUILD_ARGS --no-cache"
+    set -- "$@" --no-cache
 fi
-# shellcheck disable=SC2086
-docker build $BUILD_ARGS "$EXAMPLE_DIR" >"$OUTPUT_DIR/docker-build.log" 2>&1
+docker build "$@" "$EXAMPLE_DIR" >"$OUTPUT_DIR/docker-build.log" 2>&1
 IMAGE_ID=$(cat "$OUTPUT_DIR/demo-image.id")
 docker image inspect --format '{{.Id}} {{.Size}} {{json .RepoDigests}}' "$IMAGE_ID" >"$OUTPUT_DIR/demo-image-inspect.txt" 2>&1
 printf 'vessel image: %s\n' "$IMAGE_ID"

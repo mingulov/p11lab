@@ -78,8 +78,8 @@ T0 offline. Reproduce with: p11scope doctor (exit status and FAIL rows
 in doctor-privileged.txt). Tracing stays optional: ordinary image
 consumers never need it.
 EOF
-        printf 'P11SCOPE_DEMO_UNSUPPORTED\n' >"$WORK/RESULT"
-        chown -R "$HOST_UID:$HOST_GID" "$WORK"
+        finalize_result "$WORK/RESULT" "P11SCOPE_DEMO_UNSUPPORTED" \
+            "$WORK" "$HOST_UID" "$HOST_GID"
         log "P11SCOPE_DEMO_UNSUPPORTED (T0, evidence retained)"
         exit 0
         ;;
@@ -132,6 +132,6 @@ if grep -q "$SOPIN" "$WORK/token-init.txt" "$WORK/run-transcript.txt" 2>/dev/nul
     exit 1
 fi
 unset PIN SOPIN
-printf 'P11SCOPE_DEMO_OK\n' >"$WORK/RESULT"
-chown -R "$HOST_UID:$HOST_GID" "$WORK"
+finalize_result "$WORK/RESULT" "P11SCOPE_DEMO_OK" \
+    "$WORK" "$HOST_UID" "$HOST_GID"
 log "P11SCOPE_DEMO_OK"
