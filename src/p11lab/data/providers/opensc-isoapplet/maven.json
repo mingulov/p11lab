@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "method": "Maven Central binary jar pinned by SHA-256 with Central-published SHA-1/MD5 provenance; fetched once at build time by fetch-jar.py with URL-identity plus size plus hash verification. No repository resolution during builds. Source-building is infeasible: the frozen jcardsim pom installs oracle.javacard api_classic from ${env.JC_CLASSIC_HOME} (proprietary Oracle JavaCard SDK, not a freezable public input).",
+  "repository": "https://repo1.maven.org/maven2/",
+  "artifacts": [
+    {
+      "group": "com.klinec",
+      "artifact": "jcardsim",
+      "version": "3.0.6.0",
+      "file": "jcardsim-3.0.6.0.jar",
+      "url": "https://repo1.maven.org/maven2/com/klinec/jcardsim/3.0.6.0/jcardsim-3.0.6.0.jar",
+      "sha256": "db6de7ffde71651c45d00df7e160771685cec3e14e444bf36b796658d289942f",
+      "size": 1202576,
+      "central_sha1": "826e315e72e158e67c534c5be2e90e8cf7be76d8",
+      "central_sha1_url": "https://repo1.maven.org/maven2/com/klinec/jcardsim/3.0.6.0/jcardsim-3.0.6.0.jar.sha1",
+      "central_md5": "41eea5433a75670dfe6d70b50bb0a43d",
+      "central_md5_url": "https://repo1.maven.org/maven2/com/klinec/jcardsim/3.0.6.0/jcardsim-3.0.6.0.jar.md5",
+      "license_observation": "Apache-2.0 jcardsim sources with shaded BouncyCastle 1.71 plus kryo 5.2.0 plus bundled Oracle api_classic 3.0.5 javacard classes; see FILE-NOTICES.txt"
+    }
+  ]
+}

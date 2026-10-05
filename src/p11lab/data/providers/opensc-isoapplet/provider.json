@@ -24,6 +24,11 @@
     "P11LAB_SO_PIN_FILE": {
       "secret": true,
       "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "JavaCard isoApplet"
     }
   },
   "services": [
@@ -33,42 +38,32 @@
   ],
   "channels": {
     "rolling": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/OpenSC/OpenSC.git",
-        "selector": {
-          "kind": "branch",
-          "value": "master"
-        },
-        "license_status": "unreviewed",
-        "revision": "4f3ff5111314bde380c3d4e9e25bb1fa0169196d",
-        "license_observation": "LGPL-2.1 COPYING plus per-source terms"
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "rolling.lock.json"
     },
     "release": {
-      "status": "planned",
-      "source": {
-        "kind": "git",
-        "url": "https://github.com/OpenSC/OpenSC.git",
-        "selector": {
-          "kind": "tag",
-          "value": "0.27.1"
-        },
-        "license_status": "unreviewed",
-        "revision": "19868984dc4dc697af6a86d65ab32a1f19a43ea4",
-        "license_observation": "LGPL-2.1 COPYING plus per-source terms"
-      },
-      "pending": "Source/dependency closure, recipe, lifecycle, actual-content licensing and artifact qualification pending."
+      "status": "locked",
+      "lock": "release.lock.json"
     }
   },
-  "application_profile": "general-token",
+  "application_profile": "isoapplet-signing",
   "distribution": {
-    "status": "unreviewed",
-    "reason": "Candidate only; actual runtime/source/license and application qualification evidence is pending."
+    "status": "blocked",
+    "reason": "Local emulator candidate. Observed closure flags (GPL-3.0-or-later IsoApplet, GPL-3.0-or-later vpcd handler, LGPL glib, Oracle-licensed javacard classes plus shaded BouncyCastle/kryo inside the pinned jcardsim jar, GPL-2.0-with-Classpath-exception OpenJDK JRE), actual-layer/generated-content review and digest-bound source-companion delivery remain incomplete; checker/consumer/proxy admission is separate."
   },
   "constraints": [
-    "Module path and lifecycle contract are planned; no runtime artifact has been built or qualified."
+    "Linux amd64/glibc, jcardsim emulator only. Real smartcard hardware, other readers, other backends, FIPS claims and other architectures/libcs are excluded. This qualifies OpenSC plus IsoApplet against jCardSim, never real smartcard hardware.",
+    "Both channels source-build unpatched OpenSC (release 0.27.1, rolling 0.27.1-339-g4f3ff51) with system OpenSSL 3.5.7 libcrypto.so.3; no legacy provider and no from-source OpenSSL. IsoApplet v0.6.1 is compiled from frozen source with the frozen JDK against the pinned Maven Central jcardsim 3.0.6.0 jar (source-building jcardsim needs the proprietary Oracle JavaCard SDK); the vsmartcard pin (virtualsmartcard-0.11) and the jcardsim jar plus jcardsim source-evidence pins are shared across channels. No patches; upstream PKCS#11 semantics are unchanged.",
+    "Basic runtime has the module, libopensc, pkcs15-init, the sealed jcardsim jar with the compiled IsoApplet and the P11Lab wrapper, the whole-package JRE, the ifd-vpcd handler with its generated reader.conf entry, the stock opensc.conf, pcscd, base libraries and the exact extracted closure (7 whole packages, audited with ldd receipts and a removal proof). The openssl CLI, USB CCID drivers, the polkitd/dbus daemons, pkcs11-tool, opensc-tool, sc-hsm-tool, Python, javac, checker, datasets and tracing are excluded; nothing links them.",
+    "The caller UID may be root or non-root with any primary group; both are qualified. No NSS wrapper or fixed group is required.",
+    "Bind writable /var/lib/p11lab; a private ephemeral /run/p11lab is required. /run/pcscd is an in-image symlink into the control tmpfs so the fixed daemon socket path works without a caller mount. Never share /run with another runtime. Each shard/client owns a separate volume, container, daemons and network namespace (the emulator and vpcd use the fixed loopback port 35963; the frozen reloader default binds 8099 inside that same namespace). Logs and pid state live under /run; the lease and marker persist under /var/lib/p11lab/opensc-isoapplet.",
+    "The emulator is RAM-only: every init, health and exec provisions a fresh card with caller credentials (pty-driven pkcs15-init create plus in-process keygen) and proves it with a native census. No card state persists across operations; re-provisioning is explicit documented semantics, never a silent reset. The marker binds the non-secret configuration only.",
+    "Caller user PIN is 4..16 bytes and caller SO-PUK (unblock code) is exactly 16 bytes of any value; NUL, ETX, CR and LF bytes are refused (they cannot be provisioned exactly). Both are required at every operation. No baked caller credentials ship. The token label stays the applet default JavaCard isoApplet; any other P11LAB_LABEL value is refused.",
+    "The token label is fixed natively as JavaCard isoApplet at slot 0, token-present index 0; P11LAB_LABEL defaults to it and any other value is refused. The user PIN has a 3-try budget (wrong attempts report 0xa0, FINAL_TRY at one try left, LOCKED sticky with continued 0xa0, never 0xa4); SO login with the PUK succeeds but the module offers no working unblock (C_InitPIN reports 0x20; the driver implements no UNBLOCK while the applet does), so a locked card is restored by the next operation's fresh provision.",
+    "init/health/exec supervise pcscd plus the JVM for that operation only: subreaper adoption, volume/control leases, socket plus reader-with-card plus ATR-match plus native pre-login token readiness, daemon-death detection, signal forwarding, bounded logs and bounded terminate/kill/reap. exec retains both services for the complete application lifetime and preserves argv/status.",
+    "Provisioning uses only the pinned pkcs15-init create over a raw-mode pty with caller secrets on the pty (never argv/logs) plus in-process PKCS#11 keygen. The reader is pinned by frozen ATR; the exact 4-prompt sequence is asserted with an ATR-match check and error-marker scan. A card that cannot present the frozen ATR is refused before any PKCS#11 call.",
+    "Unknown/hidden entries, unsafe links/hardlinks/modes, changed non-secret configuration, stale daemon debris, missing marker and busy state are refused before native open. Failures retain partial state for investigation.",
+    "The general-token profile is falsified natively: the card offers no raw CKM_ECDSA (C_SignInit reports 0x70), so P-256 ECDSA consumers cannot run. The isoapplet-signing profile holds narrowly in both channels: on-card RSA-2048 plus P-256/P-384 keygen, RSA-2048 SHA256_RSA_PKCS and raw RSA_PKCS sign with on-card verify and independent OpenSSL oracles plus altered-message rejection in existing, generated (session) and proxy modes, P-256 ECDSA_SHA1 sign with independent oracle plus altered-message rejection, SHA-256 digest with oracle, session AES import/create/destroy (labels are dropped natively) and token DATA lifecycle. Session DATA/CERTIFICATE creation reports 0x7, C_InitPIN reports 0x20 and SO C_SetPIN reports 0x102; wider mechanisms, other key sizes, multi-client concurrency, other readers/backends and provider-wide qualification are not asserted.",
+    "All runtime/consumer/checker/proxy artifacts remain blocked for distribution. Preserve exact provider sources, the jar plus git closure, Debian closure sources/notices and generated build inputs; source admission, public delivery and publication are separate gates."
   ]
 }
