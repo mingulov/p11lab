@@ -19,6 +19,30 @@ EXPECTED_IDS = {
 }
 
 
+def _planned_spec():
+    # No planned channels remain in the locked 24-provider cohort, so
+    # planned-status gates graft a synthetic planned channel (the exact
+    # retired stub shape) onto a locked environment instead of loading
+    # a live stub.
+    spec = load_environment('softhsm2', 'release')
+    planned = {
+        'status': 'planned',
+        'source': {
+            'kind': 'git',
+            'url': 'https://example.org/token.git',
+            'selector': {'kind': 'tag', 'value': '0.27.1'},
+            'license_status': 'unreviewed',
+            'revision': 'c' * 40,
+            'license_observation': 'synthetic planned-channel fixture',
+        },
+        'pending': 'synthetic planned channel for gate tests',
+    }
+    spec['channels']['release'] = copy.deepcopy(planned)
+    spec['channel_spec'] = copy.deepcopy(planned)
+    spec.pop('lock', None)
+    return spec
+
+
 def test_full_cohort_has_distinct_module_and_backend_dispositions():
     entries = list_environments()
     assert {s['id'] for s in entries} == EXPECTED_IDS
@@ -27,7 +51,7 @@ def test_full_cohort_has_distinct_module_and_backend_dispositions():
         validate_descriptor(spec)
         assert spec['module_implementation']['name']
         assert spec['backend']['name']
-        expected_admission = 'blocked' if spec['id'] in ('cryptech', 'nethsm', 'siguldry', 'kmsp11-fakekms', 'softkms', 'tpm2', 'ykcs11', 'opensc-pico', 'sc-hsm', 'opensc-isoapplet') else 'unreviewed'
+        expected_admission = 'blocked' if spec['id'] in ('cryptech', 'nethsm', 'siguldry', 'kmsp11-fakekms', 'softkms', 'tpm2', 'ykcs11', 'opensc-pico', 'sc-hsm', 'opensc-isoapplet', 'opensc-pivapplet') else 'unreviewed'
         assert spec['distribution']['status'] == expected_admission
         assert set(spec['channels']) == {'release', 'rolling'}
     by_id = {s['id']: s for s in entries}
@@ -39,7 +63,8 @@ def test_full_cohort_has_distinct_module_and_backend_dispositions():
 
 
 def test_planned_entries_can_be_described_but_not_built():
-    spec = load_environment('opensc-pivapplet', 'release')
+    spec = _planned_spec()
+    validate_descriptor(spec)
     assert spec['channel_spec']['status'] == 'planned'
     assert 'lock' not in spec
     assert 'lock' not in spec['channel_spec']
@@ -65,14 +90,14 @@ def test_unknown_channel_and_environment_are_errors():
 
 
 def test_invalid_full_source_revision_is_rejected():
-    spec = load_environment('opensc-pivapplet', 'release')
+    spec = _planned_spec()
     spec['channels']['release']['source']['revision'] = '13e6e86'
     with pytest.raises(CatalogError, match='revision'):
         validate_descriptor(spec)
 
 
 def test_license_status_is_required_even_for_unreviewed_source():
-    spec = load_environment('opensc-pivapplet', 'release')
+    spec = _planned_spec()
     del spec['channels']['release']['source']['license_status']
     with pytest.raises(CatalogError, match='license_status'):
         validate_descriptor(spec)
@@ -93,6 +118,9 @@ def test_packaged_asset_rejects_escape(path):
 
 @pytest.fixture
 def locked_environment(tmp_path):
+    # pivapplet is locked with no native targets, so the tmp asset root
+    # only shadows the grafted release lock (a native-target base would
+    # fail its own native lock assets under the override).
     spec = load_environment('opensc-pivapplet', 'release')
     assets = []
     for role, path, content in [('recipe', 'Dockerfile', b'FROM scratch\n'), ('adapter', 'adapter.sh', b'#!/bin/sh\n')]:
@@ -107,6 +135,9 @@ def locked_environment(tmp_path):
     }
     (tmp_path / 'release.lock.json').write_text(json.dumps(lock))
     spec['channels']['release'] = {'status': 'locked', 'lock': 'release.lock.json'}
+    # Only the release lock is under test; the tmp asset root cannot serve
+    # the real rolling lock, so park rolling as unavailable scaffolding.
+    spec['channels']['rolling'] = {'status': 'unavailable', 'reason': 'synthetic fixture: only the release lock is under test'}
     spec['channel_spec'] = copy.deepcopy(spec['channels']['release'])
     spec['lock'] = lock
     return spec, tmp_path
@@ -145,9 +176,13 @@ def test_symlink_asset_cannot_escape_provider_root(locked_environment):
         validate_build_inputs(spec, asset_root=root)
 
 
-def test_opensc_pivapplet_rolling_uses_actual_master_branch():
+def test_opensc_pivapplet_rolling_tracks_master_branch():
     spec = load_environment('opensc-pivapplet', 'rolling')
-    assert spec['channel_spec']['source']['selector'] == {'kind': 'branch', 'value': 'master'}
+    assert spec['channel_spec']['status'] == 'locked'
+    source = spec['lock']['sources'][0]
+    assert source['id'] == 'opensc'
+    assert source['selector'] == {'kind': 'branch', 'value': 'master'}
+    assert len(source['revision']) == 40
 
 
 def test_tools_reject_truncated_commit_pins():
@@ -173,7 +208,7 @@ def test_tools_require_explicit_artifact_disposition():
 ])
 @pytest.mark.parametrize('malformed', [[], {}])
 def test_malformed_descriptor_enums_raise_catalog_error(field, malformed):
-    spec = load_environment('opensc-pivapplet', 'release')
+    spec = _planned_spec()
     parent = spec
     for key in field[:-1]:
         parent = parent[key]

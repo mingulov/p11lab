@@ -103,10 +103,29 @@ def test_shared_runtime_asset_uses_packaged_root_not_staging_root(tmp_path):
 
 
 def test_planned_environment_cannot_emit_artifact(tmp_path):
+    import copy
     from p11lab.catalog import CatalogError, load_environment
     from p11lab.build import build_artifact
+    # No planned channels remain in the locked cohort; graft the retired
+    # stub shape onto a locked environment to keep the gate covered.
+    spec = load_environment('softhsm2', 'release')
+    planned = {
+        'status': 'planned',
+        'source': {
+            'kind': 'git',
+            'url': 'https://example.org/token.git',
+            'selector': {'kind': 'tag', 'value': '0.27.1'},
+            'license_status': 'unreviewed',
+            'revision': 'c' * 40,
+            'license_observation': 'synthetic planned-channel fixture',
+        },
+        'pending': 'synthetic planned channel for gate tests',
+    }
+    spec['channels']['release'] = copy.deepcopy(planned)
+    spec['channel_spec'] = copy.deepcopy(planned)
+    spec.pop('lock', None)
     with pytest.raises(CatalogError, match='locked'):
-        build_artifact(load_environment('opensc-pivapplet', 'release'), 'runtime', tmp_path / 'output')
+        build_artifact(spec, 'runtime', tmp_path / 'output')
     assert not (tmp_path / 'output/artifact.json').exists()
 
 
@@ -125,10 +144,12 @@ def test_actual_inventory_requires_exact_source_identity():
 
 
 @pytest.mark.parametrize('operation', ['resolve', 'build'])
-def test_cli_locked_operation_rejects_planned_channel_without_output(operation, tmp_path, capsys):
+def test_cli_locked_operation_rejects_unlocked_channel_without_output(operation, tmp_path, capsys):
     from p11lab.cli import main
     output = tmp_path / 'attempt'
-    assert main([operation, 'opensc-pivapplet', '--channel', 'release', '--output-dir', str(output)]) == 2
+    # haskoki release has no tag (unavailable); the last planned stub is
+    # locked, and both unlocked dispositions share the locked-inputs gate.
+    assert main([operation, 'haskoki', '--channel', 'release', '--output-dir', str(output)]) == 2
     assert 'locked' in capsys.readouterr().err
     assert not output.exists()
 

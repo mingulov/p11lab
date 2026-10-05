@@ -1959,3 +1959,258 @@ and actual-layer review are pending. See
 [FILE-NOTICES.txt](../src/p11lab/data/providers/opensc-isoapplet/FILE-NOTICES.txt).
 Distribution remains blocked independently of local runtime or crypto
 results.
+
+## M6: opensc-pivapplet release and rolling OpenSC over PivApplet on jCardSim
+
+| Channel | Frozen source | Runtime contract | Application qualification | Distribution |
+| --- | --- | --- | --- | --- |
+| release | Tag `0.27.1`, revision `19868984dc4dc697af6a86d65ab32a1f19a43ea4` | Source-built `opensc-pkcs11.so` over supervised pcscd and the jcardsim VSmartCard JVM emulator through the ifd-vpcd loopback handler, PIV generate plus selfsign plus import provisioning via the source-built yubico-piv-tool CLI, RAM-only card re-provisioned every operation, amd64/glibc | `general-token` holds: fixed `piv-9a` token at slot 0 with native flags `0x40d`, four provisioned identities (9a/9d ECCP256, 9c RSA2048, 9e ECCP384), raw CKM_ECDSA plus ECDSA_SHA1 P-256, ECDSA_SHA384 P-384 and RSA-2048 SHA256 plus raw RSA-PKCS sign with on-card verify and independent OpenSSL oracles plus altered-message rejection, SHA-256 digests, per-slot X.509 reads, session AES lifecycle. On-card keygen is natively absent (`0x54`) and SO login reports `0x5` | BLOCKED: closure flags (MPL-2.0 PivApplet, BSD-2-Clause yubico-piv-tool and libykpiv, GPL-3.0-or-later vpcd handler, Oracle-licensed javacard classes plus shaded BouncyCastle/kryo inside the pinned jar, GPL-2.0-only with Classpath exception JRE, LGPL glib) with no completed corresponding-source, notice or actual-layer review |
+| rolling | `master` revision `804ad6d35c6674b8c2822228bb8b4764a775f478` (`0.27.1-346-g804ad6d3`) | Same contract, same Debian trixie platform and frozen package roster, same shared PivApplet plus piv-tool plus vsmartcard plus sealed-jar pins; mechanism IDs, flags, bounds and provisioning behavior proven identical except the RSA keySize bounds below | Same `general-token` evidence, same checker outcome; the RSA mechanism keySize bounds are `{2048,2048}` here against release `{1024,3072}` | Same blockers |
+
+Both channels source-build unpatched OpenSC
+(`./bootstrap`, `./configure --prefix=/usr/local
+--sysconfdir=/usr/local/etc --disable-tests --disable-doc
+--disable-man`, `make -j2`) against Debian system OpenSSL
+3.5.7 (`libcrypto.so.3`, no legacy provider, no from-source
+OpenSSL), compile PivApplet `master`
+(`5cb14a9e8d16e92fbad73dcad86a219a9210554f`, 11 commits
+past lightweight tag `v0.9.0`: VERIFY/PIN handling,
+simulator tests, management-key and metadata handling,
+UTCtime certificates) from frozen source with the frozen
+ant plus the repo-bundled JPP jar (hash-asserted) at
+`build.xml` defaults against the sealed Maven Central
+jcardsim 3.0.6.0 jar (`db6de7ffde71651c45d00df7e160771685cec3e14e444bf36b796658d289942f`,
+1,202,576 bytes, double-compile byte-identical), build the
+yubico-piv-tool 2.7.3 CLI (`cmake -DCMAKE_BUILD_TYPE=Release`,
+`make -j2`) from the frozen tag (annotated
+`yubico-piv-tool-2.7.3` peeling to
+`ed1cd7862d39a92502c0476f53dfcf93f195007a`) with the one
+P11Lab host-transport patch applied, and build the
+vsmartcard ifd-vpcd handler unpatched from the frozen
+`virtualsmartcard-0.11` tree (`82bc5ad066b26ee057d2af200c1a66e3a65a9743`).
+The patch caps chained ykpiv command blocks at 254 data
+bytes so T=1 case-4S blocks never exceed the emulator's
+260-byte short-APDU ceiling; ISO 7816 chaining permits any
+block split, so the traffic stays protocol-valid for any
+peer with no PIV, PKCS#11 or simulation semantic change. A
+declared patch that fails to apply fails the build.
+Source-building jcardsim is infeasible from freezable
+public inputs (its pom installs the proprietary Oracle
+JavaCard SDK from `JC_CLASSIC_HOME`), so the hash-sealed
+jar is the frozen emulator input while the frozen jcardsim
+sources ride along for license evidence only. The
+VSmartCard launcher is P11Lab-authored, adapted from the
+sibling recipe's clean-room launcher with a provenance
+note; no reference script text is reused. This lane
+qualifies OpenSC plus PivApplet against jCardSim only,
+never real smartcard hardware.
+
+The plan-flagged certificate provisioning
+incompatibility is repaired and disclosed. Natively, RSA
+selfsign (chained GENERAL AUTHENTICATE) and every slot's
+import-certificate (chained PUT DATA) failed with `6F00`
+while single-APDU operations succeeded: upstream ykpiv
+fragments chained commands into 255-byte blocks, which on
+T=1 travel as 261-byte case-4S APDUs (5 header plus 255
+data plus 1 Le) against the emulator's 260-byte buffer.
+The frozen provisioning tooling now emits 254-byte
+blocks; the emulator keeps its exact native behavior,
+including `6F00` on 261-byte short APDUs, which stays a
+disclosed unqualified surface. A second incompatibility
+found during acceptance is repaired the same way: the
+applet maps generate-with-default on slot 9c to
+PIN_ALWAYS (9a/9d map to ONCE, 9e to NEVER), which this
+driver can never serve (it reads only the discovery-object
+global policy and always issues a read between VERIFY and
+the GENERAL AUTHENTICATE final block, so the final block
+fails with 6982, surfaced as `0x101`); slot 9c is
+generated with the native `--pin-policy once`
+provisioning attribute while the applet's PIN_ALWAYS
+enforcement itself is untouched.
+
+The caller user PIN and the caller SO-PUK (unblock code)
+are each 6..8 ASCII digits (the driver *reports* min 4
+max 8; the applet enforces 6..8); NUL, CR, LF and
+digit-external bytes are refused because they cannot be
+provisioned exactly. Every operation consumes caller
+credentials to provision its fresh card; the token label
+stays the fixed 9a subject `piv-9a` and any other
+`P11LAB_LABEL` value is refused. The user PIN has a 5-try
+budget: wrong attempts report native `0xa0`, and once the
+budget is exhausted every further attempt -- including the
+correct PIN -- reports sticky `0xa4`. This driver
+re-reads the retry state at `C_Initialize`, so fresh
+processes agree with the locking process. The module
+offers no SO session at all (SO login reports `0x5`, so
+no InitPIN/unblock path exists) and a locked card is
+restored by the next operation's fresh provision, while
+the user PIN change itself works natively. Token DATA
+creation reports `0x54` (PIV carries fixed data objects
+only) and session DATA/CERTIFICATE creation reports
+`0x7`. The installed checker lane completes with full
+observations in both channels (smoke-v1, 23 nodes: 16
+passed, 7 skipped, 0 failed); the proxy lane serves
+remote RSA crypto verified by the independent oracles
+while the shared post-health check holds the known
+live-daemon state-lease ordering limit. Those runner
+outcomes stay separate from the completed provider
+observations. Acceptance is 118 passed with the 2
+documented proxy lifecycle xfails.
+
+### Appendix: opensc-pivapplet source, platform, credential and lifecycle boundary
+
+**Frozen source and build.** The builder compiles the
+module, the provisioning CLI, the applet classes, the
+P11Lab wrapper and the handler from the pinned inputs
+with the pinned arguments above; the daemon plus JVM
+closure (pcscd, libpcsclite1, the whole
+openjdk-21-jre-headless tree plus the proven link
+closure) comes from the frozen Debian trixie roster
+(base
+`debian@sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c`,
+snapshot `20260918T000000Z`), re-derived independently
+(233 packages, 133 sources, 7 whole extraction .debs;
+builder tops add `g++`, `ant`, `cmake`, `gengetopt` and
+`check` over the sibling set). The PivApplet,
+yubico-piv-tool, vsmartcard and jcardsim pins are shared
+across channels. The basic runtime ships the module at
+`/usr/local/lib/p11lab/opensc-pkcs11.so`, libopensc, the
+yubico-piv-tool CLI plus libykpiv, the sealed jar with
+the compiled PivApplet and wrapper, the whole-package
+JRE, the handler with its generated reader.conf entry,
+the stock opensc.conf, pcscd, base libraries and the
+exact extracted closure; pkcs15-init (PIV-inapplicable),
+the openssl CLI, USB CCID drivers, the polkitd/dbus
+daemons, pkcs11-tool, opensc-tool, Python, javac,
+checker, datasets and tracing are excluded and nothing
+links them. Runtime images measure about 416 MB per
+channel (the JVM closure dominates). `/run/pcscd` is
+an in-image symlink into the private control tmpfs, so
+the fixed daemon socket path works under read-only
+runners with no caller mount.
+
+**Service topology and provisioning.** pcscd plus the
+JVM run as supervised foreground children for the
+operation/application lifetime only; each shard/client
+owns a separate volume, container, daemons and private
+network namespace (the emulator and vpcd use fixed
+loopback port 35963; the frozen VSmartCard reloader
+default also listens on 8099 inside that same
+namespace). The supervisor gates readiness on socket
+accept plus listed vpcd slots (the JVM connects exactly
+once at startup with no retry, so it spawns only after
+pcscd listens) plus exactly one vpcd reader with the
+frozen JCOP ATR match plus per-operation fresh-card
+provisioning plus a native post-login census (slot 0,
+label `piv-9a`, flags `0x40d`, 32 mechanisms, exact 28
+objects with per-ID `01..04` triple-selects), never
+process-alive alone. Provisioning drives the pinned
+yubico-piv-tool CLI (`change-pin`/`change-puk` over the
+factory defaults, then per-slot `generate` plus
+`verify-pin` plus `selfsign-certificate` plus
+`import-certificate` for 9a ECCP256, 9c RSA2048, 9d
+ECCP256 and 9e ECCP384) with caller secrets on stdin
+pipes (`--stdin-input`) and public artifacts in
+control-tmpfs files (`-i`/`-o`), never argv/logs/disk;
+the reader is the ATR-pinned exact name, every stage's
+exact native success markers plus certificate file
+bounds (200..8192 bytes) are asserted, slot 9c carries
+`--pin-policy once`, and the management key stays the
+tool-default 3DES key (auto-applied by the tool, never
+a caller secret). The daemons, socket, logs and pid
+files live under ephemeral
+`/run/p11lab/opensc-pivapplet`; the lease and the
+configuration-only marker persist under
+`/var/lib/p11lab/opensc-pivapplet`. No baked
+credentials or initialized card state ship.
+
+**PIN, label, token and retry budget.** The token
+reports native flags `0x40d` with pin lengths 4..8, a
+32-mechanism roster (8 digests, raw ECDSA plus 5 ECDSA
+hash variants plus ECDH cofactor plus ECDH, RSA X.509
+plus RSA PKCS plus 7 hash variants plus OAEP plus PSS
+plus 5 PSS hash variants; neither keygen mechanism
+offered) and 28 objects (4 private keys, 4 public keys,
+4 selfsigned certificates with subject `CN=piv-9x`, 15
+data objects, 1 driver profile object) with the
+identities selected by CKA_ID `01..04`. Certificate
+DER lengths vary run to run (344/345/407/408 observed),
+so the suite asserts bounds plus OpenSSL parse, never
+exact sizes. The RSA keySize bounds are the one
+channel-divergent roster fact (release `{1024,3072}`
+static PIV range, rolling `{2048,2048}` observed key);
+EC bounds are 256..384 on both. The emulator is
+RAM-only (proven: nothing survives a JVM restart, and
+the setpin-then-original-PIN isolation lane re-proves
+freshness every run), so every operation provisions a
+fresh card and application objects never persist across
+operations; re-provisioning is explicit documented
+semantics, never a silent reset. Key-material
+determinism across fresh cards is unprobed for the
+ykpiv path (no modulus equality asserted). Every
+wrong-PIN login burns one try natively, the fifth
+consecutive wrong attempt locks (sticky `0xa4`,
+correct PIN then also rejected), and only the next
+operation's fresh provision restores the budget. No
+silent reset, relabel or retry of native
+state-changing calls exists.
+
+**Readiness, supervision and reset.** Supply
+caller-owned mode-0700 writable `/var/lib/p11lab`, a
+private mode-0700 `/run/p11lab` and writable `/tmp`;
+the caller UID may be root or non-root with any
+primary group, and no NSS wrapper or fixed group is
+required. `init`, `health` and `exec -- ARGV...`
+share the entrypoint plus C supervisor: exclusive
+volume lease and private control lock, static
+ownership/mode/link/roster checks (exact owned
+roster, exact-byte marker binding the runtime
+artifact to the non-secret configuration including
+the slot roster) before any daemon starts, then real
+readiness gating, daemon-death detection, signal
+forwarding with TERM/KILL escalation, bounded logs
+and subreaper cleanup. The preferred proxy daemon
+uses the same supervised `exec` lifetime, so no
+permanent `server`/`server-ready` operation exists.
+Reset is explicit caller removal/replacement of
+disposable state after all operations stop.
+Crash/power-loss recovery is unqualified.
+
+**Qualification limits.** `general-token` means
+exactly the proven observation: the fixed-label token
+at slot 0 with the native roster, raw ECDSA plus
+ECDSA_SHA1 P-256 and ECDSA_SHA384 P-384 sign with
+independent oracles, RSA-2048 SHA256/RSA-PKCS and raw
+sign with on-card verify and independent oracles,
+SHA-256 digests, per-slot certificate reads, session
+AES behavior, keygen/SO/object-boundary observations,
+wrong-PIN/lockout observations, state isolation via
+RAM-only freshness, and the completed checker
+profile. The emulator's `6F00` on 261-byte short
+APDUs, 9e PIN_NEVER pre-login use, 9d sign (same
+mechanism and curve as pinned 9a), key-material
+determinism across fresh cards, wider mechanisms,
+other key sizes, multi-client concurrency, other
+readers or backends, real smartcard hardware, FIPS
+claims and provider-wide qualification are not
+asserted. Optional checker/consumer/proxy artifacts
+have separate provenance and admission.
+
+The OpenSC sources are LGPL-2.1 (root COPYING,
+identical bytes both channels), the compiled
+PivApplet carries MPL-2.0 per-file headers with no
+root LICENSE file, yubico-piv-tool is BSD-2-Clause
+(COPYING, with a binary-redistribution notice
+obligation) plus the one Apache-2.0 P11Lab
+host-transport patch, the vpcd handler is
+GPL-3.0-or-later, the pinned jar bundles Apache-2.0
+jcardsim sources with shaded BouncyCastle 1.71 and
+kryo 5.2.0 plus bundled Oracle api_classic javacard
+classes (requires review) and carries no license
+files of its own, the shipped JRE is GPL-2.0-only
+with the Classpath exception, and the glib stack is
+LGPL; base-package source obligations, notice
+delivery and actual-layer review are pending. See
+[FILE-NOTICES.txt](../src/p11lab/data/providers/opensc-pivapplet/FILE-NOTICES.txt).
+Distribution remains blocked independently of local runtime or crypto
+results.
