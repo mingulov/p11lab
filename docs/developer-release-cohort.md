@@ -1453,3 +1453,149 @@ obligations, notice delivery and actual-layer review pending. See
 [FILE-NOTICES.txt](../src/p11lab/data/providers/ykcs11/FILE-NOTICES.txt).
 Distribution remains blocked independently of local runtime or crypto
 results.
+
+## M6: opensc-pico release and rolling SmartCard-HSM emulator tokens
+
+| Channel | Frozen source | Runtime contract | Application qualification | Distribution |
+| --- | --- | --- | --- | --- |
+| release | Tag `0.27.1`, revision `19868984dc4dc697af6a86d65ab32a1f19a43ea4` | Source-built unpatched `opensc-pkcs11.so` plus `sc-hsm-tool` over supervised pcscd and the pico-hsm emulator through the ifd-vpcd loopback handler, persistent per-volume flash with destructive INITIALIZE run once, amd64/glibc | `general-token` retained: fixed `SmartCard-HSM` token at slot 0 with native flags `0x40d`, provisioned P-256/RSA-2048/P-384 sign/verify with independent OpenSSL oracle and altered-message rejection, session and application-provisioned on-card keys, persistence and state isolation | BLOCKED: closure flags (AGPL-3.0 emulator and SDK, GPL-3.0 vpcd handler, LGPL glib, GPL dual-license options in mbedTLS sources) with no completed corresponding-source, notice or actual-layer review |
+| rolling | `master` revision `4f3ff5111314bde380c3d4e9e25bb1fa0169196d` (`0.27.1-339-g4f3ff51`) | Same contract, same Debian trixie platform and frozen package roster, same shared pico-hsm plus vsmartcard backend pins; initialize argv carries `--pin ask:` for the rolling-only prompt gating | Same `general-token` evidence, same checker outcome | Same blockers |
+
+Both channels source-build unpatched OpenSC (`./bootstrap`,
+`./configure --prefix=/usr/local --sysconfdir=/usr/local/etc
+--disable-tests --disable-doc --disable-man`, `make -j2`) against
+Debian system OpenSSL 3.5.7 (`libcrypto.so.3`, no legacy provider,
+no from-source OpenSSL), the pico-hsm emulator (`cmake
+-DENABLE_EMULATION=1 -D__FOR_CI=1`, `make -j2`, mbedTLS backend)
+from the frozen 8-repository closure, and the vsmartcard ifd-vpcd
+handler (`autoreconf`, `./configure`, `make`) unpatched. One
+pico-keys-sdk patch applies through the source machinery: the P11Lab
+build-freeze patch pinning the effective vendored mbedTLS v3.6.6
+and disabling the configure-time network self-update (a
+provisioning extension; no card or PKCS#11 semantics change), and a
+declared patch that fails to apply fails the build. This lane
+qualifies OpenSC against the pico-hsm emulator only, never real
+SmartCard-HSM hardware; EdDSA, PQC and the OpenSSL wrapper are not
+built.
+
+The caller user PIN is 6..15 bytes single-line (the init tool
+message allows 16, but a 16-byte PIN verifies never) and the SO-PIN
+is exactly 16 hexadecimal characters; only first init consumes
+credentials, while repeated init, health and exec re-validate the
+persistent flash without them. The token label is fixed natively as
+`SmartCard-HSM` (the post-initialize relabel path corrupts this
+emulator, so the recipe never relabels); `P11LAB_LABEL` defaults to
+it and any other value is refused. On-card and session keygen stay
+native success, wrong PINs stay native `0xa0`, and the third
+consecutive wrong PIN locks with native `0xa4`, after which the
+correct PIN is also rejected until the SO-gated `C_InitPIN`
+restores the whole budget. The installed checker lane completes
+with full observations in both channels (smoke-v1, 23 nodes: 18
+passed, 5 skipped, 0 failed in both channels); the proxy lane
+serves remote P-256 crypto verified by the independent oracle
+while the shared post-health check holds the known live-daemon
+state-lease ordering limit. Those runner outcomes stay separate
+from the completed provider observations. Acceptance is 88 passed
+with the 2 documented proxy lifecycle xfails.
+
+### Appendix: opensc-pico source, platform, credential and lifecycle boundary
+
+**Frozen source and build.** The builder compiles the module,
+tool, emulator and handler from the pinned git archives with the
+pinned arguments above; the daemon closure (pcscd, libpcsclite1
+plus 4 support libraries) comes from the frozen Debian trixie
+roster (base
+`debian@sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c`,
+snapshot `20260918T000000Z`). The pico-hsm backend pin (`v6.6`
+plus pico-keys-sdk, mbedTLS v3.6.6, framework, mlkem and tinycbor)
+and the vsmartcard pin (`virtualsmartcard-0.11`) are shared across
+channels. The basic runtime ships the module, libopensc,
+sc-hsm-tool, the emulator, the handler with its generated
+reader.conf entry, the stock opensc.conf, the two PKCS#15 init
+profiles the on-card keygen path requires, pcscd, base libraries
+and the exact extracted closure (6 whole packages, audited with
+`ldd` receipts); the openssl CLI, USB CCID drivers, the
+polkitd/dbus daemons, pkcs11-tool, opensc-tool, Python,
+compilers, checker, datasets and tracing are excluded and nothing
+links them. Runtime images measure about 143 MB per channel.
+`/run/pcscd` is an in-image symlink into the private control
+tmpfs, so the fixed daemon socket path works under read-only
+runners with no caller mount.
+
+**Service topology and provisioning.** pcscd and the emulator run
+as supervised foreground children for the operation/application
+lifetime only; each shard/client owns a separate volume,
+container, daemons and private network namespace. The supervisor
+gates readiness on socket accept plus listed vpcd slots (the
+emulator connects exactly once at startup with no retry, so it
+spawns only after pcscd listens) plus exactly-one-vpcd-reader plus
+the frozen SmartCard-HSM ATR match plus a native pre-login token
+round-trip (slot 0, label, flags `0x40d` modulo transient
+PIN-state bits, 30 mechanisms, per-ID 1/1 provisioned-key
+selects), never process-alive alone. The emulator fabricates its
+8 MiB flash in caller-owned state on first boot and resumes it
+afterwards; first init drives `sc-hsm-tool --initialize` over a
+pty in raw mode (never `--label`), then provisions three on-card
+keys (P-256 id `01`, RSA-2048 id `02`, P-384 id `03`) asserted via
+PKCS#11 keygen plus per-ID selects. The daemons, socket, logs and
+pid files live under ephemeral `/run/p11lab/opensc-pico`; the
+flash, lease and marker persist under
+`/var/lib/p11lab/opensc-pico`. No baked credentials or
+initialized card state ship.
+
+**PIN, label, token and retry budget.** The token reports native
+flags `0x40d` with pin lengths 6..15 and a 30-mechanism roster;
+general-token applications may persist their own on-card keys,
+certificates and data objects, which later censuses must not
+mistake for foreign state. Every wrong-PIN login burns one try
+natively (COUNT_LOW on any burned try, FINAL_TRY at one left),
+the third consecutive wrong attempt locks immediately, and only
+the SO-gated `C_InitPIN` restores the budget; SO login is
+value-deferred (a wrong value passes login and fails at
+`C_InitPIN` with `0xa0`). Repeated init accepts changed
+credential files because it never consumes credentials; the
+provisioned flash bytes are untouched. No silent reset, relabel
+or retry of native state-changing calls exists.
+
+**Readiness, supervision and reset.** Supply caller-owned
+mode-0700 writable `/var/lib/p11lab`, a private mode-0700
+`/run/p11lab` and writable `/tmp`; the caller UID may be root or
+non-root with any primary group. `init`, `health` and
+`exec -- ARGV...` share the entrypoint plus C supervisor:
+exclusive volume lease and private control lock, static
+ownership/mode/link/roster checks (exact owned roster, exact-byte
+marker binding the runtime artifact to the non-secret
+configuration) before any daemon starts, then real readiness
+gating, daemon-death detection, signal forwarding with TERM/KILL
+escalation, bounded logs and subreaper cleanup. The preferred
+proxy daemon uses the same supervised `exec` lifetime, so no
+permanent `server`/`server-ready` operation exists. Application
+key provisioning and PIN-state changes move flash and census
+totals legitimately, so lanes compare exact bytes only where the
+operation cannot change them. Reset is explicit caller
+removal/replacement of disposable state after all operations
+stop; re-initialization over an existing flash is refused.
+Crash/power-loss recovery is unqualified.
+
+**Qualification limits.** `general-token` means exactly the proven
+observation: the fixed-label token at slot 0 with the native
+roster, provisioned and application-provisioned P-256 sign/verify
+with the independent oracle, session-key freshness, persistence
+and state isolation, native keygen/wrong-PIN/lockout/SO-restore
+behavior, the PIN hammer observation, and the completed checker
+profile. Other mechanisms, multi-client concurrency, other
+readers or backends, real HSM hardware, FIPS claims and
+provider-wide qualification are not asserted. Optional
+checker/consumer/proxy artifacts have separate provenance and
+admission.
+
+The OpenSC sources are LGPL-2.1 with per-file terms and the
+pico-hsm, SDK, mbedTLS, mlkem, tinycbor and vsmartcard sources
+carry their own AGPL/GPL/Apache/MIT/BSD terms, but the image
+closure carries blocking flags: the AGPL-3.0 emulator and SDK,
+the GPL-3.0 vpcd handler, LGPL glib and GPL dual-license options
+in mbedTLS sources, with base-package source obligations, notice
+delivery and actual-layer review pending. See
+[FILE-NOTICES.txt](../src/p11lab/data/providers/opensc-pico/FILE-NOTICES.txt).
+Distribution remains blocked independently of local runtime or crypto
+results.

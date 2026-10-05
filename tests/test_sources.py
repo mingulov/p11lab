@@ -106,7 +106,7 @@ def test_planned_environment_cannot_emit_artifact(tmp_path):
     from p11lab.catalog import CatalogError, load_environment
     from p11lab.build import build_artifact
     with pytest.raises(CatalogError, match='locked'):
-        build_artifact(load_environment('opensc-pico', 'release'), 'runtime', tmp_path / 'output')
+        build_artifact(load_environment('sc-hsm', 'release'), 'runtime', tmp_path / 'output')
     assert not (tmp_path / 'output/artifact.json').exists()
 
 
@@ -128,7 +128,7 @@ def test_actual_inventory_requires_exact_source_identity():
 def test_cli_locked_operation_rejects_planned_channel_without_output(operation, tmp_path, capsys):
     from p11lab.cli import main
     output = tmp_path / 'attempt'
-    assert main([operation, 'opensc-pico', '--channel', 'release', '--output-dir', str(output)]) == 2
+    assert main([operation, 'sc-hsm', '--channel', 'release', '--output-dir', str(output)]) == 2
     assert 'locked' in capsys.readouterr().err
     assert not output.exists()
 
