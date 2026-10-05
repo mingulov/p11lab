@@ -62,10 +62,14 @@ def test_action_pins_patch_python():
     assert "python-version: '3.12.10'" in text
 
 
-def test_bouncy_server_ready_needs_no_pidfile(tmp_path):
-    """E5: server-ready verdicts come from health+native checks, not a pid."""
-    import os
-    import subprocess
+def _write_server_ready_script(tmp_path, http_stub, native_stub):
+    """E5: redirect a real entrypoint copy at fixture state with stubbed I/O.
+
+    Only the transport (http_request) and the PKCS#11 probe (native_slots)
+    are stubbed; label validation, static state, marker comparison, slot
+    selection, and the readiness waiters run unmodified.
+    """
+    import re
 
     from p11lab.catalog import package_data
 
@@ -84,10 +88,48 @@ def test_bouncy_server_ready_needs_no_pidfile(tmp_path):
     for original, redirect in [("/var/lib/p11lab", state), ("/run/p11lab", control),
                                ("/usr/share/p11lab/runtime-id", runtime_id)]:
         text = text.replace(original, str(redirect))
+    for name, stub in (("http_request", http_stub), ("native_slots", native_stub)):
+        spliced, count = re.subn(r"\n%s\(\) \{.*?\n\}\n" % name, "\n%s\n" % stub, text,
+                                 count=1, flags=re.DOTALL)
+        assert count == 1, name
+        text = spliced
     script = tmp_path / "provider"
     script.write_text(text)
+    return script
+
+
+def test_bouncy_server_ready_succeeds_when_healthy(tmp_path):
+    """E5: server-ready exits 0 for a supervised server (no PID exists here)."""
+    import os
+    import subprocess
+
+    script = _write_server_ready_script(
+        tmp_path,
+        'http_request() { if [ "$2" = "/Slot" ]; then '
+        'printf \'%s\' \'[{"SlotId":0,"Label":"P11Lab"}]\'; fi; return 0; }',
+        'native_slots() { printf \'1 1\\n\'; }')
     result = subprocess.run(["bash", str(script), "server-ready"], capture_output=True, text=True,
-                            timeout=30, env=os.environ | {"P11LAB_LABEL": "P11Lab"})
+                            timeout=60, env=os.environ | {"P11LAB_LABEL": "P11Lab"})
+    assert result.returncode == 0, result.stderr
+    assert "exited during startup" not in result.stderr, result.stderr
+
+
+def test_bouncy_server_ready_fails_without_pid_gate(tmp_path):
+    """E5: an unhealthy supervised server fails on HTTP, never on a PID."""
+    import os
+    import subprocess
+
+    script = _write_server_ready_script(
+        tmp_path,
+        'http_request() { return 1; }',
+        'native_slots() { printf \'1 1\\n\'; }')
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "sleep").write_text("#!/bin/sh\nexit 0\n")
+    (bindir / "sleep").chmod(0o755)
+    env = os.environ | {"P11LAB_LABEL": "P11Lab", "PATH": "%s:%s" % (bindir, os.environ["PATH"])}
+    result = subprocess.run(["bash", str(script), "server-ready"], capture_output=True, text=True,
+                            timeout=60, env=env)
     assert result.returncode != 0
-    assert "pid file" not in result.stderr + result.stdout, result.stderr
-    assert "exited during startup" in result.stderr or "health" in result.stderr, result.stderr
+    assert "externally supervised server HTTP health did not become ready" in result.stderr
+    assert "exited during startup" not in result.stderr, result.stderr

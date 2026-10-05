@@ -914,6 +914,71 @@ def test_action_run_echo_hides_consumer_argv():
     assert "1234" not in " ".join(shown) and "--pin" not in " ".join(shown)
 
 
+@pytest.mark.parametrize("platform", ["linux/amd64", "windows/amd64"])
+def test_action_run_native_round_trip_keeps_handoff_platform(tmp_path, monkeypatch, platform):
+    """Sol-4: install and run must both use the handoff platform.
+
+    `p11lab run --platform` defaults to linux/amd64 and reverifies the
+    installed tree against that tuple, so a run argv without the handoff
+    platform rejects an eligible windows/amd64 installation before the
+    application executes. Transports are stubbed; handoff validation,
+    digest binding, and argv construction run unmodified.
+    """
+    from types import SimpleNamespace
+
+    module = _action_run_module()
+    work = tmp_path / "work"
+    work.mkdir()
+    bundle_bytes = b"native bundle bytes"
+    bundle_digest = hashlib.sha256(bundle_bytes).hexdigest()
+    registry = "127.0.0.1:5050/p11lab"
+    binary_manifest = "cc" * 32
+    source_manifest = "dd" * 32
+    handoff = {
+        "schema_version": publish.SCHEMA_VERSION,
+        "registry": registry,
+        "catalogue": {"environment": "softhsm2", "channel": "release", "runtime_role": "native"},
+        "source": {"manifest_sha256": source_manifest, "tag": "source-tag",
+                   "reference": f"{registry}@sha256:{source_manifest}", "file_sha256": "ee" * 32},
+        "binary": {"kind": "bundle", "manifest_sha256": binary_manifest, "tag": "binary-tag",
+                   "reference": f"{registry}@sha256:{binary_manifest}",
+                   "file_sha256": bundle_digest, "platform": platform},
+        "admission": {"status": "eligible", "blockers": []},
+        "readback": {}, "producer": {}, "exposure": {},
+    }
+    calls = {}
+
+    def fake_run(argv, *, env, cwd):
+        if argv[1:3] == ["-m", "p11lab"]:
+            calls["run"] = list(argv)
+            return 0
+        target = Path(argv[argv.index("-o") + 1])
+        if target.name == "handoff":
+            (target / "handoff.json").write_text(json.dumps(handoff))
+        else:
+            (target / "bundle.tar.gz").write_bytes(bundle_bytes)
+        return 0
+
+    def fake_subprocess_run(argv, **kwargs):
+        calls["install"] = list(argv)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(module, "_run", fake_run)
+    monkeypatch.setattr(module.subprocess, "run", fake_subprocess_run)
+    code = module.main([
+        "--environment", "softhsm2", "--channel", "release", "--mode", "native",
+        "--registry", registry, "--handoff-digest", "sha256:" + "ff" * 32,
+        "--command", '["app"]', "--timeout", "600",
+        "--working-directory", str(work), "--oras", "oras", "--run-dir", str(tmp_path / "rundir")])
+    assert code == 0
+    install = calls["install"]
+    assert install[install.index("--platform") + 1] == platform
+    run = calls["run"]
+    assert run[run.index("--installed-prefix") + 1].endswith("prefix")
+    assert run[run.index("--platform") + 1] == platform
+    assert run.count("--platform") == 1
+
+
 def test_malformed_documents_fail_as_gate_messages(tmp_path):
     spec, receipt, manifest = seal_fixture(tmp_path)
     broken_receipt = tmp_path / "broken-receipt.json"
@@ -954,3 +1019,81 @@ def test_admit_malformed_proof_fails_as_gate_message(tmp_path):
             registry="127.0.0.1:5050/p11lab", evidence_dir=None, out_dir=tmp_path / "admission-malformed",
             producer={"p11lab_wheel_sha256": "ab" * 32},
             source_manifest_digest=manifest_digest, source_manifest_path=manifest_path)
+
+
+def _composite_run_step():
+    """Split the composite run step into env bindings and the bash body."""
+    lines = (ROOT / "action.yml").read_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == "- name: Run the caller application")
+    env, body, mode = {}, [], None
+    for line in lines[start + 1:]:
+        if re.match(r"    - name: ", line):
+            break
+        if line.strip() == "env:":
+            mode = "env"
+        elif line.strip() == "run: |":
+            mode = "run"
+        elif mode == "env" and (match := re.match(r"        (\w+): ", line)):
+            env[match.group(1)] = line.split(": ", 1)[1].strip()
+        elif mode == "run" and line.startswith("        "):
+            body.append(line[8:])
+    assert env and body
+    return env, "\n".join(body) + "\n"
+
+
+def test_composite_run_step_binds_no_caller_input_into_shell_source():
+    """Sol re-check 1: no ${{ inputs.* }} may reach composite bash source."""
+    _, body = _composite_run_step()
+    assert "${{ inputs." not in body
+
+
+def test_composite_run_step_passes_caller_inputs_literally(tmp_path):
+    """Sol re-check 1: JSON argv, quotes, $(), backticks, newlines survive."""
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash required")
+    command = '["python", "consumer-smoke.py", "$(touch SHOULD-NOT-EXIST)", "`touch SHOULD-NOT-EXIST-2`"]'
+    inputs = "P11LAB_PIN_FILE=/run/pin\nEMPTY_OK=x\n"
+    fixtures = {"environment": "softhsm2", "channel": "release", "mode": "direct",
+                "registry": "127.0.0.1:5050/p11lab", "handoff-digest": "sha256:" + "ab" * 32,
+                "command": command, "inputs": inputs, "state-dir": "", "timeout": "300",
+                "working-directory": "."}
+    env_bindings, body = _composite_run_step()
+    stubroot = tmp_path / "action"
+    stub = stubroot / "src/p11lab/data/delivery/action-run.py"
+    stub.parent.mkdir(parents=True)
+    argv_out = tmp_path / "argv.json"
+    stub.write_text("import json, sys\n"
+                    f"open({str(argv_out)!r}, 'w').write(json.dumps(sys.argv[1:]))\n")
+    # Mimic GitHub substitution in the step source, then run it like bash does.
+    for name, value in fixtures.items():
+        body = body.replace("${{ inputs." + name + " }}", value)
+    body = body.replace("${{ github.action_path }}", str(stubroot))
+    body = body.replace("${{ github.workspace }}", str(tmp_path / "ws"))
+    env = dict(os.environ)
+    for var, bound in env_bindings.items():
+        match = re.fullmatch(r"\$\{\{ inputs\.([a-z-]+) \}\}", bound)
+        assert match, bound
+        env[var] = fixtures[match.group(1)]
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    bindir.joinpath("python").symlink_to(Path(sys.executable))
+    env.update(PATH=str(bindir) + os.pathsep + env.get("PATH", ""),
+               GITHUB_WORKSPACE=str(tmp_path / "ws"), RUNNER_TEMP=str(tmp_path),
+               P11LAB_ORAS=str(tmp_path / "oras"))
+    completed = subprocess.run([bash, "-c", body], cwd=tmp_path, env=env,
+                               capture_output=True, text=True, timeout=60)
+    assert completed.returncode == 0, completed.stderr
+    assert not (tmp_path / "SHOULD-NOT-EXIST").exists()
+    assert not (tmp_path / "SHOULD-NOT-EXIST-2").exists()
+    received = json.loads(argv_out.read_text())
+    got = dict(zip(received[::2], received[1::2]))
+    assert got["--command"] == command
+    assert got["--inputs"] == inputs
+    assert got["--working-directory"] == str(tmp_path / "ws") + "/."
+    assert json.loads(got["--command"])[0] == "python"

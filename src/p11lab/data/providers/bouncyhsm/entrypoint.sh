@@ -80,7 +80,7 @@ stop_server() {
     server_pid=
 }
 
-wait_health() { # bounded HTTP readiness; native proof happens separately
+wait_health() { # owned child: liveness gate plus bounded HTTP readiness
     local _
     for _ in $(seq 1 120); do
         kill -0 "$server_pid" 2>/dev/null || {
@@ -95,6 +95,18 @@ wait_health() { # bounded HTTP readiness; native proof happens separately
     done
     printf '%s\n' 'p11lab: server HTTP health did not become ready' >&2
     cat "$control/server.log" >&2
+    return 1
+}
+
+wait_health_external() { # externally supervised server: no PID exists here,
+    local _               # so readiness is HTTP only; native proof happens separately
+    for _ in $(seq 1 120); do
+        if http_request GET /health >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.5
+    done
+    printf '%s\n' 'p11lab: externally supervised server HTTP health did not become ready' >&2
     return 1
 }
 
@@ -230,7 +242,7 @@ case "${1-}" in
         [ "$#" -eq 1 ] || p11lab_die "server-ready takes no arguments"
         validate_label
         static_state complete
-        wait_health || exit 1
+        wait_health_external || exit 1
         native_slots >/dev/null || p11lab_die "native readiness failed"
         complete
         ;;

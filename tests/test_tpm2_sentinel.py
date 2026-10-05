@@ -78,6 +78,7 @@ typedef CK_ATTRIBUTE *CK_ATTRIBUTE_PTR;
 #define CK_INVALID_HANDLE 0
 #define CKR_OK 0
 #define CKR_GENERAL_ERROR 5
+#define CKR_DEVICE_ERROR 0x30
 #define CKF_SERIAL_SESSION 0x00000004UL
 typedef CK_RV (*CK_NOTIFY)(CK_SESSION_HANDLE hSession, CK_ULONG event, CK_VOID_PTR pApplication);
 typedef CK_RV (*CK_C_Initialize)(CK_VOID_PTR pInitArgs);
@@ -230,6 +231,9 @@ static CK_RV on_random(CK_SESSION_HANDLE session, CK_BYTE_PTR data, CK_ULONG len
     return CKR_OK;
 }
 static int find_calls;
+#ifndef STUB_FIND_FAIL_AT
+#define STUB_FIND_FAIL_AT 0
+#endif
 static CK_RV on_find_init(CK_SESSION_HANDLE session, CK_ATTRIBUTE_PTR tpl, CK_ULONG count) {
     (void)tpl; (void)count;
     if (session != 1) return CKR_GENERAL_ERROR;
@@ -240,6 +244,7 @@ static CK_RV on_find(CK_SESSION_HANDLE session, CK_OBJECT_HANDLE_PTR objects, CK
     CK_ULONG_PTR got) {
     if (session != 1 || !objects || !got || max < 1) return CKR_GENERAL_ERROR;
     find_calls++;
+    if (STUB_FIND_FAIL_AT && find_calls == STUB_FIND_FAIL_AT) return CKR_DEVICE_ERROR;
     if (find_calls == 1) { objects[0] = 42; *got = 1; } else { *got = 0; }
     return CKR_OK;
 }
@@ -281,7 +286,7 @@ int main(void) {
 """
 
 
-def _build(tmp_path: Path, match_slot: int):
+def _build(tmp_path: Path, match_slot: int, fail_at: int = 0):
     include = tmp_path / "include" / "p11-kit"
     include.mkdir(parents=True)
     (include / "pkcs11.h").write_text(SHIM)
@@ -290,7 +295,8 @@ def _build(tmp_path: Path, match_slot: int):
     (tmp_path / "driver.c").write_text(DRIVER.replace("PROVISION_C", str(provision)))
     module = tmp_path / "stub.so"
     driver = tmp_path / "driver"
-    subprocess.run(["gcc", "-shared", "-fPIC", f"-DSTUB_MATCH_SLOT={match_slot}", "-I", str(tmp_path / "include"),
+    subprocess.run(["gcc", "-shared", "-fPIC", f"-DSTUB_MATCH_SLOT={match_slot}",
+                    f"-DSTUB_FIND_FAIL_AT={fail_at}", "-I", str(tmp_path / "include"),
                     str(tmp_path / "stub.c"), "-o", str(module)], check=True, capture_output=True, text=True)
     subprocess.run(["gcc", "-I", str(tmp_path / "include"), str(tmp_path / "driver.c"), "-o", str(driver), "-ldl"],
                    check=True, capture_output=True, text=True)
@@ -310,6 +316,23 @@ def test_labelled_token_found_at_configured_slot(tmp_path, match_slot):
     completed = _run(driver, module, "P11Lab")
     assert completed.returncode == 0, completed.stderr
     assert f"scan: status=0 slot={match_slot} present=1 objects=1" in completed.stdout
+
+
+@pytest.mark.skipif(not shutil.which("gcc"), reason="requires gcc")
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="provisioner needs Linux headers")
+@pytest.mark.parametrize("fail_at", [1, 2])
+def test_find_objects_error_refuses_ready(tmp_path, fail_at):
+    """A mid-enumeration error is a native failure, never end-of-data.
+
+    First-page (fail_at=1) and later-page (fail_at=2, after one good page)
+    C_FindObjects failures must refuse readiness with the enumeration
+    diagnostic preserved, not report success with an empty/partial count.
+    """
+    module, driver = _build(tmp_path, 0, fail_at=fail_at)
+    completed = _run(driver, module, "P11Lab")
+    assert completed.returncode == 1, completed.stdout
+    assert "status=0" not in completed.stdout
+    assert "C_FindObjects: CK_RV=0x00000030" in completed.stderr, completed.stderr
 
 
 @pytest.mark.skipif(not shutil.which("gcc"), reason="requires gcc")

@@ -222,7 +222,7 @@ def main(argv=None) -> int:
             print(installed.stderr, end="", file=sys.stderr)
             print("action-run: native bundle installation failed", file=sys.stderr)
             return installed.returncode
-        command += ["--installed-prefix", str(prefix)]
+        command += ["--installed-prefix", str(prefix), "--platform", handoff["binary"]["platform"]]
     for entry in values["input_entries"]:
         command += ["--input", entry]
     if values["state-dir"]:

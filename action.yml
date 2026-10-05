@@ -95,18 +95,32 @@ runs:
     - name: Run the caller application
       id: run
       shell: bash
+      # Caller inputs arrive via environment, never interpolated into shell
+      # source: JSON argv, quotes, $(), backticks and newlines pass through
+      # literally instead of being parsed or executed by bash.
+      env:
+        P11LAB_ACTION_ENVIRONMENT: ${{ inputs.environment }}
+        P11LAB_ACTION_CHANNEL: ${{ inputs.channel }}
+        P11LAB_ACTION_MODE: ${{ inputs.mode }}
+        P11LAB_ACTION_REGISTRY: ${{ inputs.registry }}
+        P11LAB_ACTION_HANDOFF_DIGEST: ${{ inputs.handoff-digest }}
+        P11LAB_ACTION_COMMAND: ${{ inputs.command }}
+        P11LAB_ACTION_INPUTS: ${{ inputs.inputs }}
+        P11LAB_ACTION_STATE_DIR: ${{ inputs.state-dir }}
+        P11LAB_ACTION_TIMEOUT: ${{ inputs.timeout }}
+        P11LAB_ACTION_WORKING_DIRECTORY: ${{ inputs.working-directory }}
       run: |
         python "${{ github.action_path }}/src/p11lab/data/delivery/action-run.py" \
-          --environment "${{ inputs.environment }}" \
-          --channel "${{ inputs.channel }}" \
-          --mode "${{ inputs.mode }}" \
-          --registry "${{ inputs.registry }}" \
-          --handoff-digest "${{ inputs.handoff-digest }}" \
-          --command "${{ inputs.command }}" \
-          --inputs "${{ inputs.inputs }}" \
-          --state-dir "${{ inputs.state-dir }}" \
-          --timeout "${{ inputs.timeout }}" \
-          --working-directory "${{ github.workspace }}/${{ inputs.working-directory }}" \
+          --environment "$P11LAB_ACTION_ENVIRONMENT" \
+          --channel "$P11LAB_ACTION_CHANNEL" \
+          --mode "$P11LAB_ACTION_MODE" \
+          --registry "$P11LAB_ACTION_REGISTRY" \
+          --handoff-digest "$P11LAB_ACTION_HANDOFF_DIGEST" \
+          --command "$P11LAB_ACTION_COMMAND" \
+          --inputs "$P11LAB_ACTION_INPUTS" \
+          --state-dir "$P11LAB_ACTION_STATE_DIR" \
+          --timeout "$P11LAB_ACTION_TIMEOUT" \
+          --working-directory "$GITHUB_WORKSPACE/$P11LAB_ACTION_WORKING_DIRECTORY" \
           --oras "$P11LAB_ORAS" \
           --run-dir "$RUNNER_TEMP/p11lab-run"
 

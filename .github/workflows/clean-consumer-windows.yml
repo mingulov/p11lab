@@ -165,6 +165,7 @@ jobs:
           from pkcs11_check.raw.rv import expect_rv
           from pkcs11_check.raw.types_std import CKR_OK
           from p11lab.checker import checker_environment, load_profile
+          from p11lab.secrets import credential_text
           module = Path(os.environ["P11LAB_MODULE"])
           output = Path(os.environ["P11LAB_OUTPUT_DIR"]) / "checker"
           output.mkdir(parents=True, exist_ok=True)
@@ -176,8 +177,8 @@ jobs:
           slot, native_id = selected[0]
           expect_rv(p11.raw.C_Finalize(None), CKR_OK)
           print(f"checker slot: index={slot} native={native_id}")
-          pin = Path(os.environ["P11LAB_PIN_FILE"]).read_text()
-          so_pin = Path(os.environ["P11LAB_SO_PIN_FILE"]).read_text()
+          pin = credential_text(Path(os.environ["P11LAB_PIN_FILE"]).read_bytes(), file=True)
+          so_pin = credential_text(Path(os.environ["P11LAB_SO_PIN_FILE"]).read_bytes(), file=True)
           installed_root = Path(tests.__file__).resolve().parent
           nodes = load_profile()["nodes"]
           targets = [str(installed_root / node) for node in nodes]

@@ -30,3 +30,23 @@ def test_scalar_pin_has_no_framing():
     assert credential_text(b"1234", file=False) == "1234"
     with pytest.raises(ValueError):
         credential_text(b"1234\n", file=False)
+
+
+def test_embedded_windows_checker_driver_reuses_credential_text():
+    """Sol-5: the embedded driver must share the file framing rule.
+
+    A raw read_text() would forward a framing LF into P11TEST_PIN and
+    diverge from provisioning; both populated PIN files must go through
+    credential_text in file mode.
+    """
+    from pathlib import Path
+
+    workflow = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "clean-consumer-windows.yml"
+    text = workflow.read_text()
+    assert "from p11lab.secrets import credential_text" in text
+    for var in ("P11LAB_PIN_FILE", "P11LAB_SO_PIN_FILE"):
+        line = next(line for line in text.splitlines() if var in line and "=" in line and "${{" not in line
+                    and "os.environ.get" not in line)
+        assert "credential_text(" in line and "read_bytes()" in line and "file=True" in line, line
+    assert 'P11LAB_PIN_FILE"]).read_text()' not in text
+    assert 'P11LAB_SO_PIN_FILE"]).read_text()' not in text

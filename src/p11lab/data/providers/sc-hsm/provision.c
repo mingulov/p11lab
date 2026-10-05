@@ -165,7 +165,17 @@ static int count_objects(CK_FUNCTION_LIST_PTR f, CK_SESSION_HANDLE session,
         rv = f->C_FindObjectsInit(session, filter, 1);
     }
     if (rv) return report("C_FindObjectsInit", rv);
-    while (f->C_FindObjects(session, handles, 64, &got) == CKR_OK && got > 0) {
+    for (;;) {
+        CK_RV step = f->C_FindObjects(session, handles, 64, &got);
+        /* A mid-enumeration error is a native failure, never
+         * end-of-data: report it instead of hiding it. */
+        if (step != CKR_OK) {
+            report("C_FindObjects", step);
+            rv = f->C_FindObjectsFinal(session);
+            if (rv) return report("C_FindObjectsFinal", rv);
+            return 1;
+        }
+        if (got == 0) break;
         if (got > 64) return report("C_FindObjects", CKR_GENERAL_ERROR);
         *total += (unsigned)got;
     }
