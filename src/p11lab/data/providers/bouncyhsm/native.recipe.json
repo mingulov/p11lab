@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "linux": {
+    "export": {
+      "usr/local/lib/p11lab/libBouncyHsm.Pkcs11.so": "lib/libBouncyHsm.Pkcs11.so",
+      "usr/local/bin/bouncyhsm-probe": "bin/bouncyhsm-probe",
+      "opt/bouncyhsm/server": "server",
+      "usr/share/licenses/bouncyhsm/LICENSE": "share/licenses/bouncyhsm/LICENSE"
+    },
+    "layout": "N1 payload prefix",
+    "runtime": "host supplies .NET 10 (SDK or runtime with ASP.NET Core 10.0.12+); no relinking or stripping"
+  },
+  "windows": {
+    "archive": "windows.release.files.json",
+    "module": "native/Win-x64/BouncyHsm.Pkcs11Lib.dll",
+    "module_payload_path": "bin/BouncyHsm.Pkcs11Lib.dll",
+    "probe_payload_path": "bin/bouncyhsm-probe.exe",
+    "server_prefix": "server/",
+    "server_exclude_prefixes": [
+      "native/"
+    ],
+    "server_exclude_files": [
+      "License.txt"
+    ],
+    "license_payload_path": "share/licenses/bouncyhsm/LICENSE",
+    "layout": "N1 payload prefix",
+    "runtime": "host supplies .NET 10 (SDK or runtime with ASP.NET Core 10.0.12+) and the x64 VC runtime; rolling builds use MSVC v145"
+  }
+}

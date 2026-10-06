@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "environment": "cryptech",
+  "channel": "release",
+  "status": "unavailable",
+  "reason": "Cryptech has no release tags; this file records the unavailable channel and is not a build lock."
+}

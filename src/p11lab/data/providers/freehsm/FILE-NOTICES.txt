@@ -1,0 +1,43 @@
+P11Lab FreeHSM runtime: third-party component notices.
+
+This runtime ships the FreeHSM PKCS#11 module and the fhsm-token tool built
+from the pinned FreeHSM sources below. P11Lab's own Apache-2.0 license covers
+only P11Lab-original material (adapter, recipe, this notice); it does not
+relicense any component listed here. Full license texts live in
+/usr/share/licenses/freehsm/ of this image; complete corresponding sources are
+a separate source-companion deliverable, not this file.
+
+- FreeHSM (software HSM in C), Apache License 2.0, copyright 2026 Afchine
+  Madjlessi. Texts: /usr/share/licenses/freehsm/LICENSE (upstream LICENSE)
+  and /usr/share/licenses/freehsm/NOTICE (upstream NOTICE, including the
+  OpenSSL/tpm2-tools/liboqs attributions). All compiled module/tool sources
+  carry Apache-2.0 grants; no P11Lab source patch is applied.
+  Pinned revisions and archive hashes are recorded in the channel lock
+  (release.lock.json / rolling.lock.json) and the build receipt.
+- NIST CAVP response files (kat/cavp/*.rsp, public domain) and the IETF
+  composite test text (kat/composite/mprime_appendix_d.txt, BSD-3-Clause)
+  are upstream test-vector inputs. They are not compiled into the module
+  and are not shipped in this image; the boot KATs run the compiled-in
+  vector set. They travel with the complete retained sources.
+- Extended CAVP directory KATs are not shipped: the runtime provides no
+  /opt/freehsm/share/kat/ tree, so only the compiled-in vectors execute.
+- System OpenSSL: the module and tool link the Debian base libcrypto.so.3
+  dynamically (libssl3t64). Its terms are covered by the base Debian
+  copyright/source records.
+- tpm2-tools and liboqs/oqsprovider named in the upstream NOTICE are
+  optional runtime-only dependencies and are NOT installed in this image;
+  TPM sealing and post-quantum extensions beyond the compiled-in set are
+  unavailable.
+- The dispatch generator (scripts/gen_p11_thunks.py, Apache-2.0) and the
+  compiler toolchain are build-time-only inputs; they are provenance
+  recorded with the build, not shipped binaries.
+
+Development variant disclosure: this image builds PROFILE=interop and the
+adapter sets the documented upstream dev-mode variables
+(FHSM_INTEGRITY_ALLOW_UNSIGNED=1, FHSM_KAT_ALLOW_FAIL=1), because Debian
+trixie ships no OpenSSL FIPS provider and stock initialization cannot run
+there. The module self-identifies these runs as token model
+FreeHSM-TESTMODE. No FIPS claim is made.
+
+Rebuild provenance (source revisions, toolchain, configuration) is
+recorded under /usr/share/p11lab/build/ of this image.

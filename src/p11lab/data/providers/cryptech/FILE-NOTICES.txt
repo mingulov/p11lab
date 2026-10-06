@@ -1,0 +1,102 @@
+P11Lab Cryptech rolling simulator -- LOCAL-ONLY / DISTRIBUTION BLOCKED
+
+P11Lab original Dockerfile, entrypoint.sh, provision.c, metadata, documentation
+and integration tests: Apache-2.0 (root LICENSE). This grant does not cover
+migrated patches, the storage/platform stub, or upstream code.
+
+Three Cryptech repositories (non-GitHub origins), plus the pinned submodule:
+sw/pkcs11: https://git.cryptech.is/sw/pkcs11
+  a0a7d907c4ea47e3a3a963bb765a81b41294dd0d; BSD-3-Clause source headers.
+sw/libhal: https://git.cryptech.is/sw/libhal
+  6f0d8236b8622a68f42284ed1314d8acd86c89ed; BSD-3-Clause source headers.
+sw/thirdparty/libtfm: https://git.cryptech.is/sw/thirdparty/libtfm
+  3189a37313b19c994482e78589072519ce6b9ac9; BSD-2-Clause wrapper Makefile.
+TomsFastMath: https://github.com/libtom/tomsfastmath.git
+  09c7b2dce03356bcc8a70d51e4b125c35fe36496, wrapper's exact gitlink.
+  LICENSE SHA-256 48ea37a1a0b2367bdebb597a32b46b62c234cba457ee74ac3e608447281b6a77.
+  Public-domain dedication OR WTFPL-2.0; WTFPL-2.0 choice for this recipe.
+Retain all upstream copyright, conditions, disclaimers and attribution; the
+image preserves header notices and the submodule license. Upstream pkcs11*.h
+contain the RSA Security Inc. PKCS #11 Cryptographic Token Interface (Cryptoki)
+grant and required identification; preserve their exact texts. Generated
+attributes/WHEEL headers inherit their upstream generator provenance. BSD
+observations are per repository, not an assertion about an entire binary image.
+
+Five exact migrated artifacts from mingulov/pkcs11-check-ws docker/cryptech/:
+0001-seed-user-so-pin-fnord.patch:
+  SHA-256 6a3f9f96b938ff26a37a73215f380ec4a8c699c3e9692e9b7e971ab2856b9fa6
+  Author recorded as opencode; revision fefccaa1880c540e2b261072bbb1fbaa7537f18a.
+0002-include-stddef-for-offsetof-in-core.c.patch:
+  SHA-256 0a947ebfe27b609f676ea764cfa3e7bdd48a66a126b8f7e71ab317cd791c6415
+  Denis Mingulov; revision 5fcf4ec2579f05427977690915904d60b4a8862b.
+0003-include-rpc_client.o-in-server-mode.patch:
+  SHA-256 5399089ade1299197ffec3d4a2abb6dab25a381bf05edf47f315221ad56b4bd3
+  Denis Mingulov; revision 6632dde484b5ebb0c4b9b431da9b4da8ac099cef.
+0004-init-keystore-in-LOCAL-mode-rpc-client-init.patch:
+  SHA-256 3e35c3b4164f37bc7c5b8321c968b1227bdce029d3b56346a41dc7af2f628b54
+  Denis Mingulov; revision 257b02beb926fea310ee67ce2c23193eb6dfacbc.
+stubs/stm-keystore.h:
+  SHA-256 96a57b5f7f6ef4dd9ffe90ee1982f4fe3a09f0f998c63faa348090a0c3fac0f1
+  Denis Mingulov; revision 257b02beb926fea310ee67ce2c23193eb6dfacbc.
+The reference workspace has no root license and these contributions have no
+verified grant. Authorship is not permission. All five remain NOASSERTION;
+patch context retains upstream BSD terms. P11Lab does not relicense them.
+They are admitted ONLY for local research, not public source/binary/cache
+distribution. The reference Dockerfile and wrapper-neutralization patch are
+not copied or applied; GNU make -o selects prebuilt archives instead.
+
+Patch behavior, in order against the pinned libhal revision:
+0001 is a deliberate credential backdoor: fresh SO and user PIN blocks are
+PBKDF2-HMAC-SHA256("fnord"), 2000 iterations, 64-byte output, ALL-ZERO 16-byte
+salt. Existing PIN blocks override the seeds and are never reset. This is not
+a general credential store. Stock C_InitToken, C_InitPIN and C_SetPIN remain
+CKR_FUNCTION_NOT_SUPPORTED; no caller-selected provisioning path is added.
+0002 adds stddef.h for offsetof; build-only.
+0003 includes rpc_client.o in server mode; LOCAL link fix.
+0004 initializes volatile/token keystores in the LOCAL client startup path;
+simulation-adjacent lifecycle wiring. The PKCS#11 consumer never calls
+hal_rpc_server_init. Failed patch application aborts source resolution/build.
+
+The stub replaces missing STM32 platform flash with a 512-KiB keystore.bin:
+64 x 8192-byte subsectors, 256-byte write chunks, bitwise-AND NOR writes
+(1->0), explicit erase to 0xff. Raw module default /var/lib/cryptech; raw
+CRYPTECH_KEYSTORE_DIR overrides it. P11Lab sets /var/lib/p11lab/cryptech and
+rejects conflicting overrides. File storage has no hardware protection,
+locking, crash-atomicity or wear qualification. Independent clients/shards
+need independent processes and directories; do not share a store concurrently.
+The stub also uses malloc/free for platform allocation, DISABLES the native
+bad-PIN sleep delay, and returns HAL_ERROR_CORE_NOT_FOUND for FPGA reads/writes.
+These are simulation/semantic differences, not merely build fixes. No RNG or
+master-key hardware fallback is supplied; native failures remain visible.
+
+The module statically incorporates libhal.a and libtfm.a; ldd alone does not
+describe that license/source closure. RPC_MODE=server RPC_CLIENT_LOCAL is
+in-process. RPC_TRANSPORT=loopback code mentions UDP port 17425, but that
+transport is unused here: no network peer or port is required. No checker,
+tracing, p11-kit, proxy, compiler or dataset is installed in the basic runtime.
+
+Caller credential controls are optional assertions: absent inputs select the
+known built-in PIN, equal fnord inputs are accepted, unequal inputs are rejected
+before state is created/opened. File/scalar conflict, empty and malformed input
+are errors. No PIN bytes or PIN hashes enter lifecycle logs or markers. The
+fixed native label is Cryptech Token; a conflicting P11LAB_LABEL is an error.
+init creates fresh state through module-native initialization and proves SO/user
+login. health checks safe existing state and both logins in a fresh process;
+neither operation certifies cryptography. exec then runs arbitrary argv.
+Persistent reset is an explicit operator removal of the entire owned state
+directory/volume with all consumers stopped. No automatic recovery or retries.
+
+The stock last-gasp WHEEL generator chooses a random salt at build time.
+Debian installs PyCryptodome under Cryptodome; an import namespace alias runs
+the stock generator unchanged. This build-only Python adaptation changes no
+PIN algorithm or PKCS#11 API.
+Resolved sources, packages, recipes and patch order are frozen, but bit-for-bit
+module/state reconstruction is not promised. Per-artifact receipts retain the
+actual generated header. Fixed user/SO seeds do not make the whole build
+deterministic.
+
+Runtime/base packages and compiler runtime have separate licenses and source
+obligations. Exact package/source archives and signed indexes are recorded in
+rolling.lock.json; installed Debian notices remain intact. Actual-content,
+lower-layer, license/source-delivery and anonymous-readback review remains
+pending for every runtime or derivative. No public publication is authorized.

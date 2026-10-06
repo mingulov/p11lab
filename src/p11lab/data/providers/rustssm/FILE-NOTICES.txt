@@ -1,0 +1,205 @@
+P11Lab RustSSM rolling runtime file notices
+
+Original P11Lab Dockerfile, lifecycle/provisioning adapter and crate snapshot
+helper: Apache-2.0 (root LICENSE). The helper and adapter reuse P11Lab's Kryoptic
+implementation pattern. The reference RustSSM Dockerfile was research input only;
+it was not copied as this runtime recipe.
+
+RustSSM upstream: https://github.com/jippeholwerda/rustssm.git
+main frozen as d2781d13d5314893e1e6ba85fb309b9f850546bd; no release tag.
+MIT License, Copyright (c) 2023 Jippe Holwerda; original LICENSE retained.
+LICENSE SHA-256 1df1bee67165cb2b5fb8410a2b5725c5c7f8b571758c41fcf57abd968ac226cf.
+Preserve its copyright and permission notice with copies/substantial portions.
+Legacy reference policy: source-build-only-no-publication. This local candidate
+does not override that restriction or authorize binary/image distribution.
+
+Ordered patch: patches/0001-implement-mechanism-discovery.patch
+SHA-256 d7652f66f7c50cf13e925ccac85d02a5146efaf38420618364c53a86d75625b7.
+Origin: https://github.com/mingulov/pkcs11-check-ws/commit/b5ab075a965fb52d3d99eb3e82ff568dc5000c57
+Author: Denis Mingulov. MIT License, Copyright (c) 2026 pkcs11-check contributors.
+Original patches/LICENSE-MIT retained byte-for-byte; SHA-256
+28b6e55a287615b6c47a6df471d321bd735068e6485aa05a4790017b458dbc83.
+MIT patch terms are compatible with upstream MIT; neither is relicensed by
+P11Lab's Apache-2.0 grant. Declared patch application failure fails acquisition
+and therefore the build. Both patched source files are hash-verified by recipe.
+
+SEMANTIC ADDITION, separate from runtime provisioning: C_GetMechanismList and
+C_GetMechanismInfo replace upstream CKR_FUNCTION_NOT_SUPPORTED stubs. The patch
+advertises exactly 12 mechanisms, with key sizes and flags in SUPPORTED_MECHANISMS:
+CKM_RSA_PKCS_KEY_PAIR_GEN, CKM_RSA_PKCS, CKM_SHA256_HMAC,
+CKM_GENERIC_SECRET_KEY_GEN, CKM_EC_KEY_PAIR_GEN, CKM_ECDSA, CKM_AES_KEY_GEN,
+CKM_AES_ECB, CKM_AES_CBC, CKM_AES_CBC_PAD, CKM_AES_GCM, CKM_AES_KEY_WRAP_PAD.
+It adds discovery tests (count/null/short-buffer, slot, initialization, info and
+invalid mechanism) plus the existing AES-GCM 24-byte key-size limitation probe.
+The advertisement remains unchanged, including the AES-GCM 16..32-byte range
+despite its unsupported 24-byte gap. Findings must retain native errors and
+minimal reproducers; no advertised mechanism is removed to improve test results.
+The provisioning helper only calls native init-token/SO-login/init-PIN operations;
+it does not modify mechanisms, PKCS#11 semantics or returned native errors.
+
+OASIS PKCS#11 3.1 Committee Specification 01 headers, 11 August 2022:
+pkcs11.h, pkcs11t.h, pkcs11f.h; Copyright (c) OASIS Open 2022, All Rights Reserved.
+Their original copyright and IPR statement references are retained in-image.
+These headers are not blanket-relicensed as MIT or Apache-2.0. Applicable OASIS
+grants/IPR and generated Rust bindings require distribution review.
+
+Default Cargo features only, no cli. rusqlite/libsqlite3-sys bundles SQLite;
+its source/notices are in the frozen crate closure. No rustssm-util is shipped:
+PINs pass through private inherited pipes to libc/dl-only provision.c, never CLI
+flags. The helper wipes its buffers. No server is required for a local module.
+
+Rust 1.98.1 build toolchain:
+docker.io/library/rust@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e.
+Cargo.lock is upstream's exact frozen file (no resolver/index refresh). The full
+135-crate archive roster is sealed in rolling.crates.json and independently
+hash-verified, reconstructed as a directory source for --locked --offline builds.
+Build command: cargo build --locked --offline --release --jobs 2.
+Toolchain versions, crate file hashes and license texts are retained in-image.
+All locked crates below include unused CLI/dev/target dependencies; this is a
+source closure inventory, not an assertion that every crate is linked at runtime.
+
+aead 0.6.1: MIT OR Apache-2.0
+aes 0.9.1: MIT OR Apache-2.0
+aes-gcm 0.11.0: Apache-2.0 OR MIT
+aes-kw 0.3.1: MIT OR Apache-2.0
+aho-corasick 1.1.4: Unlicense OR MIT
+anstream 1.0.0: MIT OR Apache-2.0
+anstyle 1.0.14: MIT OR Apache-2.0
+anstyle-parse 1.0.0: MIT OR Apache-2.0
+anstyle-query 1.1.5: MIT OR Apache-2.0
+anstyle-wincon 3.0.11: MIT OR Apache-2.0
+autocfg 1.5.1: Apache-2.0 OR MIT
+base16ct 1.0.0: Apache-2.0 OR MIT
+base64ct 1.8.3: Apache-2.0 OR MIT
+bindgen 0.72.1: BSD-3-Clause
+bitflags 2.13.0: MIT OR Apache-2.0
+block-buffer 0.12.1: MIT OR Apache-2.0
+block-padding 0.4.2: MIT OR Apache-2.0
+bumpalo 3.20.3: MIT OR Apache-2.0
+cbc 0.2.1: MIT OR Apache-2.0
+cc 1.2.65: MIT OR Apache-2.0
+cexpr 0.6.0: Apache-2.0/MIT
+cfg-if 1.0.4: MIT OR Apache-2.0
+chacha20 0.10.1: MIT OR Apache-2.0
+ciborium 0.2.2: Apache-2.0
+ciborium-io 0.2.2: Apache-2.0
+ciborium-ll 0.2.2: Apache-2.0
+cipher 0.5.2: MIT OR Apache-2.0
+clang-sys 1.8.1: Apache-2.0
+clap 4.6.1: MIT OR Apache-2.0
+clap_builder 4.6.0: MIT OR Apache-2.0
+clap_derive 4.6.1: MIT OR Apache-2.0
+clap_lex 1.1.0: MIT OR Apache-2.0
+cmov 0.5.4: Apache-2.0 OR MIT
+colorchoice 1.0.5: MIT OR Apache-2.0
+const-oid 0.10.2: Apache-2.0 OR MIT
+cpubits 0.1.1: MIT OR Apache-2.0
+cpufeatures 0.3.0: MIT OR Apache-2.0
+crunchy 0.2.4: MIT
+crypto-bigint 0.7.5: Apache-2.0 OR MIT
+crypto-common 0.2.2: MIT OR Apache-2.0
+crypto-primes 0.7.2: Apache-2.0 OR MIT
+ctr 0.10.1: MIT OR Apache-2.0
+ctutils 0.4.2: Apache-2.0 OR MIT
+der 0.8.0: Apache-2.0 OR MIT
+digest 0.11.3: MIT OR Apache-2.0
+ecb 0.2.0: MIT
+ecdsa 0.17.0: Apache-2.0 OR MIT
+either 1.16.0: MIT OR Apache-2.0
+elliptic-curve 0.14.1: Apache-2.0 OR MIT
+fallible-iterator 0.3.0: MIT/Apache-2.0
+fallible-streaming-iterator 0.1.9: MIT/Apache-2.0
+ff 0.14.0: MIT/Apache-2.0
+find-msvc-tools 0.1.9: MIT OR Apache-2.0
+foldhash 0.2.0: Zlib
+getrandom 0.4.3: MIT OR Apache-2.0
+ghash 0.6.0: Apache-2.0 OR MIT
+glob 0.3.3: MIT OR Apache-2.0
+group 0.14.0: MIT/Apache-2.0
+half 2.7.1: MIT OR Apache-2.0
+hashbrown 0.16.1: MIT OR Apache-2.0
+hashbrown 0.17.1: MIT OR Apache-2.0
+hashlink 0.12.1: MIT OR Apache-2.0
+heck 0.5.0: MIT OR Apache-2.0
+hmac 0.13.0: MIT OR Apache-2.0
+hybrid-array 0.4.13: MIT OR Apache-2.0
+inout 0.2.2: MIT OR Apache-2.0
+is_terminal_polyfill 1.70.2: MIT OR Apache-2.0
+itertools 0.13.0: MIT OR Apache-2.0
+js-sys 0.3.103: MIT OR Apache-2.0
+libc 0.2.186: MIT OR Apache-2.0
+libloading 0.8.9: ISC
+libloading 0.9.0: ISC
+libsqlite3-sys 0.38.1: MIT
+log 0.4.33: MIT OR Apache-2.0
+memchr 2.8.2: Unlicense OR MIT
+minimal-lexical 0.2.1: MIT/Apache-2.0
+nom 7.1.3: MIT
+num-traits 0.2.19: MIT OR Apache-2.0
+once_cell 1.21.4: MIT OR Apache-2.0
+once_cell_polyfill 1.70.2: MIT OR Apache-2.0
+p256 0.14.0: Apache-2.0 OR MIT
+pem-rfc7468 1.0.0: Apache-2.0 OR MIT
+pkcs1 0.8.0-rc.4: Apache-2.0 OR MIT
+pkcs8 0.11.0: Apache-2.0 OR MIT
+pkg-config 0.3.33: MIT OR Apache-2.0
+polyval 0.7.1: Apache-2.0 OR MIT
+prettyplease 0.2.37: MIT OR Apache-2.0
+primefield 0.14.0: Apache-2.0 OR MIT
+primeorder 0.14.0: Apache-2.0 OR MIT
+proc-macro2 1.0.106: MIT OR Apache-2.0
+quote 1.0.46: MIT OR Apache-2.0
+r-efi 6.0.0: MIT OR Apache-2.0 OR LGPL-2.1-or-later
+rand 0.10.2: MIT OR Apache-2.0
+rand_core 0.10.1: MIT OR Apache-2.0
+regex 1.12.4: MIT OR Apache-2.0
+regex-automata 0.4.14: MIT OR Apache-2.0
+regex-syntax 0.8.11: MIT OR Apache-2.0
+rfc6979 0.6.0: Apache-2.0 OR MIT
+rsa 0.10.0-rc.18: MIT OR Apache-2.0
+rsqlite-vfs 0.1.1: MIT
+rusqlite 0.40.1: MIT
+rustc-hash 2.1.3: Apache-2.0 OR MIT
+rustversion 1.0.23: MIT OR Apache-2.0
+sec1 0.8.1: Apache-2.0 OR MIT
+serde 1.0.228: MIT OR Apache-2.0
+serde_core 1.0.228: MIT OR Apache-2.0
+serde_derive 1.0.228: MIT OR Apache-2.0
+serdect 0.4.3: Apache-2.0 OR MIT
+sha2 0.11.0: MIT OR Apache-2.0
+shlex 1.3.0: MIT OR Apache-2.0
+shlex 2.0.1: MIT OR Apache-2.0
+signature 3.0.0: Apache-2.0 OR MIT
+smallvec 1.15.2: MIT OR Apache-2.0
+spki 0.8.0: Apache-2.0 OR MIT
+sqlite-wasm-rs 0.5.5: MIT
+strsim 0.11.1: MIT
+subtle 2.6.1: BSD-3-Clause
+syn 2.0.118: MIT OR Apache-2.0
+thiserror 2.0.18: MIT OR Apache-2.0
+thiserror-impl 2.0.18: MIT OR Apache-2.0
+typenum 1.20.1: MIT OR Apache-2.0
+unicode-ident 1.0.24: (MIT OR Apache-2.0) AND Unicode-3.0
+universal-hash 0.6.1: MIT OR Apache-2.0
+utf8parse 0.2.2: Apache-2.0 OR MIT
+vcpkg 0.2.15: MIT/Apache-2.0
+wasm-bindgen 0.2.126: MIT OR Apache-2.0
+wasm-bindgen-macro 0.2.126: MIT OR Apache-2.0
+wasm-bindgen-macro-support 0.2.126: MIT OR Apache-2.0
+wasm-bindgen-shared 0.2.126: MIT OR Apache-2.0
+windows-link 0.2.1: MIT OR Apache-2.0
+windows-sys 0.61.2: MIT OR Apache-2.0
+wnaf 0.14.0: Apache-2.0 OR MIT
+zerocopy 0.8.54: BSD-2-Clause OR Apache-2.0 OR MIT
+zerocopy-derive 0.8.54: BSD-2-Clause OR Apache-2.0 OR MIT
+zeroize 1.9.0: Apache-2.0 OR MIT
+
+Debian runtime: digest-pinned trixie base, signed snapshot 20260918T000000Z.
+Exact package/source/archive/index hashes are sealed in rolling.lock.json;
+copyright texts remain under /usr/share/doc. Required corresponding sources,
+notices and relinking rights must be preserved for any future distribution.
+THIRD-PARTY-NOTICES.txt, SOURCE-ACCESS.md and SBOM do not replace those obligations.
+Rust standard-library reachability, generated bindings, actual image layers and
+digest-bound source companion/delivery need separate review. Distribution stays
+UNREVIEWED. No publication is authorized. Optional checker, consumer, proxy,
+native client and datasets require separate actual-content eligibility reviews.

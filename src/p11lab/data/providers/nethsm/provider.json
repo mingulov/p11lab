@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "id": "nethsm",
+  "module_implementation": {
+    "name": "NetHSM PKCS#11"
+  },
+  "backend": {
+    "name": "local NetHSM software server",
+    "simulated": true
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libnethsm_pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
+    }
+  },
+  "services": [
+    "etcd",
+    "keyfender"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    },
+    "release": {
+      "status": "locked",
+      "lock": "release.lock.json"
+    }
+  },
+  "application_profile": "nethsm-persistent-p256",
+  "distribution": {
+    "status": "blocked",
+    "reason": "Frozen upstream keyfender/etcd binary input has no verified complete source companion or in-image notices, and contains embedded dummy-platform fallbacks. Server OCaml/Go closure, Alpine/Rust actual-content rights and digest-bound source-first delivery remain incomplete. No publication authorized."
+  },
+  "constraints": [
+    "Linux amd64/MUSL, clean Alpine 3.24.1 parent; loader /lib/ld-musl-x86_64.so.1. This is an explicit exception to the Debian/glibc cohort. Direct applications must be musl-compatible; glibc consumer/checker/daemon artifacts cannot be copied into it without their actual compatible closure.",
+    "Module sources: release v3.0.0 fb3f448df6033a6406c9dc034ea729e930fc5fdc; rolling main 49d0a21a83c031ad35f127f21db34de5116d5040. Upstream Cargo.lock is identical; 215 hash-verified crate archives supply an offline directory source. Rust 1.98.1 musl image is digest-pinned. cargo build --locked --offline --release --jobs 2; RUSTFLAGS=-C target-feature=-crt-static. No patches.",
+    "The module uses rustls/ring and dynamically needs musl libc only. The reference OPENSSL_STATIC setting is unused: no openssl-sys or static OpenSSL is in its frozen closure. The API supervisor dynamically uses libcurl and its pinned Alpine OpenSSL 3.5.9 closure; corresponding observed OpenSSL source is retained separately.",
+    "Server is a frozen binary input nitrokey/nethsm@sha256:4c9cf630aab7d4b9a76c7247844635d3dd1b78c34ff4fd473115cc59419f6e9b: NetHSM/keyfender 5.0 fc28f32, etcd 3.6.13 b0f9ef1 (Go 1.25.11). Copy only keyfender.unix and etcd into the clean parent. Upstream /start.sh, provisioning defaults, tap/debug/performance tools and initialized state are excluded. Binary dummy-platform device-key/failed-unlock fallbacks remain and prohibit production-security or complete no-embedded-credential claims.",
+    "Bind writable /var/lib/p11lab owned by the caller, mode 0700; private /run/p11lab mode 0700 and container PID/network namespaces are required. Each independent shard/client owns its volume and container. Fixed loopback ports are 8080/8443 and 2379/2380; no host/shared networking. Both services bind 127.0.0.1, including etcd peer traffic; no TAP privileges or host mounts.",
+    "P11LAB_LABEL defaults to P11Lab, 1..32 ASCII letters/digits/spaces/dot/underscore/hyphen. First init requires caller PIN/operator and SO/admin inputs of 10..200 printable ASCII characters. Common file/scalar secret validation precedes state creation. Native C_InitToken and C_InitPIN return 0x54; provision the server and operator explicitly through its HTTPS API.",
+    "Unlock passphrase is independently generated at runtime and stored under nethsm/unlock. nethsm/admin and p11nethsm.conf contain the caller admin secret at mode 0600; operator PIN is not retained in the module config. The caller PIN authenticates operator C_Login. The administrator config enables upstream automatic privileged key generation, import/deletion and administration even without a caller SO login: applications able to read this config have administrator authority. This is a disposable development isolation boundary, not a protected multi-user HSM.",
+    "Existing init validates static state and native readiness and ignores changed input credential files. Static exact-byte complete/config checks, .init-lock, an exclusive volume lease, private control lock, known etcd roster/Bolt header, ownership/mode/link checks run before any native process. Missing, partial, foreign, incompatible and occupied state is refused. No reset, reprovisioning, PIN change or state-changing retry is implicit.",
+    "init/health/exec use a P11Lab C supervisor: direct service children, real Unprovisioned/Operational API gating, bounded startup and 64-KiB log sinks, native token/label checks, required-service death monitoring, signal forwarding, TERM/KILL escalation and subreaper/adopted-child cleanup. Services live for the operation/application lifetime. No permanent server/server-ready operation is needed; the preferred proxy daemon runs through the same exec.",
+    "Clean restart unlocks an already provisioned Locked server with its private generated passphrase; it never reprovisions an Unprovisioned server behind a completion marker. Persistent keys and operator/admin credentials survive restart. Reset is explicit caller removal/replacement of disposable state after all operations stop. Native failed authentication can trigger server rate limits; no transparent retry is added. An etcd SIGKILL can retain native WAL 0.tmp; static checks refuse this partial state without deletion or repair. Clean shutdown/restart is supported; crash recovery is unqualified.",
+    "general-token is FALSIFIED: the unchanged generated-key consumer returns C_DestroyObject(public cleanup) CK_RV=0x60 after private-key deletion invalidates the public alias. Preserve this failure. Restricted persistent P-256 generation/signing is assessed independently; wider mechanisms, native object/session semantics, concurrent clients, crash/power-loss recovery, hardware security and other architectures/libcs are unqualified. Wrong operator PIN is preserved as native 0x103.",
+    "Basic runtime contains no checker, Python, datasets, tracing, compiler, Cargo, OpenSC/pkcs11-tool or upstream administration scripts. Consumer/checker/proxy derivatives are separate test artifacts with independent identity and admission. A shared network never makes the native module remotely loadable.",
+    "The shared builder currently compares base and runtime inventories as identical, although frozen APK additions make them different, so its artifact receipt gate is blocked. Its packaged checker recipe and existing pinned wheel lock target Debian/glibc. These are owning-component/platform follow-ups, never fake inventory or provider-local platform substitutions.",
+    "Distribution is blocked independently of crypto or lifecycle outcomes. No verified server source companion exists; upstream image license/notice files are absent. Preserve observed EUPL-1.2/Apache/Go source notices without claiming complete pairing, all crate grants, Alpine binary/source and Rust runtime inputs. Full contents, embedded filler, source obligations, anonymous readback and publication gates remain unmet."
+  ],
+  "runtime_env": [
+    {
+      "name": "P11NETHSM_CONFIG_FILE",
+      "value": "/var/lib/p11lab/nethsm/p11nethsm.conf"
+    }
+  ]
+}

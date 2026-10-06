@@ -3,9 +3,11 @@
 ## Purpose and current stage
 
 P11Lab helps developers exercise PKCS#11 applications against reproducible,
-reusable provider environments. Its first product is a small set of lightweight
-provider container images that work without `pkcs11-check`. The checker is an
-optional consumer, alongside other applications.
+reusable provider environments. It ships a catalogue of 24 locked provider
+candidates (container runtimes plus native bundles) with pinned sources,
+lifecycle adapters, and direct/proxy/checker/consumer lanes driven by the
+`p11lab` command. The installed checker is one consumer, alongside arbitrary
+applications.
 
 Public reuse includes another developer's GitHub repository running its own
 application tests and optionally checker profiles against these environments.
@@ -13,9 +15,11 @@ Keep the provider catalogue extensible through recipes and metadata with shared
 validation and orchestration. Public CI integrations must use the same supported
 operations as local users and work without development-workspace mounts.
 
-The project is in requirements and architecture review. `prd.md` is an initial
-draft, not an approved implementation specification. Current user decisions and
-verified component behavior take precedence over assumptions in that draft.
+The catalogue, lanes, demos, and delivery pipeline are implemented and under
+frozen-cohort audit; nothing is published yet (no registry images, tags,
+releases, or cache exports). `prd.md` remains an initial draft, not an
+approved implementation specification. Current user decisions and verified
+component behavior take precedence over assumptions in that draft.
 
 Use `pkcs11-proxy-ng` as the preferred remote integration. `p11-kit` is an optional
 demonstration where feasible. The requested observability project is

@@ -1,0 +1,56 @@
+P11Lab OpenCryptoki SWToken file notices
+
+Original P11Lab Dockerfile, entrypoint.sh and provision.c: Apache-2.0, root
+LICENSE. These separate orchestration modules do not relicense OpenCryptoki.
+No reference script text, credentials or initialized token data is copied.
+The reference Dockerfile/master runner informed only the SWToken exclusions.
+No upstream patches, simulation, hardware token, p11sak, ASan or s390x build.
+
+OpenCryptoki: https://github.com/opencryptoki/opencryptoki.git
+release v3.27.0: 583d0128bb5ebfac263496bc8fe32d4aef440178
+rolling master snapshot: b0769d6332d4d82b33991b89f2d2dc9d64142cbe
+Root LICENSE and IBM source headers: Common Public License 1.0 (CPL-1.0).
+usr/lib/common/constant_time.h: OpenSSL-derived Apache-2.0; its copyright and
+notice are retained verbatim in-image. Headerless configuration.c is covered
+by the root grant, not assigned a new P11Lab license. AIX getopt_long.c has
+BSD terms and ica_s390_stdll/rsa_sup_mul.c Apache-2.0; neither is built here.
+Test-only/headerless and other excluded paths remain in the frozen source.
+Generated flex/bison/parser and libtool build outputs need corresponding-source
+and generated-content review; compiler/runtime reachability is not certified.
+
+CPL grants reproduction, derivatives and object-code distribution subject to
+its terms. Distribution must retain copyright notices and provide reasonable
+source access from the distributor; source copies include CPL and use its
+terms. Object-code terms must meet CPL section 3 warranty/liability and source
+access requirements; contributors identify their contributions. Section 4
+commercial distribution, patent and termination terms remain applicable.
+Preserve exact source, generated build instructions and notices. A root Apache
+license or SBOM does not satisfy CPL or dependency source obligations.
+
+OpenSSL pairing, both channels: Debian 13 libssl3t64 and openssl-provider-legacy
+3.5.7-1~deb13u2, system libcrypto.so.3. Legacy module hash is enforced in-build.
+No from-source OpenSSL, custom provider configuration or FIPS claim. Debian
+OpenSSL copyright/license evidence remains in its installed package documents.
+Native C_Initialize loads default and legacy in its own OpenSSL library context.
+
+Additional runtime files are exact Debian package bytes, not rebuilt libraries:
+liblber.so.2 from libldap2 (OpenLDAP Public License 2.8 and per-source terms);
+libnss_wrapper.so from libnss-wrapper (BSD-3-Clause and per-source terms).
+Complete Debian copyright files are retained in runtime-closure/. NSS wrapper
+maps the caller's non-root UID to the upstream daemon account; primary GID is
+1001 to match the root-owned immutable strength.conf. Native access checks are
+preserved. This adapter supports that GID, not arbitrary primary groups.
+The p11-kit PKCS#11 build header has a permissive unrestricted-copy notice;
+header and package copyright are retained. libp11-kit itself is not linked.
+
+Debian base/runtime and build-only closure: exact packages, binary/source URLs,
+hashes and signed snapshot indexes in the channel locks. Base copyright texts
+remain installed. Build-only package presence in the lock does not mean its
+entire contents ship. Runtime inventories identify the two copied libraries.
+Copyleft base packages retain corresponding-source and other obligations.
+
+POLICY: local candidate only. Actual-layer licensing, generated content, source
+companions, distributor CPL-compliant source access and digest-bound delivery
+are incomplete. Distribution remains UNREVIEWED and admission BLOCKED.
+Consumer, checker, proxy and datasets are separately assessed artifacts. No
+push, external cache export, tag, release or publication is authorized here.

@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "id": "tpm2",
+  "module_implementation": {
+    "name": "tpm2-pkcs11"
+  },
+  "backend": {
+    "name": "swtpm/libtpms software TPM",
+    "simulated": true
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/lib/x86_64-linux-gnu/pkcs11/libtpm2_pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
+    }
+  },
+  "services": [
+    "swtpm",
+    "dbus-daemon",
+    "tpm2-abrmd"
+  ],
+  "runtime_env": [
+    {
+      "name": "TPM2_PKCS11_STORE",
+      "value": "/var/lib/p11lab/tpm2/store"
+    },
+    {
+      "name": "TPM2_PKCS11_TCTI",
+      "value": "tabrmd:bus_type=system"
+    },
+    {
+      "name": "DBUS_SYSTEM_BUS_ADDRESS",
+      "value": "unix:path=/run/p11lab/tpm2/bus/system_bus_socket"
+    }
+  ],
+  "channels": {
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    },
+    "release": {
+      "status": "locked",
+      "lock": "release.lock.json"
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "blocked",
+    "reason": "Local emulated-TPM candidate. Observed closure flags (GPL-3 packaging stanzas, LGPL glib, CPL configure.ac-only in swtpm, IBM-Custom libtpms), actual-layer/generated-content review and digest-bound source-companion delivery remain incomplete; checker/consumer/proxy admission is separate."
+  },
+  "constraints": [
+    "Linux amd64/glibc 2.41, emulated TPM only. Hardware TPMs, other TCTIs, FIPS claims and other architectures/libcs are excluded. No upstream source patches.",
+    "Both channels source-build unpatched tpm2-pkcs11 (release 1.10.1, rolling 1.10.1-21-gd8375fa) with system OpenSSL 3.5.7 libcrypto.so.3; no legacy provider and no from-source OpenSSL. The single Python runtime dependency is the frozen tpm2-pytss 2.3.0 sdist installed offline; the test-only python-pkcs11 client is not installed.",
+    "Basic runtime has the module, the tpm2_pytss/tpm2_pkcs11 Python trees, the argv-free wrapper, swtpm, tpm2-abrmd, a private anonymous D-Bus, the tpm2 multicall with its invoked symlinks, dbus-send, base libraries and the exact extracted closure. The argv-taking tpm2_ptool console script is excluded; caller secrets never travel over argv.",
+    "The caller UID may be root or non-root with any primary group; both are qualified. No NSS wrapper or fixed group is required.",
+    "Bind writable /var/lib/p11lab; private ephemeral /run/p11lab and private container IPC/PID namespaces are required. Never share IPC with another runtime. Each shard/client owns a separate volume, container and daemon set. Daemons, bus socket, logs and pid files live under /run; the emulator state, sqlite store, lease and marker persist under /var/lib/p11lab/tpm2 and resume across operations.",
+    "Persistent store and emulator state are exact-byte validated; the sqlite store binds to the resumed TPM hierarchy and is never silently reset. Reset requires caller removal/replacement of disposable state after all operations stop.",
+    "P11LAB_LABEL defaults to P11Lab, 1..32 ASCII letters/digits/spaces/dot/underscore/hyphen, exact 32-byte token match. Caller user/SO PINs are non-empty through 4096 bytes single-line; first init requires both. No baked caller credentials or initialized token data.",
+    "First init provisions the native store (persistent primary 0x81000001) and token through the frozen tpm2_ptool commandlets as a library with secrets on a bounded private stdin pipe. Compatible repeated init preserves state and ignores changed credential files.",
+    "First init also provisions the emulator dictionary-attack parameters (max 64 tries; recovery and lockout-recovery at the observed swtpm defaults) because a resumed emulator draws one counted TPM_RC_RETRY per operation that authenticates, and wrong-PIN attempts count natively. DA failure stays observable: hammering to the budget locks the token with native CKR_PIN_LOCKED.",
+    "init/health/exec supervise swtpm, the private bus and tpm2-abrmd for that operation only: subreaper adoption, volume/control leases, TCP plus bus-name plus native pre-login token readiness, daemon-death detection, signal forwarding, bounded logs and bounded terminate/kill/reap. exec retains the daemons for the complete application lifetime and preserves argv/status.",
+    "The canonical bus address is guidless and static because the daemon config pins the socket path; the per-boot guid is discarded after readiness. The provider descriptor declares the same store path, TCTI and bus address for checker grandchildren, which otherwise run scrubbed.",
+    "Resource-manager capacities are the re-derived native bounds: 100 transient objects and 4 sessions. No persistent server/server-ready service is needed: preferred proxy daemons launch through the same supervised exec. No silent reset or retry of native state-changing calls.",
+    "Unknown/hidden entries, unsafe links/hardlinks, changed non-secret configuration, stale daemon debris, missing store and busy state are refused before native open. Failures retain partial state for investigation.",
+    "The general-token profile is retained after native P-256 independent verification and altered-message rejection in both channels; wider mechanisms, multi-client concurrency, other TCTIs/backends and provider-wide qualification are not asserted.",
+    "All runtime/consumer/checker/proxy artifacts remain blocked for distribution. Preserve exact BSD provider source, PyPI sdist, Debian closure sources/notices and generated build inputs; source admission, public delivery and publication are separate gates."
+  ]
+}

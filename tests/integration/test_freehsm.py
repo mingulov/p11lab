@@ -1,0 +1,479 @@
+"""FreeHSM anchor acceptance: real init/readiness/crypto/persistence/lanes.
+
+Durable regression for the FreeHSM provider (Task 8). Image lanes are env-gated;
+only caller-owned inputs and output artifacts are mounted, never a reference
+workspace:
+
+- P11LAB_TEST_FREEHSM_IMAGES: JSON channel -> exact runtime engine ID.
+- P11LAB_TEST_FREEHSM_CONSUMER_IMAGES: JSON channel -> exact test-only consumer
+  derivative (provider + independent C smoke + OpenSC pkcs11-tool).
+- P11LAB_TEST_FREEHSM_CHECKER_IMAGES: JSON channel -> exact installed checker
+  derivative engine ID.
+- P11LAB_TEST_FREEHSM_PROXY: JSON channel -> exact daemon derivative engine ID.
+- P11LAB_TEST_FREEHSM_CALLER: exact caller-owned application image.
+- P11LAB_TEST_FREEHSM_CLIENTS: JSON channel -> native-client bundle archive path.
+
+The crypto oracle is the packaged independent verifier plus host OpenSSL;
+its version is recorded with every verification.
+
+Disclosed dev-mode: trixie ships no OpenSSL FIPS provider, so the stock
+module cannot initialize there (recorded trials: unsigned refusal, then
+signed-but-no-fips.so failure). The runtime therefore sets the documented
+upstream dev-mode variables (FHSM_INTEGRITY_ALLOW_UNSIGNED=1,
+FHSM_KAT_ALLOW_FAIL=1, PROFILE=interop build); the module self-identifies
+this run as model FreeHSM-TESTMODE and latches ERROR on any real KAT
+failure unless the safety net triggers. Qualification asserts the net
+never triggers (no KAT FAIL output) and the TESTMODE marker is present.
+No FIPS claim.
+"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+
+import pytest
+
+from p11lab.catalog import load_environment, package_data
+from p11lab.models import ArtifactRef, RunSpec
+from p11lab.run import run_application
+
+MODULE = '/usr/local/lib/p11lab/libfreehsm.so'
+TOKEN_LABEL = 'P11Lab'
+TOKEN_MODEL = 'FreeHSM-TESTMODE'
+CHANNELS = ('release', 'rolling')
+
+IMAGES = json.loads(os.environ.get('P11LAB_TEST_FREEHSM_IMAGES', '{}'))
+CONSUMERS = json.loads(os.environ.get('P11LAB_TEST_FREEHSM_CONSUMER_IMAGES', '{}'))
+CHECKERS = json.loads(os.environ.get('P11LAB_TEST_FREEHSM_CHECKER_IMAGES', '{}'))
+DAEMONS = json.loads(os.environ.get('P11LAB_TEST_FREEHSM_PROXY', '{}'))
+CALLER = os.environ.get('P11LAB_TEST_FREEHSM_CALLER', '')
+CLIENTS = json.loads(os.environ.get('P11LAB_TEST_FREEHSM_CLIENTS', '{}'))
+
+
+def docker(*args, check=True):
+    return subprocess.run(['docker', *args], capture_output=True, text=True, check=check, timeout=300)
+
+
+def openssl_version():
+    completed = subprocess.run(['openssl', 'version'], capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0
+    return completed.stdout.strip()
+
+
+def oracle(output_dir):
+    verifier = output_dir.parent / 'verify-freehsm.py'
+    verifier.write_bytes(package_data('consumer/verify.py').read_bytes())
+    try:
+        completed = subprocess.run([sys.executable, str(verifier), str(output_dir)],
+                                   capture_output=True, text=True, timeout=120)
+    finally:
+        verifier.unlink(missing_ok=True)
+    assert completed.returncode == 0, completed.stderr
+    assert 'altered message rejected' in completed.stdout
+    return completed.stdout.strip()
+
+
+def write_pins(directory):
+    pin, so_pin = directory / 'pin', directory / 'so-pin'
+    pin.write_bytes(b'1234')
+    so_pin.write_bytes(b'12345678')
+    pin.chmod(0o600)
+    so_pin.chmod(0o600)
+    return pin, so_pin
+
+
+def as_ref(image):
+    return ArtifactRef('docker-local', image, image.removeprefix('sha256:'), 'linux/amd64')
+
+
+def assert_real_receipts(output, channel, credential_files=(), checker=False):
+    receipt = output / 'receipt.json'
+    assert receipt.is_file() and receipt.stat().st_size, 'real lane receipt is missing'
+    record = json.loads(receipt.read_text())
+    assert (record['environment'], record['channel']) == ('freehsm', channel)
+    if checker:
+        checker_receipt = output / 'checker/checker-receipt.json'
+        assert checker_receipt.is_file() and checker_receipt.stat().st_size
+    declarations = load_environment('freehsm', channel)['runtime_env']
+    credentials = {Path(path).read_text().strip() for path in credential_files}
+
+    def inspect(value):
+        if isinstance(value, dict):
+            for entry in declarations:
+                assert value.get(entry['name']) != entry['value'], 'environment pairing in receipt'
+                assert not (value.get('name') == entry['name'] and value.get('value') == entry['value']), 'environment pairing in receipt'
+            for key, child in value.items():
+                inspect(key)
+                inspect(child)
+        elif isinstance(value, list):
+            for entry in declarations:
+                assert value != [entry['name'], entry['value']], 'environment pairing in receipt'
+            for child in value:
+                inspect(child)
+        elif isinstance(value, str):
+            for credential in credentials:
+                assert not re.search(r'(?<![A-Za-z0-9_])' + re.escape(credential) +
+                                     r'(?![A-Za-z0-9_])', value), 'credential value in receipt'
+            for entry in declarations:
+                assert f"{entry['name']}={entry['value']}" not in value, 'environment pairing in receipt'
+
+    for path in output.rglob('*receipt.json'):
+        assert path.stat().st_size, 'empty durable receipt'
+        inspect(json.loads(path.read_text()))
+
+
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_channels_locked(channel):
+    spec = load_environment('freehsm', channel)
+    assert spec['channel_spec']['status'] == 'locked'
+
+
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_real_standalone_lifecycle(channel, tmp_path):
+    if channel not in IMAGES:
+        pytest.skip('P11LAB_TEST_FREEHSM_IMAGES lacks ' + channel)
+    image = IMAGES[channel]
+    state, partial, secrets = tmp_path / 'state', tmp_path / 'partial', tmp_path / 'secrets'
+    state.mkdir()
+    partial.mkdir()
+    secrets.mkdir()
+    (secrets / 'pin').write_text('1234')
+    (secrets / 'so-pin').write_text('12345678')
+    base = ['run', '--rm', '--network', 'none',
+            '--user', f'{os.getuid()}:{os.getgid()}', '--read-only', '--cap-drop', 'ALL',
+            '--security-opt', 'no-new-privileges',
+            '--tmpfs', f'/run/p11lab:rw,nosuid,nodev,uid={os.getuid()},gid={os.getgid()},mode=0700',
+            '--tmpfs', '/tmp:rw,nosuid,nodev',
+            '--mount', f'type=bind,src={state},dst=/var/lib/p11lab',
+            '--mount', f'type=bind,src={secrets},dst=/run/secrets,readonly']
+    controls = ['-e', 'P11LAB_PIN_FILE=/run/secrets/pin', '-e', 'P11LAB_SO_PIN_FILE=/run/secrets/so-pin']
+    description = json.loads(docker('run', '--rm', image, 'describe').stdout)
+    assert description['module_path'] == MODULE
+    assert description['id'] == 'freehsm'
+    initialized = docker(*base, *controls, image, 'init')
+    (tmp_path / 'native-init.stdout.log').write_text(initialized.stdout)
+    (tmp_path / 'native-init.stderr.log').write_text(initialized.stderr)
+    assert initialized.returncode == 0, initialized.stderr
+    # The KAT safety net must never trigger: any real KAT failure would print here.
+    assert initialized.stderr.strip(), 'native init diagnostics are missing'
+    assert 'integrity bypass active' in initialized.stderr
+    assert 'KAT FAIL' not in initialized.stderr
+    env = docker(*base, *controls, image, 'exec', '--', 'sh', '-c',
+                 'printf "%s\\n" "$FHSM_TOKENS_DIR" "$FHSM_INTEGRITY_ALLOW_UNSIGNED" "$FHSM_KAT_ALLOW_FAIL"').stdout
+    assert env.splitlines() == ['/var/lib/p11lab/freehsm', '1', '1'], env
+    assert 'pin' not in env.lower() and '1234' not in env
+    before = docker(*base, *controls, image, 'exec', '--', 'sh', '-c',
+                    'find /var/lib/p11lab -type f | sort').stdout
+    assert '/var/lib/p11lab/freehsm/slot0.tok' in before
+    assert '/var/lib/p11lab/freehsm/audit.key' in before
+    assert '/var/lib/p11lab/freehsm/complete' in before
+    # Re-init with different credentials is a non-destructive reopen: the token
+    # file is byte-identical (audit logs rotate per process and are excluded).
+    token_before = docker(*base, *controls, image, 'exec', '--', 'sha256sum',
+                          '/var/lib/p11lab/freehsm/slot0.tok').stdout
+    (secrets / 'pin').write_text('5678')
+    (secrets / 'so-pin').write_text('87654321')
+    docker(*base, *controls, image, 'init')
+    token_after = docker(*base, *controls, image, 'exec', '--', 'sha256sum',
+                         '/var/lib/p11lab/freehsm/slot0.tok').stdout
+    assert token_before == token_after
+    health = docker(*base, *controls, image, 'health')
+    (tmp_path / 'native-health.stdout.log').write_text(health.stdout)
+    (tmp_path / 'native-health.stderr.log').write_text(health.stderr)
+    assert health.returncode == 0, health.stderr
+    assert TOKEN_LABEL in health.stdout
+    assert TOKEN_MODEL in health.stdout
+    assert health.stderr.strip(), 'native health diagnostics are missing'
+    assert 'integrity bypass active' in health.stderr
+    assert 'integrity bypass active' not in health.stdout
+    assert 'KAT FAIL' not in health.stderr
+    conflict = docker(*base, *controls, '-e', 'P11LAB_PIN=other', image, 'init', check=False)
+    assert conflict.returncode != 0 and 'conflicting' in conflict.stderr
+    stripped = docker(*base, *controls, image, 'exec', '--', 'sh', '-c',
+                      'for c in python python3 pkcs11-check pkcs11-tool; do command -v "$c"; done; exit 0').stdout
+    assert stripped == '', stripped
+    native = docker(*base, *controls, image, 'exec', '--', 'sh', '-c',
+                    'command -v fhsm-token').stdout
+    assert native.splitlines() == ['/usr/local/bin/fhsm-token'], native
+    result = docker(*base, *controls, image, 'exec', '--', 'sh', '-c',
+                    'printf "%s\\n" "$FHSM_TOKENS_DIR" "$P11LAB_MODULE" "$1"; exit 37',
+                    'caller', 'literal $argument with spaces', check=False)
+    assert result.returncode == 37
+    assert result.stdout.splitlines() == ['/var/lib/p11lab/freehsm', MODULE, 'literal $argument with spaces']
+    (partial / 'unknown').write_text('foreign')
+    result = docker('run', '--rm', '--network', 'none',
+                    '--user', f'{os.getuid()}:{os.getgid()}', '--read-only', '--cap-drop', 'ALL',
+                    '--security-opt', 'no-new-privileges',
+                    '--tmpfs', f'/run/p11lab:rw,nosuid,nodev,uid={os.getuid()},gid={os.getgid()},mode=0700',
+                    '--tmpfs', '/tmp:rw,nosuid,nodev',
+                    '--mount', f'type=bind,src={partial},dst=/var/lib/p11lab',
+                    '--mount', f'type=bind,src={secrets},dst=/run/secrets,readonly',
+                    *controls, image, 'init', check=False)
+    assert result.returncode != 0 and 'partial' in result.stderr
+    marker = docker(*base, *controls, image, 'exec', '--', 'cat', '/var/lib/p11lab/freehsm/complete').stdout
+    assert {line.split('=', 1)[0] for line in marker.splitlines()} == {'schema', 'provider', 'artifact', 'token', 'backend'}
+    assert 'token=P11Lab' in marker
+    assert 'pin' not in marker.lower()
+
+
+@pytest.mark.parametrize('channel', CHANNELS)
+@pytest.mark.parametrize('controls, message', [
+    ([], 'absent'),
+    (['-e', 'P11LAB_PIN=', '-e', 'P11LAB_SO_PIN=12345678'], 'empty'),
+    (['-e', 'P11LAB_PIN=1234'], 'absent'),
+    (['-e', 'P11LAB_PIN=1234', '-e', 'P11LAB_PIN_FILE=/missing', '-e', 'P11LAB_SO_PIN=12345678'], 'conflicting'),
+    (['-e', 'P11LAB_PIN_FILE=/missing', '-e', 'P11LAB_SO_PIN=12345678'], 'readable'),
+])
+def test_initial_credentials_fail_explicitly(channel, controls, message):
+    if channel not in IMAGES:
+        pytest.skip('P11LAB_TEST_FREEHSM_IMAGES lacks ' + channel)
+    result = docker('run', '--rm', '--network', 'none', *controls, IMAGES[channel], 'init', check=False)
+    assert result.returncode != 0 and message in result.stderr
+
+
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_token_slot_identity_and_model(channel, tmp_path):
+    if channel not in CONSUMERS:
+        pytest.skip('P11LAB_TEST_FREEHSM_CONSUMER_IMAGES lacks ' + channel)
+    image = CONSUMERS[channel]
+    state, secrets = tmp_path / 'state', tmp_path / 'secrets'
+    state.mkdir()
+    secrets.mkdir()
+    (secrets / 'pin').write_bytes(b'1234')
+    (secrets / 'so-pin').write_bytes(b'12345678')
+    base = ['run', '--rm', '--network', 'none',
+            '--user', f'{os.getuid()}:{os.getgid()}', '--read-only', '--cap-drop', 'ALL',
+            '--security-opt', 'no-new-privileges',
+            '--tmpfs', f'/run/p11lab:rw,nosuid,nodev,uid={os.getuid()},gid={os.getgid()},mode=0700',
+            '--tmpfs', '/tmp:rw,nosuid,nodev',
+            '--mount', f'type=bind,src={state},dst=/var/lib/p11lab',
+            '--mount', f'type=bind,src={secrets},dst=/run/secrets,readonly',
+            '-e', 'P11LAB_PIN_FILE=/run/secrets/pin', '-e', 'P11LAB_SO_PIN_FILE=/run/secrets/so-pin']
+    docker(*base, image, 'init')
+    listed = docker(*base, image, 'exec', '--', 'pkcs11-tool', '--module', MODULE, '--list-token-slots').stdout
+    assert TOKEN_LABEL in listed
+    # Single-token slot 0: token-present index and native slot ID coincide at 0,
+    # and the module discloses dev-mode in the token model.
+    import re
+    slots = [line for line in listed.splitlines() if line.startswith('Slot ')]
+    assert len(slots) == 1, listed
+    parsed = re.fullmatch(r'Slot (\d+) \(0x([0-9a-fA-F]+)\): (.*)', slots[0])
+    assert parsed, listed
+    assert (int(parsed[1]), int(parsed[2], 16)) == (0, 0), listed
+    assert 'token label        : ' + TOKEN_LABEL in listed, listed
+    assert 'token model        : ' + TOKEN_MODEL in listed, listed
+    docker(*base, image, 'exec', '--', 'pkcs11-tool', '--module', MODULE,
+           '--token-label', TOKEN_LABEL, '--login', '--pin', '1234', '--list-objects')
+
+
+def run_direct(channel, image, argv, inputs, output, caller, timeout=300):
+    spec = RunSpec('freehsm', channel, 'direct', as_ref(image), 'provider', None, None,
+                   tuple(argv), dict(inputs), output, caller, timeout)
+    result = run_application(spec)
+    assert result.exit_code == 0, (result.lifecycle_errors, result.cleanup_errors)
+    assert result.app_returncode == 0
+    assert not result.lifecycle_errors and not result.cleanup_errors
+    receipt = json.loads(Path(result.receipt_path).read_text())
+    assert [stage['phase'] for stage in receipt['stages']] == ['init', 'ready', 'application', 'post-health']
+    assert_real_receipts(output, channel, [value for key, value in inputs.items() if key.endswith('_PIN_FILE')])
+    return result
+
+
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_receipt_assertions_detect_pairings_in_real_lane_output(channel, tmp_path):
+    if channel not in CONSUMERS:
+        pytest.skip('P11LAB_TEST_FREEHSM_CONSUMER_IMAGES lacks ' + channel)
+    pin, so_pin = write_pins(tmp_path)
+    caller = tmp_path / 'caller'
+    caller.mkdir()
+    output = tmp_path / 'output'
+    run_direct(channel, CONSUMERS[channel], ('sh', '-c', 'echo RECEIPT-CONTROL'),
+               {'P11LAB_PIN_FILE': str(pin), 'P11LAB_SO_PIN_FILE': str(so_pin)}, output, caller)
+    path = output / 'receipt.json'
+    original = path.read_bytes()
+    record = json.loads(original)
+    # Mutate a real receipt to prove these assertions are sensitive to both
+    # credential leakage and declared environment pairings, then restore it.
+    try:
+        for leak in (load_environment('freehsm', channel)['runtime_env'],
+                     {'P11LAB_PIN': pin.read_text()}, 'P11LAB_PIN=' + pin.read_text()):
+            path.write_text(json.dumps(record | {'unexpected': leak}))
+            with pytest.raises(AssertionError):
+                assert_real_receipts(output, channel, [pin, so_pin])
+        path.write_bytes(b'')
+        with pytest.raises(AssertionError, match='missing'):
+            assert_real_receipts(output, channel, [pin, so_pin])
+    finally:
+        path.write_bytes(original)
+    assert_real_receipts(output, channel, [pin, so_pin])
+    print(f'receipt guard direct/{channel}: real receipt accepted; credential, environment-pairing and empty-receipt mutations rejected')
+
+
+SMOKE_ARGV = ('p11lab-smoke', '--module', MODULE, '--token-label', TOKEN_LABEL,
+              '--pin-file', '/run/p11lab-input/P11LAB_PIN_FILE',
+              '--output', '/p11lab-output/crypto', '--key-mode')
+
+
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_direct_crypto_generated_oracle(channel, tmp_path):
+    if channel not in CONSUMERS:
+        pytest.skip('P11LAB_TEST_FREEHSM_CONSUMER_IMAGES lacks ' + channel)
+    pin, so_pin = write_pins(tmp_path)
+    caller = tmp_path / 'caller'
+    caller.mkdir()
+    output = tmp_path / 'output'
+    run_direct(channel, CONSUMERS[channel], (*SMOKE_ARGV, 'generated'),
+               {'P11LAB_PIN_FILE': str(pin), 'P11LAB_SO_PIN_FILE': str(so_pin)}, output, caller)
+    metadata = json.loads((output / 'crypto/result.json').read_text())
+    assert metadata['key_mode'] == 'generated'
+    print('oracle:', oracle(output / 'crypto'), '|', openssl_version())
+
+
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_persisted_key_reopens_in_fresh_processes(channel, tmp_path):
+    if channel not in CONSUMERS:
+        pytest.skip('P11LAB_TEST_FREEHSM_CONSUMER_IMAGES lacks ' + channel)
+    image = CONSUMERS[channel]
+    pin, so_pin = write_pins(tmp_path)
+    caller = tmp_path / 'caller'
+    caller.mkdir()
+    state = tmp_path / 'persistent state'
+    state.mkdir()
+    inputs = {'P11LAB_PIN_FILE': str(pin), 'P11LAB_SO_PIN_FILE': str(so_pin),
+              'P11LAB_STATE_DIR': str(state)}
+    provision = RunSpec('freehsm', channel, 'direct', as_ref(image), 'provider', None, None,
+                        ('pkcs11-tool', '--module', MODULE, '--token-label', TOKEN_LABEL,
+                         '--login', '--pin', '1234', '--keypairgen', '--key-type', 'EC:prime256v1',
+                         '--id', '42', '--label', 'freehsm-persist'),
+                        dict(inputs), tmp_path / 'provision', caller, 300)
+    provisioned = run_application(provision)
+    assert provisioned.exit_code == 0, provisioned
+    pubs = []
+    for index in range(2):
+        output = tmp_path / ('reopen-' + str(index))
+        run_direct(channel, image, (*SMOKE_ARGV, 'existing', '--key-id', '42'),
+                   dict(inputs), output, caller)
+        oracle(output / 'crypto')
+        pubs.append((output / 'crypto/public-key.der').read_bytes())
+    assert pubs[0] == pubs[1] and len(pubs[0]) == 91
+
+
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_lost_token_contents_are_not_reinitialized(channel, tmp_path):
+    if channel not in IMAGES:
+        pytest.skip('P11LAB_TEST_FREEHSM_IMAGES lacks ' + channel)
+    image = IMAGES[channel]
+    state, secrets = tmp_path / 'state', tmp_path / 'secrets'
+    state.mkdir()
+    secrets.mkdir()
+    (secrets / 'pin').write_bytes(b'1234')
+    (secrets / 'so-pin').write_bytes(b'12345678')
+    base = ['run', '--rm', '--network', 'none',
+            '--user', f'{os.getuid()}:{os.getgid()}', '--read-only', '--cap-drop', 'ALL',
+            '--security-opt', 'no-new-privileges',
+            '--tmpfs', f'/run/p11lab:rw,nosuid,nodev,uid={os.getuid()},gid={os.getgid()},mode=0700',
+            '--tmpfs', '/tmp:rw,nosuid,nodev',
+            '--mount', f'type=bind,src={state},dst=/var/lib/p11lab',
+            '--mount', f'type=bind,src={secrets},dst=/run/secrets,readonly',
+            '-e', 'P11LAB_PIN_FILE=/run/secrets/pin', '-e', 'P11LAB_SO_PIN_FILE=/run/secrets/so-pin']
+    docker(*base, image, 'init')
+    (state / 'freehsm' / 'slot0.tok').unlink()
+    snapshot = ['--entrypoint', 'sh', image, '-c', 'find /var/lib/p11lab -type f -exec sha256sum {} + | sort']
+    before = docker(*base, *snapshot).stdout
+    for operation in ('init', 'health'):
+        result = docker(*base, image, operation, check=False)
+        assert result.returncode != 0 and 'partial' in result.stderr
+    result = docker(*base, image, 'exec', '--', 'sh', '-c', 'echo APP-RAN', check=False)
+    assert result.returncode != 0 and 'APP-RAN' not in result.stdout
+    # Refusals happen before any module load, so no audit rotation either.
+    assert docker(*base, *snapshot).stdout == before
+
+
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_direct_checker_smoke(channel, tmp_path):
+    if channel not in CHECKERS:
+        pytest.skip('P11LAB_TEST_FREEHSM_CHECKER_IMAGES lacks ' + channel)
+    from p11lab.checker import run_checker
+    pin, so_pin = write_pins(tmp_path)
+    caller = tmp_path / 'caller'
+    caller.mkdir()
+    output = tmp_path / 'output'
+    spec = RunSpec('freehsm', channel, 'direct', as_ref(CHECKERS[channel]), 'provider', None, None,
+                   (), {'P11LAB_PIN_FILE': str(pin), 'P11LAB_SO_PIN_FILE': str(so_pin)},
+                   output, caller, 1500)
+    result = run_checker(spec, 'smoke-v1')
+    assert_real_receipts(output, channel, [pin, so_pin], checker=True)
+    record = json.loads((output / 'checker/checker-receipt.json').read_text())
+    assert record['evidence']['observations_complete'] is True, record['evidence']
+    assert record['token']['label'] == TOKEN_LABEL
+    assert record['token']['token_present_index'] == record['token']['native_slot_id'] == 0
+    print(f"checker direct/{channel}: exit={result.exit_code} "
+          f"summary={record['evidence']['summary']} statuses={record['evidence']['provider_statuses']}")
+
+
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_proxy_crypto_container(channel, tmp_path):
+    if channel not in DAEMONS or not CALLER or channel not in CLIENTS:
+        pytest.skip('proxy daemon, caller image and client bundles required')
+    pin, so_pin = write_pins(tmp_path)
+    caller = tmp_path / 'caller'
+    caller.mkdir()
+    output = tmp_path / 'output'
+    bundle = Path(CLIENTS[channel])
+    spec = RunSpec('freehsm', channel, 'proxy', as_ref(DAEMONS[channel]), 'container', as_ref(CALLER),
+                   ArtifactRef('bundle', str(bundle),
+                               hashlib.sha256(bundle.read_bytes()).hexdigest(), 'linux/amd64'),
+                   ('/usr/local/bin/p11lab-smoke', '--module',
+                    '/run/p11lab-client/libpkcs11_proxy_ng_shim.so', '--token-label', TOKEN_LABEL,
+                    '--pin-file', '/run/p11lab-input/P11LAB_PIN_FILE',
+                    '--output', '/p11lab-output/crypto', '--key-mode', 'generated'),
+                   {'P11LAB_PIN_FILE': str(pin), 'P11LAB_SO_PIN_FILE': str(so_pin)},
+                   output, caller, 600)
+    result = run_application(spec)
+    assert result.exit_code == 0, (result.lifecycle_errors, result.cleanup_errors)
+    assert result.app_returncode == 0
+    assert_real_receipts(output, channel, [pin, so_pin])
+    assert (output / 'proxy-health.stdout.log').read_text().strip() == 'SERVING'
+    oracle(output / 'crypto')
+
+
+def test_proxy_crypto_host(tmp_path):
+    channel = 'release'
+    if channel not in DAEMONS or channel not in CLIENTS:
+        pytest.skip('proxy daemon and client bundle required')
+    if shutil.which('cc') is None:
+        pytest.skip('host C compiler required')
+    pin, so_pin = write_pins(tmp_path)
+    caller = tmp_path / 'caller'
+    caller.mkdir()
+    output = tmp_path / 'output'
+    sources = tmp_path / 'consumer-sources'
+    sources.mkdir()
+    for name in ('smoke.c', 'p256.c', 'p256.h'):
+        (sources / name).write_bytes(package_data('consumer/' + name).read_bytes())
+    vendor = sources / 'vendor'
+    vendor.mkdir()
+    (vendor / 'pkcs11.h').write_bytes(package_data('consumer/vendor/pkcs11.h').read_bytes())
+    binary = tmp_path / 'hostbin' / 'p11lab-smoke'
+    binary.parent.mkdir()
+    build = subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-pedantic',
+                            str(sources / 'smoke.c'), str(sources / 'p256.c'), '-ldl', '-o', str(binary)],
+                           capture_output=True, text=True, timeout=120)
+    assert build.returncode == 0, build.stderr
+    bundle = Path(CLIENTS[channel])
+    script = ('exec "$0" --module "$P11LAB_SHIM" --token-label ' + TOKEN_LABEL +
+              ' --pin-file "$1" --output "$P11LAB_OUTPUT_DIR/crypto" --key-mode generated')
+    spec = RunSpec('freehsm', channel, 'proxy', as_ref(DAEMONS[channel]), 'host', None,
+                   ArtifactRef('bundle', str(bundle),
+                               hashlib.sha256(bundle.read_bytes()).hexdigest(), 'linux/amd64'),
+                   ('sh', '-c', script, str(binary), str(pin)),
+                   {'P11LAB_PIN_FILE': str(pin), 'P11LAB_SO_PIN_FILE': str(so_pin)},
+                   output, caller, 600)
+    result = run_application(spec)
+    assert result.exit_code == 0, (result.lifecycle_errors, result.cleanup_errors)
+    assert_real_receipts(output, channel, [pin, so_pin])
+    oracle(output / 'crypto')

@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "id": "freehsm",
+  "module_implementation": {
+    "name": "FreeHSM"
+  },
+  "backend": {
+    "name": "C/OpenSSL software token",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libfreehsm.so",
+  "runtime_env": [
+    {"name": "FHSM_TOKENS_DIR", "value": "/var/lib/p11lab/freehsm"},
+    {"name": "FHSM_INTEGRITY_ALLOW_UNSIGNED", "value": "1"},
+    {"name": "FHSM_KAT_ALLOW_FAIL", "value": "1"}
+  ],
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_PIN": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [],
+  "channels": {
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    },
+    "release": {
+      "status": "locked",
+      "lock": "release.lock.json"
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Local TESTMODE candidate. Runtime, direct-crypto, checker and proxy lanes qualified (27/27 both channels); whole-image licensing, source delivery admission and digest-bound source companion remain incomplete. No publication authorized; no FIPS claim."
+  },
+  "constraints": [
+    "Linux amd64, glibc 2.41; libfreehsm.so plus the provider-native fhsm-token tool ship in-image and link the base system OpenSSL. Single token in slot 0; token-present index and native slot ID coincide at 0.",
+    "The adapter always selects /var/lib/p11lab/freehsm via FHSM_TOKENS_DIR with fixed label P11Lab on slot 0. Token state is slot0.tok plus audit.key; audit.log segments rotate per process and are not byte-stable.",
+    "Stock initialization cannot run on trixie (no OpenSSL FIPS provider ships): the adapter sets the documented upstream dev-mode FHSM_INTEGRITY_ALLOW_UNSIGNED=1 FHSM_KAT_ALLOW_FAIL=1 with a PROFILE=interop build. The module self-identifies these runs as token model FreeHSM-TESTMODE. No FIPS claim.",
+    "Initialize only an empty writable /var/lib/p11lab volume; module-created audit traces without a token file are the only tolerated pre-existing content. Compatible init is non-destructive; slot0.tok without a marker, foreign files, or a foreign label fail. fhsm-token init refuses an initialized token without --force, which the adapter never passes.",
+    "PIN_FILE/SO_PIN_FILE are preferred; scalar alternatives are explicit disposable-test inputs. Conflicting scalar/file or absent/empty credentials fail initial provisioning. PINs reach fhsm-token through its documented environment inputs only, never argv.",
+    "Runtime controls are recreated under writable /run/p11lab by every invocation. The adapter preserves argv and native/application exit status. Health opens the real token with the pinned stock fhsm-token and asserts the P11Lab label.",
+    "Ordinary application consumers do not require checker, Python, tracing or a workspace mount. Reset is an explicit removal/replacement of disposable state; no automatic reset or retry.",
+    "Whole-image licensing, source companion delivery and digest-bound admission remain separate requirements."
+  ]
+}

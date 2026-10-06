@@ -1,0 +1,41 @@
+SPDX-License-Identifier: Apache-2.0
+P11Lab-authored for the sc-hsm provider recipe: store only the terminal
+CA certificate in EF_TERMCA (FID 2F02, C.DevAut).
+
+The INITIALIZE handler builds two objects back to back in one output
+buffer: the 0x67-wrapped device authentication object (ee_len bytes at
+res_APDU for EF_EE_DEV) and the bare terminal CA CVC (term_len bytes
+at res_APDU + ee_len). It then stores EF_TERMCA from res_APDU with
+length ee_len + term_len, i.e. the authentication object concatenated
+with the CA certificate.
+
+No consumer expects that layout. CardContact's libsc-hsm-pkcs11
+(token-sc-hsm.c decodeDevAutCert) parses EF_TERMCA as one CVC
+optionally followed by the issuer CA CVC and refuses the token when
+the leading tag is not 0x7f21 ("Error not a certificate"); the
+firmware's own reset_puk_store/cvc_get_chr and XKEK domain creation
+(cvc_get_pub over EF_TERMCA) likewise expect a CVC at offset 0.
+Current upstream pico-hsm master writes a bare CVC here (verified
+natively: 443-byte 7f21 object), as did the 2023 firmware that
+generated the in-tree tests/memory.tar.gz fixture (CVC pair).
+
+Store res_APDU + ee_len with length term_len so EF_TERMCA holds
+exactly the generated terminal CA CVC. Simulation-fidelity fix,
+declared in the recipe locks and notices; without it a freshly
+initialized card presents no token to the module under test.
+
+Upstream: https://github.com/polhenarejos/pico-hsm.git at
+251b35dd9c4fd929923fc3b192f6793826efeaef (v6.6).
+
+--- a/src/hsm/cmd_initialize.c
++++ b/src/hsm/cmd_initialize.c
+@@ -227,7 +227,8 @@
+             }
+             mbedtls_ecdsa_free(&ecdsa);
+             fpk = search_file(EF_TERMCA);
+-            ret = file_put_data(fpk, res_APDU, ee_len + term_len);
++            /* P11Lab: EF_TERMCA holds the bare terminal CA CVC only. */
++            ret = file_put_data(fpk, res_APDU + ee_len, term_len);
+             if (ret != 0) {
+                 return SW_EXEC_ERROR();
+             }

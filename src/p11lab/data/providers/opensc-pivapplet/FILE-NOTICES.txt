@@ -1,0 +1,146 @@
+P11Lab opensc-pivapplet provider file notices
+
+Original P11Lab Dockerfile, entrypoint.sh, provision.c,
+PivAppletCard.java, maven.json, fetch-jar.py, runtime-debs.txt and
+patches/0001-ykpiv-short-apdu-chunks.patch: Apache-2.0, root
+LICENSE. These separate orchestration modules do not relicense
+OpenSC, PivApplet, yubico-piv-tool, jcardsim, vsmartcard, OpenJDK
+or the Debian closure. No reference script text, credentials or
+initialized card data is copied: the VSmartCard launcher is a
+clean-room reimplementation (the reference workspace ships its own
+wrapper with unclear authorship; no reference text is reused
+here). The pkcs11-check-ws reference lane (docker/pivapplet)
+informed only the pcscd/vpcd/JVM topology and the
+generate+selfsign+import provisioning shape; this recipe
+re-derives sources, pins, supervision and the credential model,
+provisions caller PINs on stdin pipes where the reference passes
+them on argv, and asserts every provisioning stage's exact native
+success markers plus certificate file bounds where the reference
+stops at a card listing. No simulated PKCS#11 calls and no silent
+behavior changes exist.
+
+OpenSC: https://github.com/OpenSC/OpenSC.git
+release 0.27.1: 19868984dc4dc697af6a86d65ab32a1f19a43ea4
+rolling master snapshot 0.27.1-346-g804ad6d3:
+804ad6d35c6674b8c2822228bb8b4764a775f478
+Root COPYING: LGPL-2.1 (identical bytes in both channels);
+per-source headers carry the same LGPL-2.1-or-later grant. The
+build compiles the module (opensc-pkcs11.so) and its support
+library (libopensc) from the pinned archive with autotools
+defaults (--prefix=/usr/local --sysconfdir=/usr/local/etc
+--disable-tests --disable-doc --disable-man); the pkcs15 tools
+are PIV-inapplicable and left out of the runtime. The stock
+opensc.conf ships at the compiled path.
+
+PivApplet (frozen applet source, shared across both OpenSC
+channels): https://github.com/arekinath/PivApplet.git master
+at 5cb14a9e8d16e92fbad73dcad86a219a9210554f (11 commits after
+lightweight tag v0.9.0 at 671faa927784002fa978e9660b1777d3e9a31acc,
+2021-07-24..2022-08-22: VERIFY/PIN handling, simulator tests,
+management-key and metadata handling, UTCtime certificates; delta
+inspected). No root
+LICENSE file: every source carries the MPL-2.0 per-file header
+("This Source Code Form is subject to the terms of the Mozilla
+Public License, v. 2.0", copyright Alex Wilson). The 13 applet
+sources are preprocessed with the repo-bundled JPP jar at the
+build.xml defaults (RSA plus EC families, P-384 signer, AES plus
+3DES management key, non-strict contactless, attestation on,
+extended length on) through the frozen ant, then compiled with
+the frozen javac against the sealed jcardsim jar (sorted source
+order; the jar bundles the javacard classes, so no Oracle SDK is
+needed); the JPP jar hash is asserted in-image and a second
+compile must be byte-identical or the build fails. Only the
+compiled applet classes ship; the ant .cap packager (ext/ant is
+an empty submodule) is never used.
+
+yubico-piv-tool (frozen provisioning CLI plus libykpiv, shared
+across both OpenSC channels):
+https://github.com/Yubico/yubico-piv-tool.git tag
+yubico-piv-tool-2.7.3 at ed1cd7862d39a92502c0476f53dfcf93f195007a.
+COPYING is the BSD 2-clause text. Built with cmake Release plus
+make -j2; only the CLI and libykpiv ship. One P11Lab-authored
+patch applies (Apache-2.0, SPDX header in the patch):
+patches/0001-ykpiv-short-apdu-chunks.patch caps chained command
+blocks at 254 data bytes (Lc 0xfe) and chains while more than
+254 bytes remain (threshold 0xfe), so T=1 case-4S blocks (5
+header plus data plus 1 Le) never exceed the emulator's 260-byte
+short-APDU ceiling: a lone or final 255-byte block would
+otherwise still travel as 261 bytes. It is a host-transport
+compatibility fix (ISO 7816 chaining permits any block split),
+not a provisioning extension and not a PIV, PKCS#11 or
+simulation semantic change. The emulator keeps its exact native
+behavior, including SW 6F00 on 261-byte short APDUs, which stays
+a documented unqualified surface. A declared patch that fails to
+apply fails the build.
+
+jcardsim (frozen emulator binary, shared across both OpenSC
+channels): Maven Central
+https://repo1.maven.org/maven2/com/klinec/jcardsim/3.0.6.0/jcardsim-3.0.6.0.jar
+(1,202,576 bytes, pinned by SHA-256 with Central-published
+SHA-1/MD5 provenance recorded in the sealed maven.json; fetched
+once at build time with URL-identity plus size plus hash
+verification, no repository resolution). Source-building is
+infeasible from freezable public inputs: the frozen jcardsim pom
+(revision b1f9f00f8e6d180ff709b108a5c432df2b8e4e1f, tag 3.0.6.0
+peel, carried as a frozen git dependency for license evidence
+only and never compiled) installs oracle.javacard api_classic
+3.0.5 from ${env.JC_CLASSIC_HOME} (proprietary Oracle JavaCard
+SDK) and unpacks its classes into the jar. Jar composition,
+inspected: Apache-2.0 jcardsim sources (789 classes, VSmartCard
+present), shaded BouncyCastle bcprov-jdk14 1.71 (relocated under
+com/licel/jcardsim/bouncycastle; MIT-adaptation NOTICE text
+ships in-image from the frozen sources), shaded kryo 5.2.0
+(relocated; BSD-family per upstream, position requires review),
+123 bundled Oracle api_classic javacard classes (Oracle SDK
+license, requires review), plus three BouncyCastle i18n test
+properties carried as build detritus. No license files ship
+inside the jar itself.
+
+vsmartcard backend (shared pin across both OpenSC channels):
+https://github.com/frankmorgner/vsmartcard.git tag
+virtualsmartcard-0.11 at 82bc5ad066b26ee057d2af200c1a66e3a65a9743
+(GPL-3.0 root COPYING; the ifd-vpcd sources carry GPL-3.0-or-later
+headers). Only the ifd-vpcd C handler and its generated
+reader.conf entry ship; the vicc/vpcd-config tools, the Python
+bindings and the unrelated submodules are excluded.
+
+Daemon and JVM closure ships as exact extracted Debian package
+bytes, not rebuilt sources: 7 whole packages (pcscd,
+libpcsclite1 plus the proven link closure, plus the whole
+openjdk-21-jre-headless tree), audited with ldd receipts and a
+native removal proof. Whole-package /usr/share/doc copyright
+files ship inside the image, plus the JRE's own per-module
+legal/ texts. The JRE is OpenJDK 21.0.12.1, licensed GPL-2.0-only
+with the Classpath exception (plus BSD/MIT/LGPL third-party
+stanzas in its Debian copyright). liblcms2, libjpeg, libnss3,
+libnspr4, ca-certificates(-java), java-common and the openssl CLI
+are installed in the builder to satisfy dependencies but never
+extracted: the JVM/card stack was proven green without every one
+of them. libccid (USB driver bundles) and the polkitd/dbus
+daemons are likewise installed but never extracted: nothing
+links them, and no USB driver may be visible to pcscd. The
+p11-kit PKCS#11 build header has a permissive unrestricted-copy
+notice and the libpcsclite headers ship under their package
+copyright; both headers' notices are retained. libp11-kit itself
+is not linked.
+
+Observed closure license flags requiring review before any
+distribution: MPL-2.0 in the compiled PivApplet,
+BSD-2-Clause with a binary-redistribution notice obligation in
+the shipped yubico-piv-tool/libykpiv, GPL-3.0-or-later in the
+vpcd handler, Oracle-licensed javacard classes plus shaded
+BouncyCastle/kryo inside the pinned jar, GPL-2.0-only with
+Classpath exception in the shipped JRE, and LGPL terms in the
+glib stack. Provider LGPL licensing alone does not clear the
+image. Corresponding-source, notice and source-access
+obligations for the actual extracted set are incomplete; no
+source companion is delivered here. Build-only package presence
+in the lock does not mean its contents ship; the extraction
+manifest identifies runtime bytes exactly.
+
+POLICY: local candidate only. Actual-layer licensing, generated
+content, source companions, distributor source access and
+digest-bound delivery are incomplete. Distribution remains
+BLOCKED. Consumer, checker, proxy and datasets are separately
+assessed artifacts. No push, external cache export, tag, release
+or publication is authorized here.

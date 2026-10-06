@@ -1,0 +1,44 @@
+Freeze the vendored mbedTLS tree: never self-update at configure time.
+
+Upstream pico_keys_sdk_import.cmake probes pico-keys-sdk/mbedtls with
+git and, when the checkout differs from its expected ref (v3.6.6 with
+the default options), silently fetches from the network, deletes
+mbedtls/framework, and checks out that ref. That configure-time
+self-mutation makes the effective mbedTLS input differ from the
+declared submodule pin (3.6.2, commit 107ea89d) and requires
+build-time network access.
+
+P11Lab freezes the effective input directly (mbedTLS v3.6.6,
+0bebf8b8, plus its framework sub-tree) as hash-sealed vendored
+archives, so the self-update block must not run: with no .git
+metadata the tag probe fails, NEED_UPDATE would read ON, and cmake
+would attempt a network fetch (silently ignored) and delete the
+frozen framework directory. This patch forces NEED_UPDATE OFF with
+an explanatory status line. The built library sources are exactly
+the frozen v3.6.6 tree, i.e. what the reference network build
+produces after its silent upgrade. Build-freeze provisioning
+extension, not a semantic change: no compiled source, flag, or
+firmware behavior changes.
+
+P11Lab-authored for the opensc-pico provider recipe.
+SPDX-License-Identifier: Apache-2.0
+Applies to pico-keys-sdk at
+44ee0254165d6338e27e6739c19c648f83b5c6c9 (shared across both
+OpenSC channels).
+
+--- a/pico_keys_sdk_import.cmake
++++ b/pico_keys_sdk_import.cmake
+@@ -179,6 +179,13 @@
+         endif()
+ 
+     endif()
++
++    # P11Lab: frozen vendored sources are authoritative. Never probe,
++    # fetch, delete, or check out mbedTLS inputs at configure time; the
++    # pinned v3.6.6 tree (the ref this block would otherwise enforce) is
++    # used exactly as vendored.
++    message(STATUS "P11Lab: using frozen vendored mbedTLS, self-update disabled")
++    set(NEED_UPDATE OFF)
+ 
+     if(NEED_UPDATE)
+         message(STATUS "Updating mbedTLS source code...")

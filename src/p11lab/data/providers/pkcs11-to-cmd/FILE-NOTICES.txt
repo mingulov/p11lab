@@ -1,0 +1,63 @@
+P11Lab pkcs11-to-cmd file-signer notices
+
+Original P11Lab Dockerfile, entrypoint, readiness helper, signing-directory wrapper and acceptance tests:
+Apache-2.0, root LICENSE. No upstream provider patches. The readiness helper
+named provision.c only loads/checks the real native module; it has no token
+initialization, credential, login or PIN path.
+
+Provider: https://github.com/siemens/pkcs11-to-cmd.git
+Release v1.0.0 and frozen main both 8fddf3b4cec6bf5d4287f71f5c3c4a7cfc9c7aa3.
+Upstream release published 2026-03-18; the reference's no-release comment is stale.
+MIT, Copyright (c) 2025 Siemens. LICENSE and LICENSES/MIT.txt:
+SHA-256 b2b224e94699da4df4eb0cf3a1e5455854457532ef88fb642f034ca336e57264.
+REUSE.toml SHA-256 7bd2e8deb35391af46bebc38f02e4368e17d3c963aa4d29bfd291aef5eabc61e; its tests/** aggregate
+MIT grant also covers the signing script. The module source headers state MIT.
+The full MIT text and REUSE.toml remain in the runtime. The exact original
+source archive and individual license evidence are retained by source resolution.
+
+Migrated upstream signing command, used byte-for-byte, including its original
+DigestInfo unwrap and ASN.1-to-raw R|S logic:
+https://github.com/siemens/pkcs11-to-cmd/blob/8fddf3b4cec6bf5d4287f71f5c3c4a7cfc9c7aa3/tests/cmds/sign-cmd-pkeyutl.sh
+SHA-256 966f6fba1869f40f9249b5b6ab39bb98a33d9f6d8a97f9faddde8e31a43929eb.
+Installed as /usr/local/libexec/p11lab/pkcs11-to-cmd-sign; MIT (C) 2025 Siemens,
+author Eugen Kremer, preserved headers. Only executable mode/path change. The original Apache-2.0 sign-command.sh
+wrapper changes only its working directory to the managed private IO directory;
+it does not change provider return values or reimplement cryptographic conversions.
+The reference checker Dockerfile is research input, not copied recipe text.
+No upstream tests/data key, certificate or other test fixture ships in runtime.
+Keys are generated at runtime in caller-owned state; key files are 0600.
+
+Build: C++17, cmake Release, COVERAGE=OFF, cmake --build -j2.
+The coverage choice removes gcov test instrumentation/files, not native behavior.
+System OpenSSL/libcrypto 3.5.7-1~deb13u2 is dynamically linked;
+remaining libc/libstdc++/libgcc/libm closure belongs to the pinned Debian base.
+The ABI header used to compile provision.c comes from libp11-kit-dev
+0.25.5-3. Its exact header plus package copyright
+text are retained under /usr/share/licenses/pkcs11-to-cmd. Header grant is retained
+as written, not relicensed by P11Lab; p11-kit is build-only, not a linked runtime.
+
+Two runtime command binaries are copied from these hash-frozen Debian packages
+without installing their build dependencies or registering extra runtime packages:
+openssl 3.5.7-1~deb13u2; package SHA-256 4ff006f431d8c2e69fa736885a3b6e779f2448535f69dbde821d9f0ff87ad8ea
+xxd 2:9.1.1230-2; package SHA-256 d1ae72a9ae7c3f81a23299422f0f219b55d2a76eb88c78815584983d6b897324
+The OpenSSL package default openssl.cnf and its standard /usr/lib/ssl link also
+ship. Actual binary/config hashes and ldd are retained in runtime readbacks.
+OpenSSL package copyrights retain its Apache-2.0 grant; xxd's Vim package copyright
+retains its file-specific permissive xxd grant plus the other package notices.
+The entire exact package copyright texts are shipped; no blanket grant is inferred.
+The binaries need only the matching base's libcrypto/libssl/libc closure.
+No Python, checker, OpenSC/pkcs11-tool, compiler, tracing or dataset ships.
+
+Debian base: docker.io/library/debian@sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c.
+Signed snapshot 20260918T000000Z; exact base/builder package archives,
+source archive identities and signed index hashes are in each channel lock.
+The 78 registered base packages retain /usr/share/doc/*/copyright. Copyleft base
+packages (including shell/core utilities/libc/GCC runtime) retain their individual
+source/notices/relinking obligations. These notices or an SBOM do not satisfy
+required corresponding-source delivery. Two bundled tools are explicitly accounted
+for separately from dpkg's 78-package base inventory.
+
+POLICY: Local candidate only. Actual layer/content grant review, source-companion
+creation, digest-bound public source delivery and anonymous readback are incomplete.
+Distribution remains UNREVIEWED/BLOCKED; no publication is authorized. Checker,
+proxy and consumer derivatives have separate actual-content/source obligations.

@@ -1,0 +1,71 @@
+diff --git a/src/pkcs11/mod.rs b/src/pkcs11/mod.rs
+index d82433d..213b9ef 100644
+--- a/src/pkcs11/mod.rs
++++ b/src/pkcs11/mod.rs
+@@ -199,6 +199,11 @@ const CKA_EXTRACTABLE: CK_ULONG = 0x00000110;
+ const CKA_ALLOWED_MECHANISMS: CK_ULONG = 0x0000021A; // List of mechanisms allowed for this key
+ 
+ // PKCS#11 Object Classes
++// P11Lab: attribute scalars are CK_ULONG in native byte order; the
++// object class/key-type literals below were big-endian and unreadable
++// to little-endian consumers, so they are encoded with to_le_bytes.
++const CKO_PUBLIC_KEY: CK_ULONG = 0x00000002;
++const CKO_PRIVATE_KEY: CK_ULONG = 0x00000003;
+ // PKCS#11 Key Types
+ const CKK_EC: CK_ULONG = 0x00000003;
+ const CKK_EC_EDWARDS: CK_ULONG = 0x00000040; // Ed25519 / Ed448
+@@ -1041,13 +1046,13 @@ pub extern "C" fn C_FindObjects(
+                                         let mut priv_attrs = HashMap::new();
+                                         priv_attrs.insert(
+                                             CKA_CLASS,
+-                                            vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03],
++                                            CKO_PRIVATE_KEY.to_le_bytes().to_vec(),
+                                         ); // CKO_PRIVATE_KEY
+                                         priv_attrs
+                                             .insert(CKA_LABEL, key_label.clone().into_bytes());
+                                         priv_attrs.insert(
+                                             CKA_KEY_TYPE,
+-                                            vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03],
++                                            CKK_EC.to_le_bytes().to_vec(),
+                                         ); // CKK_EC
+                                         priv_attrs.insert(
+                                             CKA_SIGN,
+@@ -1086,12 +1091,12 @@ pub extern "C" fn C_FindObjects(
+                                         let mut pub_attrs = HashMap::new();
+                                         pub_attrs.insert(
+                                             CKA_CLASS,
+-                                            vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02],
++                                            CKO_PUBLIC_KEY.to_le_bytes().to_vec(),
+                                         ); // CKO_PUBLIC_KEY
+                                         pub_attrs.insert(CKA_LABEL, key_label.clone().into_bytes());
+                                         pub_attrs.insert(
+                                             CKA_KEY_TYPE,
+-                                            vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03],
++                                            CKK_EC.to_le_bytes().to_vec(),
+                                         ); // CKK_EC
+                                         pub_attrs.insert(
+                                             CKA_VERIFY,
+@@ -1486,10 +1491,7 @@ pub extern "C" fn C_GenerateKeyPair(
+ 
+             // Public key attributes
+             let mut pub_attrs = HashMap::new();
+-            pub_attrs.insert(
+-                CKA_CLASS,
+-                vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02],
+-            ); // CKO_PUBLIC_KEY as u64
++            pub_attrs.insert(CKA_CLASS, CKO_PUBLIC_KEY.to_le_bytes().to_vec()); // CKO_PUBLIC_KEY as u64
+             pub_attrs.insert(CKA_LABEL, key_label.clone().into_bytes());
+             let key_type_bytes = if algorithm == "ed25519" {
+                 (CKK_EC_EDWARDS as CK_ULONG).to_le_bytes().to_vec()
+@@ -1524,10 +1526,7 @@ pub extern "C" fn C_GenerateKeyPair(
+ 
+             // Private key attributes
+             let mut priv_attrs = HashMap::new();
+-            priv_attrs.insert(
+-                CKA_CLASS,
+-                vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03],
+-            ); // CKO_PRIVATE_KEY as u64
++            priv_attrs.insert(CKA_CLASS, CKO_PRIVATE_KEY.to_le_bytes().to_vec()); // CKO_PRIVATE_KEY as u64
+             priv_attrs.insert(CKA_LABEL, key_label.clone().into_bytes());
+             priv_attrs.insert(CKA_KEY_TYPE, key_type_bytes);
+             priv_attrs.insert(

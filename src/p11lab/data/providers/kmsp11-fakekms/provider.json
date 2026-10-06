@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "id": "kmsp11-fakekms",
+  "module_implementation": {
+    "name": "Google kmsp11"
+  },
+  "backend": {
+    "name": "explicitly fake local Cloud KMS backend",
+    "simulated": true
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libkmsp11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
+    }
+  },
+  "services": [
+    "fakekms"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    },
+    "release": {
+      "status": "locked",
+      "lock": "release.lock.json"
+    }
+  },
+  "application_profile": "kms-vendor-crypto",
+  "distribution": {
+    "status": "blocked",
+    "reason": "kms-integrations Apache-2.0 source plus linked BoringSSL (OpenSSL/ISC dual, MIT fiat), gRPC/Abseil/protobuf families and 86 Go modules are compiled into the shipped module/binaries without completed corresponding-source, notice or relinking delivery; whole-image licensing, toolchain reachability, generated layers and digest-bound source delivery remain incomplete. No publication authorized."
+  },
+  "constraints": [
+    "Linux amd64/glibc 2.41. Both channels build libkmsp11.so from source with Bazel 6.4.0 (-c opt --jobs 2 --copt=-Wno-error=discarded-qualifiers) from 35 sealed archives plus a pinned Go 1.22.0 SDK and 2 sealed Go zips for the host code generator, with downloads disabled; fakekms and the provisioning helper build with Go 1.27.1 from 86 sealed modules with GOPROXY=off. Four ordered P11Lab patches (SDK hash freeze, generated fault bindings, kms v1.25.0 floor, original helper); no prebuilt upstream bytes; the fake backend is explicit simulation.",
+    "Statically linked client: libkmsp11.so dynamically uses only Debian base libm/libc/libstdc++/libgcc (gcc 14.2); fakekms, the helper and the supervisor are static or libc/dl-only (CGO_ENABLED=0 Go, libc/dl C). No source-built system crypto, no openssl CLI, no Java/Maven, no compiler or Go toolchain in the runtime; ldd receipts identify actual usage.",
+    "Co-located supervised fakekms: one memory-only gRPC mock runs as a direct supervisor child for the operation/application lifetime. No permanent server/server-ready operation exists; the preferred proxy daemon uses the same supervised exec lifetime.",
+    "Ephemeral loopback topology: fakekms takes no arguments and prints an OS-ephemeral 127.0.0.1 port to stdout; the supervisor parses it strictly, then gates readiness on a real gRPC round-trip plus provisioning, never the printed address alone. Each independent shard/client owns its volume, container, PID namespace and network namespace; no host/shared networking.",
+    "Per-launch provisioning: every init/health/exec starts a fresh fakekms (zero keyrings) and provisions keyring projects/p/locations/global/keyRings/p11lab plus six SOFTWARE keys (RSA PKCS#1/PSS sign, EC P-256/P-384 sign, RSA OAEP decrypt, HMAC-SHA256), waiting for ENABLED versions. Provisioning recreates every key per launch, but upstream fakekms semantics are mixed: RSA keys are fixed pregenerated test vectors (rsaKeyFactory loads embedded testdata/rsa_*_private.pem, so the modulus repeats across launches), while EC and HMAC keys draw fresh crypto/rand material per launch (observed). All fake behavior, never real-KMS claims. No baked keys, credentials or initialized state ship.",
+    "P11LAB_LABEL defaults to P11Lab, 1..32 ASCII letters/digits/spaces/dot/underscore/hyphen. The label names the single token (slot 0, token-present index 0) via the generated 0600 libkmsp11 config; native flags are exactly 0x400409 and the mechanism roster is exactly 46 entries (24 zeros: 23 from an upstream vector-size mistake plus genuine CKM_RSA_PKCS_KEY_PAIR_GEN).",
+    "Caller PIN input is accepted for contract compatibility but ignored natively: C_Login(CKU_USER) succeeds with any value, even empty (empty is still refused at the adapter as malformed, matching the shared credential contract). No PIN ever reaches the supervisor; readiness never logs in.",
+    "No security-officer input exists: the token presents SO as PIN-locked and native C_Login(CKU_SO) is CKR_PIN_LOCKED (0xA4); C_InitToken/C_InitPIN/C_SetPIN/C_CreateObject are CKR_FUNCTION_NOT_SUPPORTED (0x54). P11LAB_SO_PIN/P11LAB_SO_PIN_FILE inputs are refused when set. C_GenerateKeyPair without the CKA_KMS_ALGORITHM vendor template fails: an empty template is CKR_TEMPLATE_INCOMPLETE (0xD0) and public-key attributes are CKR_TEMPLATE_INCONSISTENT (0xD1); general-token is falsified.",
+    "Vendor key generation works: C_GenerateKeyPair with CKA_LABEL plus CKA_KMS_ALGORITHM (and optional CKA_KMS_PROTECTION_LEVEL) creates a real key against the mock, and C_DestroyObject removes it. Duplicate labels fail natively (0x07). No retry, error translation or semantic patch is added.",
+    "Existing init validates static state and native readiness and ignores changed credential inputs. Static exact-byte marker checks, .init-lock, an exclusive volume lease, private control lock, ownership/mode/link/roster checks run before any native process. Missing, partial, foreign, incompatible and occupied state is refused. No reset, reprovisioning or state-changing retry is implicit.",
+    "init/health/exec use the P11Lab C supervisor: direct fakekms child, real readiness gating (owned PID, strict loopback port parse, TCP accept, bounded gRPC provisioning round-trip, native slot/label/flags/mechanism/object check), bounded startup and 64-KiB log sink, required-service death monitoring, signal forwarding, TERM/KILL escalation and subreaper/adopted-child cleanup.",
+    "Key material never survives restart (memory-only backend); the completion marker and label binding persist and re-validate. Reset is explicit caller removal/replacement of disposable state after all operations stop. Crash/power-loss recovery is unqualified.",
+    "Basic runtime contains no checker, Python, datasets, tracing, compiler, Bazel, Go toolchain, OpenSC/pkcs11-tool or upstream release binaries. Consumer/checker/proxy derivatives are separate test artifacts with independent identity and admission. A shared network never makes the native module remotely loadable.",
+    "kms-vendor-crypto means exactly the proven narrow observation: six pre-provisioned keys, vendor-template key generation, RSA PKCS#1/PSS and ECDSA P-256/P-384 signing, RSA-OAEP decrypt, HMAC-SHA256 and random generation, each with independent oracles, plus restart/isolation evidence. Wider mechanisms, key types, session objects, concurrent clients, other architectures/libcs and real Cloud KMS behavior are unqualified.",
+    "Distribution is blocked independently of crypto or lifecycle outcomes. Linked BoringSSL dual/MIT-fiat code, gRPC/Abseil/protobuf families and 86 Go modules have no completed corresponding-source, notice or relinking delivery; opencensus-proto carries no in-archive license text; base-package source obligations, toolchain reachability and actual-layer review remain pending."
+  ]
+}

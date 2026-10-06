@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "id": "bouncyhsm",
+  "module_implementation": {
+    "name": "BouncyHSM native client"
+  },
+  "backend": {
+    "name": "BouncyHSM managed server",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64",
+    "windows/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64",
+    "windows/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libBouncyHsm.Pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_PIN": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
+    }
+  },
+  "services": [
+    "bouncyhsm-server"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    },
+    "release": {
+      "status": "locked",
+      "lock": "release.lock.json"
+    }
+  },
+  "application_profile": "general-token",
+  "native_targets": {
+    "debian13-amd64": {
+      "status": "not-packaged",
+      "platform": "linux/amd64",
+      "module_path": "lib/libBouncyHsm.Pkcs11.so",
+      "reason": "served by the BouncyHSM native contract in p11lab.native (load_bouncyhsm_target reads release.debian13-amd64.lock.json), not the catalogue SoftHSM native path",
+      "channels": {
+        "release": {
+          "status": "not-packaged",
+          "reason": "see target reason"
+        },
+        "rolling": {
+          "status": "not-packaged",
+          "reason": "see target reason"
+        }
+      }
+    },
+    "windows-amd64": {
+      "status": "not-packaged",
+      "platform": "windows/amd64",
+      "module_path": "bin/BouncyHsm.Pkcs11Lib.dll",
+      "reason": "served by the BouncyHSM native contract in p11lab.native (load_bouncyhsm_target reads release.windows-amd64.lock.json), not the catalogue SoftHSM native path",
+      "channels": {
+        "release": {
+          "status": "not-packaged",
+          "reason": "see target reason"
+        },
+        "rolling": {
+          "status": "not-packaged",
+          "reason": "see target reason"
+        }
+      }
+    }
+  },
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Local Linux + native Windows candidate. Linux lanes and Windows CI evidence retained; whole-image licensing, source delivery admission and digest-bound source companion remain incomplete. No publication authorized."
+  },
+  "constraints": [
+    "Linux amd64 container: source-built server (net10.0, ASP.NET Core runtime 10.0.12, libicu) plus source-built client module; fixed container-loopback HTTP 127.0.0.1:8080 and native TCP 127.0.0.1:8765.",
+    "One token per state directory: initialization provisions exactly one labeled slot via the management API and refuses foreign, ambiguous, or partial state without reset.",
+    "PIN_FILE/SO_PIN_FILE are preferred; scalar alternatives are explicit disposable-test inputs. Conflicting scalar/file or absent/empty credentials fail initial provisioning.",
+    "Every phase starts its own owned server, requires HTTP health plus a native PKCS#11 probe plus the provisioned slot, and stops the server; exec leaves the server as a child of the application so container teardown ends both.",
+    "Compatible initialization preserves the existing token and needs no credentials again. Marker, database, and slot/label identity must all agree.",
+    "Ordinary application consumers do not require checker, Python, tracing, or a workspace mount. Reset is an explicit removal/replacement of disposable state; no automatic reset or retry.",
+    "Native bundles (debian13-amd64 export, windows-amd64 archive or source build) install via the N1 bundle machinery with explicit host/ABI preflight; the host supplies .NET 10 with ASP.NET Core 10.0.12 or later, plus the x64 VC runtime on Windows.",
+    "Native runs supervise one owned server on per-instance loopback HTTP/TCP ports, provision one labeled slot per state directory, and never attach to occupied ports or foreign state.",
+    "Whole-image licensing, source companion delivery, and digest-bound admission remain separate requirements."
+  ]
+}

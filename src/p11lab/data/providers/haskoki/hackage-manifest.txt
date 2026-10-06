@@ -1,0 +1,14 @@
+# Pinned Hackage closure for `cabal build flib:haskoki exe:haskoki-ctl`.
+# Resolution is pinned by the frozen index-state in cabal.project.freeze
+# (hackage.haskell.org 2026-09-20T08:53:27Z); every other dependency resolves
+# to GHC 9.10.3 boot libraries from the pinned bindist above. The only two
+# fetched sdists are sealed below: the Dockerfile asserts the observed fetch
+# set is exactly these two hashes. Hashes verified by two independent fetches
+# (builder cache and direct download agree to the byte).
+HACKAGE_INDEX_STATE=2026-09-20T08:53:27Z
+DIRECT_SQLITE_URL=https://hackage.haskell.org/package/direct-sqlite-2.3.29/direct-sqlite-2.3.29.tar.gz
+DIRECT_SQLITE_SHA256=5f2ace38a7a926363fe72b1ad882764d68333bba88709c0f8f036d26c9b4d0af
+DIRECT_SQLITE_SIZE=2533369
+HSC2HS_URL=https://hackage.haskell.org/package/hsc2hs-0.68.10/hsc2hs-0.68.10.tar.gz
+HSC2HS_SHA256=6f4e34d788fe2ca7091ee0a10307ee8a7c060a1ba890f2bffad16a7d4d5cef76
+HSC2HS_SIZE=40517

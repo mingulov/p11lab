@@ -1,7 +1,27 @@
 # P11Lab
 
 Reusable PKCS#11 provider environments for application development and testing.
-The project is currently defining its initial image and integration contracts.
+
+P11Lab ships a catalogue of 24 locked provider candidates with pinned
+sources, build recipes, and lifecycle adapters, plus the `p11lab` command
+for local use: `list`, `describe`, `validate`, `resolve`, `build`,
+`install`, `run` (`direct`, `proxy`, and `native` modes), and source-first
+delivery gates (`publish`). Providers run containerized runtimes, native
+bundles (Debian 13 amd64, Windows x64 for BouncyHSM), and pinned-mTLS
+proxy lanes; the installed checker and independent consumers exercise the
+same artifacts. Fifteen providers carry full cohort documentation in
+[docs/developer-release-cohort.md](docs/developer-release-cohort.md); the
+rest are described by their catalogue entries. Nothing here is published
+yet: no registry images, tags, releases, or cache exports exist, and every
+candidate's distribution stays blocked or unreviewed pending admission.
+
+Start with the [provider application execution](docs/runtime-contract.md)
+contract, then the [native](docs/native.md), [proxy](docs/proxy.md),
+[Windows](docs/windows.md), [delivery](docs/delivery.md),
+[licensing](docs/licensing.md), and
+[adding providers](docs/adding-providers.md) guides. `examples/` holds
+runnable consumers, including the optional p11-kit and p11scope
+demonstrations.
 
 ## License
 

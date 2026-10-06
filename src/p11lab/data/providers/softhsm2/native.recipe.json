@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "export": {
+    "lib/libsofthsm2.so": "usr/local/lib/p11lab/libsofthsm2.so",
+    "bin/softhsm2-util": "usr/local/bin/softhsm2-util",
+    "share/licenses/softhsm2/LICENSE": "usr/share/licenses/softhsm2/LICENSE"
+  },
+  "layout": "N1 payload prefix",
+  "runtime": "declared system dependencies only; no relinking or stripping"
+}

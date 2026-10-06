@@ -1,0 +1,51 @@
+diff --git a/ks_token.c b/ks_token.c
+index e68056d..ae29e84 100644
+--- a/ks_token.c
++++ b/ks_token.c
+@@ -299,6 +299,34 @@ static hal_error_t ks_token_logout(hal_ks_t *ks,
+ 
+ static hal_error_t fetch_pin_block(unsigned *b, hal_ks_block_t **block);
+ 
++#ifndef HAL_PIN_DEFAULT_ITERATIONS
++#define HAL_PIN_DEFAULT_ITERATIONS 2000
++#endif
++
++/*
++ * pkcs11-check seed-pin helper: seed the SO and user PINs to a known
++ * plaintext ("fnord") at fresh-token init, so unattended C_Login works
++ * (pkcs11-check runs each test file in its own subprocess, which cannot
++ * log into a token whose PINs are zeroed).  Mirrors the way craton-hsm
++ * auto-provisions its token from config.  A fixed all-zero salt is used
++ * for reproducibility -- the salt is not a secret, the PIN is the
++ * secret -- so the same PBKDF2 digest is baked into the image and
++ * recomputed at every C_Initialize.  Test deployments only.
++ */
++static hal_error_t seed_pin_from_plaintext(hal_ks_pin_t *p,
++                                           const uint8_t *pin, const size_t pin_len)
++{
++  static const uint8_t seed_salt[HAL_PIN_SALT_LENGTH] = {0};
++  memset(p, 0, sizeof(*p));
++  p->iterations = HAL_PIN_DEFAULT_ITERATIONS;
++  memcpy(p->salt, seed_salt, sizeof(p->salt));
++  return hal_pbkdf2(NULL, hal_hash_sha256,
++                    pin, pin_len,
++                    p->salt, sizeof(p->salt),
++                    p->pin,  sizeof(p->pin),
++                    p->iterations);
++}
++
+ /*
+  * Initialize keystore.
+  */
+@@ -322,8 +350,9 @@ static hal_error_t ks_token_init(hal_ks_t *ks, const int alloc)
+    */
+ 
+   memset(&db->wheel_pin, 0, sizeof(db->wheel_pin));
+-  memset(&db->so_pin,    0, sizeof(db->so_pin));
+-  memset(&db->user_pin,  0, sizeof(db->user_pin));
++  if ((err = seed_pin_from_plaintext(&db->so_pin,   (const uint8_t *) "fnord", 5)) != HAL_OK ||
++      (err = seed_pin_from_plaintext(&db->user_pin, (const uint8_t *) "fnord", 5)) != HAL_OK)
++    return err;
+ 
+   err = fetch_pin_block(NULL, &block);
+ 

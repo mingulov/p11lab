@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "id": "softhsm2",
+  "module_implementation": {
+    "name": "SoftHSMv2"
+  },
+  "backend": {
+    "name": "native software token",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libsofthsm2.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_PIN": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
+    }
+  },
+  "services": [],
+  "channels": {
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    },
+    "release": {
+      "status": "locked",
+      "lock": "release.lock.json"
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Local reference candidate. Direct, proxy, native and checker lanes qualified; installed-inventory re-admission pending under the current gate; anonymous digest-bound source delivery and publication remain incomplete. No publication authorized."
+  },
+  "constraints": [
+    "Linux amd64, glibc 2.41; exact module closure supplied locally. Native slot IDs are assigned by SoftHSM; a consumer slot index is a different value.",
+    "Initialize only an empty writable /var/lib/p11lab volume; tokens are private to the named softhsm2 directory. Compatible init is non-destructive; partial or incompatible state fails.",
+    "PIN_FILE/SO_PIN_FILE are preferred; scalar alternatives are explicit disposable-test inputs. Conflicting scalar/file or absent/empty credentials fail initial provisioning.",
+    "Runtime controls/config are recreated under writable /run/p11lab by every exec invocation. The adapter preserves argv and native/application exit status.",
+    "Ordinary application consumers do not require checker, Python, tracing or a workspace mount. Reset is an explicit removal/replacement of disposable state; no automatic reset or retry.",
+    "Whole-image licensing, source companion delivery and digest-bound admission remain separate requirements."
+  ],
+  "native_targets": {
+    "debian13-amd64": {
+      "status": "packaged",
+      "platform": "linux/amd64",
+      "module_path": "lib/libsofthsm2.so",
+      "host_requirements": {
+        "os": "debian",
+        "major_version": "13",
+        "architecture": "x86_64",
+        "platform": "linux/amd64",
+        "loader": "/lib64/ld-linux-x86-64.so.2",
+        "packages": [
+          "libc6",
+          "libstdc++6",
+          "libgcc-s1",
+          "libssl3t64",
+          "zlib1g",
+          "libzstd1",
+          "dash",
+          "coreutils",
+          "findutils",
+          "mawk"
+        ],
+        "symbol_floors": {
+          "GLIBC": "2.38",
+          "GLIBCXX": "3.4.32"
+        }
+      },
+      "channels": {
+        "release": {
+          "status": "locked",
+          "lock": "release.debian13-amd64.lock.json"
+        },
+        "rolling": {
+          "status": "locked",
+          "lock": "rolling.debian13-amd64.lock.json"
+        }
+      }
+    },
+    "windows-amd64": {
+      "status": "not-packaged",
+      "reason": "SoftHSM Windows delivery is outside the Debian 13 amd64 native target."
+    }
+  }
+}

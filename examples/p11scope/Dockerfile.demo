@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# Demo vessel for the p11scope privileged lane: a plain Debian OS with a
+# Debian SoftHSM provider to observe, an OpenSC client as the workload,
+# OpenSSL, Python for evidence extraction, and the fixed non-root account
+# the observer drops its child to. Built locally by run.sh, never pushed;
+# it is not a provider runtime and carries no token state.
+FROM debian:13.6-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    softhsm2 opensc openssl python3 \
+  && rm -rf /var/lib/apt/lists/* \
+  && useradd -m -u 10001 obs-child

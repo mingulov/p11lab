@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "id": "kryoptic",
+  "module_implementation": {
+    "name": "Kryoptic"
+  },
+  "backend": {
+    "name": "Rust/OpenSSL software token",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libkryoptic_pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
+    }
+  },
+  "services": [],
+  "channels": {
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    },
+    "release": {
+      "status": "locked",
+      "lock": "release.lock.json"
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Local non-FIPS candidate. Whole-image licensing, Rust runtime/source reachability, generated layers and digest-bound source delivery have not completed distribution admission."
+  },
+  "constraints": [
+    "Linux amd64/glibc 2.41; default Kryoptic features plus pqc. No FIPS build, certification or validation claim; FIPS needs a separately reviewed Fedora/static-source story.",
+    "Dynamic OpenSSL is selected through /opt/openssl/lib/pkgconfig, pinned to verified OpenSSL 4.0.2 commit f089acdf4bc7ba94a79f4bf6eb7362c3e7d14aa9. The module needs libcrypto.so.4, which is shipped; unneeded libssl.so.4 is excluded. Debian base libssl3t64 remains separately installed; ldd receipts identify usage.",
+    "Bind writable /var/lib/p11lab; init creates private kryoptic/kryoptic.conf, token.sqlite and complete. Configuration selects [[slots]], slot=1, dbtype=\"sqlite\", dbargs=\"/var/lib/p11lab/kryoptic/token.sqlite\". Native slot 1 is token-present index 0.",
+    "P11LAB_LABEL defaults to P11Lab, uses 1..32 ASCII letters/digits/spaces/dot/underscore/hyphen. PIN_FILE and SO_PIN_FILE are required on first init; no baked credentials. Common single-line/4096-byte secret checks run before state creation. Credentials reach provision.c over anonymous pipes, never argv, logs or markers.",
+    "Compatible repeated init ignores changed PIN files and preserves state. .init-lock, unknown/hidden files, links, missing token/config/marker and byte-different non-secret configuration are refused before a module open; never silently reset or retry.",
+    "Readiness initializes/finalizes the real local module and checks initialized-token and user-PIN flags plus label. exec preserves -- separated argv and exit status. No server/server-ready operation: this provider is a local library with no supervised process.",
+    "Serialize clients/writers to each SQLite database, including init/readiness/exec preflight; use independent state for shards and clients. Clean application C_Finalize/close and process shutdown preserve state. Reset is explicit caller removal/replacement of disposable state.",
+    "No checker, Python, tracing, datasets, OpenSC/pkcs11-tool, compiler or Rust tools in the basic runtime. Optional checker/consumer/proxy derivatives are separate artifacts. Remote use requires the compatible pinned proxy client/daemon and their documented isolation limits.",
+    "Exact provider/crate/OpenSSL sources and license texts must accompany distribution as applicable; base-package source obligations, Rust standard-library and actual-layer review remain pending. No publication authorized."
+  ],
+  "runtime_env": [
+    {
+      "name": "KRYOPTIC_CONF",
+      "value": "/var/lib/p11lab/kryoptic/kryoptic.conf"
+    }
+  ]
+}

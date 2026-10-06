@@ -1,0 +1,252 @@
+# SPDX-License-Identifier: Apache-2.0
+# Windows clean-consumer proof (PENDING-CI: this host cannot run Windows).
+# Dispatch-only. The consumer lanes run against a published native handoff
+# by immutable digest with no provider checkout or development mounts:
+# arbitrary caller application with real crypto plus an OpenSSL oracle,
+# the optional checker at its pinned revision, and a deliberate wrong-PIN
+# failure proving failure preservation. All lanes run through the reusable
+# action (`uses: ./`, self-pinning to this rev), so the workflow checks out
+# this repository at its pinned revision only to load the action definition.
+# Runnable once a windows-amd64 handoff is published; see delivery docs.
+name: clean-consumer-windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Catalogue environment ID.'
+        required: true
+        default: 'bouncyhsm'
+      channel:
+        description: 'Locked channel: release or rolling.'
+        required: true
+        default: 'release'
+      registry:
+        description: 'Registry package holding the handoff.'
+        required: true
+        default: 'ghcr.io/mingulov/p11lab'
+      handoff-digest:
+        description: 'Immutable handoff digest (sha256:<hex>).'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clean-consumer-windows-${{ inputs.environment }}-${{ inputs.channel }}
+  cancel-in-progress: true
+
+jobs:
+  consume:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.10'
+
+      - name: Set up .NET runtime
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          # Exact SDK matching the bouncyhsm lock toolchain; the bundled
+          # runtime serves the consumer deterministically.
+          dotnet-version: '10.0.401'
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          arch: x64
+
+      - name: Record host tool versions
+        run: |
+          $ErrorActionPreference = "Stop"
+          python --version
+          dotnet --list-runtimes
+          cl 2>&1 | Select-Object -First 2
+          openssl version
+          if ($LASTEXITCODE) { throw "openssl is required on PATH" }
+          vswhere -latest -property displayName
+          "VCToolsVersion=$env:VCToolsVersion"
+          "ImageVersion=$env:ImageVersion"
+
+      - name: Install P11Lab and build consumer tools
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m pip install .
+          if ($LASTEXITCODE) { throw "p11lab install failed" }
+          New-Item -ItemType Directory -Force tools | Out-Null
+          $consumer = "src/p11lab/data/consumer"
+          cl /std:clatest /O2 /W4 /WX "$consumer/smoke.c" "$consumer/p256.c" /Fo:tools\ /link /OUT:tools/p11lab-smoke.exe
+          if ($LASTEXITCODE) { throw "consumer build failed" }
+          Get-FileHash tools/p11lab-smoke.exe -Algorithm SHA256
+          Copy-Item "$consumer/verify.py" tools/verify.py
+          @'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          here = Path(__file__).resolve().parent
+          module = os.environ["P11LAB_MODULE"]
+          output = Path(os.environ["P11LAB_OUTPUT_DIR"]) / "crypto"
+          pin_file = os.environ.get("P11LAB_PIN_FILE", "")
+          argv = [str(here / "tools" / "p11lab-smoke.exe"), "--module", module,
+                 "--token-label", "P11Lab", "--output", str(output),
+                 "--key-mode", "generated"]
+          if pin_file:
+              argv += ["--pin-file", pin_file]
+          sys.exit(subprocess.run(argv).returncode)
+          '@ | Set-Content -Path consumer-smoke.py -Encoding utf8
+
+      - name: Write private PIN files
+        run: |
+          $ErrorActionPreference = "Stop"
+          Set-Content pin -Value "1234" -NoNewline -Encoding Ascii
+          Set-Content so-pin -Value "12345678" -NoNewline -Encoding Ascii
+          Set-Content wrong-pin -Value "9999" -NoNewline -Encoding Ascii
+          New-Item -ItemType Directory -Force persist-state | Out-Null
+
+      - name: Run the caller application through the action
+        id: app
+        uses: ./
+        with:
+          environment: ${{ inputs.environment }}
+          channel: ${{ inputs.channel }}
+          mode: native
+          registry: ${{ inputs.registry }}
+          handoff-digest: ${{ inputs.handoff-digest }}
+          command: '["python", "consumer-smoke.py"]'
+          inputs: |
+            P11LAB_PIN_FILE=${{ github.workspace }}\pin
+            P11LAB_SO_PIN_FILE=${{ github.workspace }}\so-pin
+          timeout: '1200'
+          working-directory: '.'
+
+      - name: Verify the application crypto with the OpenSSL oracle
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ("${{ steps.app.outputs['exit-code'] }}" -ne "0") { throw "application lane failed" }
+          $receipt = "${{ steps.app.outputs['receipt-path'] }}"
+          if (-not (Test-Path $receipt)) { throw "receipt is missing: $receipt" }
+          python tools/verify.py (Join-Path (Split-Path $receipt) "crypto")
+          if ($LASTEXITCODE) { throw "oracle verification failed" }
+
+      - name: Install checker at pin
+        run: |
+          $ErrorActionPreference = "Stop"
+          git init checker-src
+          if ($LASTEXITCODE) { throw "checker-src init failed" }
+          git -C checker-src config core.autocrlf false
+          if ($LASTEXITCODE) { throw "checker autocrlf config failed" }
+          git -C checker-src fetch --depth 1 https://github.com/mingulov/pkcs11-check.git de4db3d2ee738a9f99d0654e4baf568cdbd4774a
+          if ($LASTEXITCODE) { throw "checker fetch failed" }
+          git -C checker-src checkout FETCH_HEAD
+          if ($LASTEXITCODE) { throw "checker checkout failed" }
+          $chead = (git -C checker-src rev-parse HEAD).Trim()
+          if ($chead -ne "de4db3d2ee738a9f99d0654e4baf568cdbd4774a") { throw "checker HEAD mismatch: $chead" }
+          python -m pip install ./checker-src
+          if ($LASTEXITCODE) { throw "checker install failed" }
+          python -c "import importlib.metadata; v = importlib.metadata.version('pkcs11-check'); assert v == '0.2.2', v; print('pkcs11-check', v)"
+          python -m pip freeze | Sort-Object | Tee-Object -FilePath checker-pip-freeze.txt
+          Get-Content checker-pip-freeze.txt
+          @'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          import pkcs11_check.testcases as tests
+          from pkcs11_check.core.loader import load_module
+          from pkcs11_check.raw.rv import expect_rv
+          from pkcs11_check.raw.types_std import CKR_OK
+          from p11lab.checker import checker_environment, load_profile
+          from p11lab.secrets import credential_text
+          module = Path(os.environ["P11LAB_MODULE"])
+          output = Path(os.environ["P11LAB_OUTPUT_DIR"]) / "checker"
+          output.mkdir(parents=True, exist_ok=True)
+          p11 = load_module(module, interface="auto")
+          slots = p11.get_slots(token_present=True)
+          selected = [(i, s.slot_id) for i, s in enumerate(slots) if s.get_token().label == "P11Lab"]
+          if len(selected) != 1:
+              raise SystemExit("token identity must select exactly one token-present slot")
+          slot, native_id = selected[0]
+          expect_rv(p11.raw.C_Finalize(None), CKR_OK)
+          print(f"checker slot: index={slot} native={native_id}")
+          pin = credential_text(Path(os.environ["P11LAB_PIN_FILE"]).read_bytes(), file=True)
+          so_pin = credential_text(Path(os.environ["P11LAB_SO_PIN_FILE"]).read_bytes(), file=True)
+          installed_root = Path(tests.__file__).resolve().parent
+          nodes = load_profile()["nodes"]
+          targets = [str(installed_root / node) for node in nodes]
+          argv = [sys.executable, "-m", "pkcs11_check", "test", "--module", str(module), "--slot", str(slot),
+                 "--interface", "auto", "--isolation", "file", "--timeout", "180", "--ignore-disabled-tests",
+                 "--no-collection-cache", "--key-inject", "off", "--recover-mode", "off", "--output", "json",
+                 "--output-file", str(output / "results.json"), "--state-file", str(output / "state.json"),
+                 "--policy-file", str(output / "policy.json"), *targets]
+          env = checker_environment(output, pin, so_pin)
+          proc = subprocess.run(argv, cwd=output, env=env)
+          print(f"checker returncode: {proc.returncode}")
+          sys.exit(proc.returncode)
+          '@ | Set-Content -Path checker-driver.py -Encoding utf8
+
+      - name: Run the optional checker through the action
+        uses: ./
+        with:
+          environment: ${{ inputs.environment }}
+          channel: ${{ inputs.channel }}
+          mode: native
+          registry: ${{ inputs.registry }}
+          handoff-digest: ${{ inputs.handoff-digest }}
+          command: '["python", "checker-driver.py"]'
+          inputs: |
+            P11LAB_PIN_FILE=${{ github.workspace }}\pin
+            P11LAB_SO_PIN_FILE=${{ github.workspace }}\so-pin
+          timeout: '1500'
+          working-directory: '.'
+
+      - name: Provision persistent state with the correct PIN
+        uses: ./
+        with:
+          environment: ${{ inputs.environment }}
+          channel: ${{ inputs.channel }}
+          mode: native
+          registry: ${{ inputs.registry }}
+          handoff-digest: ${{ inputs.handoff-digest }}
+          command: '["python", "consumer-smoke.py"]'
+          inputs: |
+            P11LAB_PIN_FILE=${{ github.workspace }}\pin
+            P11LAB_SO_PIN_FILE=${{ github.workspace }}\so-pin
+          state-dir: ${{ github.workspace }}\persist-state
+          timeout: '1200'
+          working-directory: '.'
+
+      - name: Prove failure preservation with a wrong PIN
+        id: negative
+        continue-on-error: true
+        uses: ./
+        with:
+          environment: ${{ inputs.environment }}
+          channel: ${{ inputs.channel }}
+          mode: native
+          registry: ${{ inputs.registry }}
+          handoff-digest: ${{ inputs.handoff-digest }}
+          command: '["python", "consumer-smoke.py"]'
+          inputs: |
+            P11LAB_PIN_FILE=${{ github.workspace }}\wrong-pin
+            P11LAB_SO_PIN_FILE=${{ github.workspace }}\so-pin
+          state-dir: ${{ github.workspace }}\persist-state
+          timeout: '1200'
+          working-directory: '.'
+
+      - name: Assert the failure was preserved with evidence
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ("${{ steps.negative.outputs['exit-code'] }}" -eq "0") { throw "wrong-PIN run unexpectedly succeeded" }
+          if ("${{ steps.negative.outcome }}" -ne "failure") { throw "wrong-PIN step outcome was not failure" }
+          $receipt = "${{ steps.negative.outputs['receipt-path'] }}"
+          if (-not (Test-Path $receipt)) { throw "failure receipt is missing: $receipt" }
+          "failure preserved: exit=${{ steps.negative.outputs['exit-code'] }} receipt=$receipt"

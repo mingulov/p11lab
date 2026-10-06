@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+# Demo vessel for the p11-kit example: a plain Debian OS with the p11-kit
+# server/client utilities, an OpenSC compatible client, OpenSSL as the
+# independent oracle, and Python for the P11Lab installer entry point.
+# This image is built locally by run.sh and never pushed; it is not a
+# provider runtime and carries no token state.
+FROM debian:13.6-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    p11-kit opensc openssl python3 \
+  && rm -rf /var/lib/apt/lists/*

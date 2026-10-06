@@ -1,0 +1,68 @@
+P11Lab wolfPKCS11 software-token candidate - file notices
+
+Original P11Lab Dockerfile, lifecycle adapter, provision.c and acceptance tests:
+Apache-2.0, root LICENSE. No reference Dockerfile text, provisioning helper,
+upstream patches, checker tooling, credentials or initialized state is migrated.
+The reference configure argument set is reproduced as factual build inputs.
+
+wolfPKCS11: https://github.com/wolfSSL/wolfPKCS11.git
+release v2.1.0-stable: caeaaa5693ad7b4253d6bc585e642381033a6a87
+rolling frozen master: 15691bd6accf45cad54b44eb07839e08c11b50fc
+LICENSE grants GPLv3 or a separate commercial license; gpl-3.0.txt retains the
+GNU GPL version 3 text. Source/header notices specify GPL version 3 or later.
+P11Lab selects the GPLv3 grant; it holds no wolfSSL commercial license.
+The module is upstream, unpatched. The build uses the exact upstream
+wolfpkcs11/pkcs11.h (GPLv3-or-later), not an Apache-relicensed header. Original
+provision.c stays Apache-2.0; its combined executable with this header and
+loaded provider is treated under GPLv3 for artifact/source obligations.
+
+wolfSSL: https://github.com/wolfSSL/wolfssl.git
+release v5.9.2-stable: ac01707f552c611fbd135cc723b2682b3e7f80f2
+rolling frozen master: 2411aae3f74d0fc6ccb09d3d6dfdc69e7b32c632
+COPYING retains GNU GPL version 3. LICENSING grants GPLv3 with a listed-software
+GPLv2 alternative, or separate commercial terms. P11Lab selects GPLv3 and does
+not rely on the listed-software GPLv2 exception or a commercial license.
+Source/header/architecture assembly notices specify GPL version 3 or later.
+Each channel builds and ships its own dynamically linked libwolfssl.so closure
+under /opt/wolfssl/lib; ldd records the actual SONAME and dependency selection.
+No wolfSSL examples, test programs, private keys, certificates, development
+headers, static libraries, build tools or datasets are shipped as runtime tools.
+Compiled crypto is not blanket-relicensed under the P11Lab root license.
+
+Bundled-code notice review (not an exhaustive linked-code rights conclusion):
+- wolfcrypt/src/integer.c: based on public-domain LibTomMath 0.38, Tom St Denis.
+- wolfcrypt/src/tfm.c and asm.c: based on public-domain TomsFastMath 0.10,
+  Tom St Denis. Default SP math replaces these math implementations where
+  selected; the retained notices are conservative, not a reachability claim.
+- wolfcrypt/src/chacha.c: public-domain chacha-ref.c 20080118, D. J. Bernstein.
+- wolfcrypt/src/poly1305.c: public-domain implementations by Andrew Moon and
+  Daniel J. Bernstein.
+- Architecture-specific .S/.asm sources retain wolfSSL GPL notices; architecture
+  and compile selection are recorded in wolfssl-options.h and config logs.
+- Both acquired trees contain example/test and certificate/key bundles. These
+  remain in the retained source archives, with their upstream provenance and
+  individual terms. They are excluded from the runtime payload; source-bundle
+  distribution of every included byte still requires review.
+Full repository license texts and conservative pre-include source comment
+notices are retained under /usr/share/licenses/wolfpkcs11 and wolfssl. Exact
+per-repository archive and license-evidence hashes are in both channel locks.
+
+GPLv3 distribution requires matching Corresponding Source for the actual
+module, paired library and combined helper, including used headers, generated
+configuration, build/install scripts and applicable notices; preserve recipients'
+GPL rights. Additional installation information applies where GPLv3 requires
+it. An SBOM, archive URL or this notice does not replace those obligations.
+
+Debian base/runtime packages keep their original copyright and license texts.
+Channel locks retain the 78-package runtime roster, complete builder roster,
+authenticated snapshot indexes and source archive identities. Shared notices
+and SOURCE-ACCESS.md supplement the installed Debian copyright texts.
+Base/package source and relinking obligations remain separate from provider
+source delivery; compiler runtime/generated content also requires review.
+
+POLICY: per-source GPL grants are present; complete actual-image/layer rights
+review, source-companion admission and digest-bound source delivery are pending.
+Distribution remains UNREVIEWED and the admission tooling must fail closed until
+all those gates pass. There is no missing-grant claim and no public publication
+authorization. Consumer, checker, proxy/client and dataset eligibility is separate.
+PQC, TPM/fwTPM, ASAN/UBSAN, FIPS and hardware assurance are excluded.

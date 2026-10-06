@@ -1,0 +1,61 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: Apache-2.0
+"""P11Lab-origin argv-free tpm2_ptool driver.
+
+Calls the frozen upstream tpm2_ptool commandlets as a library with caller
+secrets arriving on stdin, never argv. Command names and argument keys
+mirror exactly what `tpm2_ptool init` and `tpm2_ptool addtoken ...` pass
+through argparse; no upstream behavior is modified, and native errors
+propagate unchanged.
+"""
+import os
+import sys
+
+
+def read_pair():
+    data = sys.stdin.buffer.read()
+    try:
+        devnull = os.open('/dev/null', os.O_RDONLY)
+        os.dup2(devnull, 0)
+        os.close(devnull)
+    except OSError:
+        pass
+    parts = data.split(b'\n')
+    if len(parts) != 2 or not all(parts) or len(data) > 8193:
+        raise SystemExit('credential record refused')
+    for part in parts:
+        if len(part) > 4096 or b'\r' in part or b'\x00' in part:
+            raise SystemExit('credential shape refused')
+    try:
+        return parts[0].decode('utf-8'), parts[1].decode('utf-8')
+    except UnicodeDecodeError:
+        raise SystemExit('credential shape refused')
+
+
+def main(argv):
+    if len(argv) not in (3, 4):
+        raise SystemExit('usage: p11lab-tpm2-ptool init STORE | addtoken STORE LABEL')
+    from tpm2_pkcs11 import tpm2_ptool  # noqa: F401  (registers commandlets)
+    from tpm2_pkcs11.command import commandlet as registry
+    if argv[1] == 'init' and len(argv) == 3:
+        store = argv[2]
+        if not os.path.isdir(store):
+            raise SystemExit('store directory is missing')
+        registry.get()['init']({
+            'path': store, 'hierarchy_auth': '', 'primary_auth': '',
+            'primary_handle': None, 'transient_parent': None})
+        return
+    if argv[1] == 'addtoken' and len(argv) == 4:
+        store, label = argv[2], argv[3]
+        if not os.path.isdir(store):
+            raise SystemExit('store directory is missing')
+        userpin, sopin = read_pair()
+        registry.get()['addtoken']({
+            'path': store, 'pid': 1, 'sopin': sopin, 'userpin': userpin,
+            'label': label, 'hierarchy_auth': ''})
+        return
+    raise SystemExit('usage: p11lab-tpm2-ptool init STORE | addtoken STORE LABEL')
+
+
+if __name__ == '__main__':
+    main(sys.argv)

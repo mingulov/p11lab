@@ -1,0 +1,8 @@
+# Pinned libffi8 runtime library (vendored, not dpkg-installed, in the runtime).
+# The base image carries libgmp10 but no libffi; the module's GHC closure
+# needs libffi.so.8. The .deb is fetched from the same signed snapshot as
+# every other package input, verified, and extracted; only libffi.so.8*
+# plus the copyright file ship, with an ld.so.conf entry (no LD_LIBRARY_PATH).
+LIBFFI_URL=https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/libf/libffi/libffi8_3.4.8-2_amd64.deb
+LIBFFI_SHA256=0ebdc340de33333639c3c63874cd4b15ac2e83dfa1ef3053b7eefaf4919f4f68
+LIBFFI_SIZE=24144

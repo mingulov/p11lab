@@ -1,0 +1,25 @@
+For in-process simulator use (RPC_MODE=server RPC_CLIENT=RPC_CLIENT_LOCAL),
+pkcs11-top-level consumers still call hal_rpc_client_init() and
+hal_rpc_client_close(), which live in rpc_client.c. The Makefile's server
+branch only added ${RPC_SERVER_OBJ}, so the resulting libhal.a was missing
+those symbols and pkcs11-tool failed at module load with
+"undefined symbol: hal_rpc_client_init".
+
+rpc_client.c guards its remote/mixed-only code with
+"#if RPC_CLIENT != RPC_CLIENT_LOCAL", so for RPC_CLIENT_LOCAL it emits only
+the two no-op stubs (return HAL_OK) plus the (compile-time-disabled)
+transport plumbing -- no symbol clashes with rpc_server.c's LOCAL-mode
+dispatch vectors.
+
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -181,7 +181,7 @@ ifeq "${RPC_MODE}" "none"
+   CFLAGS += -DHAL_ECDSA_VERILOG_ECDSA256_MULTIPLIER=${ECDSA_USE_ECDSA256_CORE}
+   CFLAGS += -DHAL_ECDSA_VERILOG_ECDSA384_MULTIPLIER=${ECDSA_USE_ECDSA384_CORE}
+ else ifeq "${RPC_MODE}" "server"
+-  OBJ += ${CORE_OBJ} ${RPC_SERVER_OBJ}
++  OBJ += ${CORE_OBJ} ${RPC_SERVER_OBJ} ${RPC_CLIENT_OBJ}
+   CFLAGS += -DRPC_CLIENT=RPC_CLIENT_LOCAL
+   CFLAGS += -DHAL_RSA_SIGN_USE_MODEXP=${RSA_USE_MODEXP_CORE}
+   CFLAGS += -DHAL_ONLY_USE_SOFTWARE_HASH_CORES=${HASH_ONLY_USE_SOFT_CORES}

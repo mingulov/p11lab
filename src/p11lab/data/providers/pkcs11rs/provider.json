@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "id": "pkcs11rs",
+  "module_implementation": {
+    "name": "pkcs11rs"
+  },
+  "backend": {
+    "name": "software-key-core software token",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libpkcs11rs.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
+    }
+  },
+  "services": [],
+  "channels": {
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    },
+    "release": {
+      "status": "unavailable",
+      "reason": "No upstream release tags in the 2026-10-02 source-resolution snapshot."
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Source grants and frozen inputs recorded. Actual-image/layer licensing, source-companion admission and anonymous digest-bound source delivery remain incomplete; no publication authorization."
+  },
+  "constraints": [
+    "Rolling-only, unchanged stub revision 646736043d1ce4949d812ed9e161949e635121c4. No upstream release tags. Linux amd64/Debian 13 glibc 2.41, Rust 1.98.1, exact upstream Cargo.lock, no patches, --no-default-features, --jobs 2.",
+    "Five separately sealed source archives: pkcs11rs/software-key-core/signatures ml-dsa compile; virtual-yubikey and virtual-yubihsm supply resolution-only manifests. USB gadget/display repositories, native hardware and virtual devices are excluded.",
+    "Managed controls: PKCS11RS_HARDWARE_DISCOVERY=0, PKCS11RS_SOFTWARE_SLOTS=p11lab, PKCS11RS_TOKEN_STORAGE=/var/lib/p11lab/pkcs11rs. Conflicting overrides and remote YubiHSM URLs are refused. The software slot has native ID 0 and token-present index 0; its stable name is distinct from the caller label.",
+    "Bind caller-owned writable /var/lib/p11lab. Owned directories/files are 0700/0600. Name-scoped token root: pkcs11rs/tokens-v1/software-name-7031316c6162; public-objects-v1/objects and private-keys-v1/records/objects contain encrypted sha3-256-<64hex>.cbor records. private-keys-v1/header-<20digit>.cbor retains native master-key/PIN wrappers.",
+    "First init requires caller SO/user PINs via P11LAB_SO_PIN_FILE/P11LAB_PIN_FILE or scalar equivalents. Native PINs are 8..1024 UTF-8 bytes after shared single-line parsing; P11LAB_LABEL defaults to P11Lab and is 1..32 ASCII letters/digits/spaces/dot/underscore/hyphen. No baked credentials or initialized state.",
+    "Provision uses C_InitToken, SO login, C_InitPIN and user-login proof. Scalars are unexported before children; inherited pipes carry PINs without process argv/environment, logs, markers or receipts. Native errors are preserved. Invalid UTF-8 can fail natively with partial state retained.",
+    "init takes .init-lock and publishes an exact non-secret completion marker only after success. Compatible repeated init validates readiness and preserves credentials even if PIN files change. Partial/linked/foreign/occupied/conflicting state is retained and refused; no silent reset or retries.",
+    "health validates the complete static file/directory roster, ownership, modes, links, bounds and exact marker before native initialize/token-info/finalize checks. Header format/authentication and crypto remain native checks. Readiness is metadata/lifecycle readiness; applications authenticate separately.",
+    "exec -- preserves arbitrary argv and exit status after readiness. No server/server-ready operation; the module runs in the application process. Close/finalize and stop consumers before explicitly replacing the entire owned state volume. Hard-link-capable local storage required; serialize one store and allocate separate directories/processes per shard/client.",
+    "Runtime contains the module, libc/libm/libgcc_s closure, minimal adapter and notices. No Rust/Python/compiler/checker/OpenSC/tracing/datasets. Installed checker, arbitrary C consumer and preferred proxy lanes use separate derivatives; remote use requires the compatible proxy daemon and loadable shim.",
+    "P-256 with an independent original/altered-message oracle supports bounded general-token usability. Other mechanisms, C_SetPIN, concurrency/crash durability, hardware/virtual devices, other architectures/libcs and provider-wide certification remain unqualified. Whole-image/source-companion/public distribution and derivative rights remain separate unmet gates."
+  ],
+  "runtime_env": [
+    {
+      "name": "PKCS11RS_HARDWARE_DISCOVERY",
+      "value": "0"
+    },
+    {
+      "name": "PKCS11RS_SOFTWARE_SLOTS",
+      "value": "p11lab"
+    },
+    {
+      "name": "PKCS11RS_TOKEN_STORAGE",
+      "value": "/var/lib/p11lab/pkcs11rs"
+    }
+  ],
+  "runtime_env_token_stores": {
+    "PKCS11RS_TOKEN_STORAGE": "/var/lib/p11lab/pkcs11rs"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "id": "opensc-pivapplet",
+  "module_implementation": {
+    "name": "OpenSC"
+  },
+  "backend": {
+    "name": "PivApplet on jCardSim",
+    "simulated": true
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "ephemeral",
+  "module_path": "/usr/local/lib/p11lab/opensc-pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "piv-9a"
+    }
+  },
+  "services": [
+    "jcardsim",
+    "pcscd",
+    "vpcd"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    },
+    "release": {
+      "status": "locked",
+      "lock": "release.lock.json"
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "blocked",
+    "reason": "Local emulator candidate. Observed closure flags (MPL-2.0 PivApplet, BSD-2-Clause yubico-piv-tool/libykpiv with a binary-redistribution notice obligation, GPL-3.0-or-later vpcd handler, LGPL glib, Oracle-licensed javacard classes plus shaded BouncyCastle/kryo inside the pinned jcardsim jar, GPL-2.0-with-Classpath-exception OpenJDK JRE), actual-layer/generated-content review and digest-bound source-companion delivery remain incomplete; checker/consumer/proxy admission is separate."
+  },
+  "constraints": [
+    "Linux amd64/glibc, jcardsim emulator only. Real smartcard hardware, other readers, other backends, FIPS claims and other architectures/libcs are excluded. This qualifies OpenSC plus PivApplet against jCardSim, never real smartcard hardware.",
+    "Both channels source-build unpatched OpenSC (release 0.27.1, rolling 0.27.1-346-g804ad6d3) with system OpenSSL 3.5.7 libcrypto.so.3; no legacy provider and no from-source OpenSSL. PivApplet 5cb14a9 is compiled from frozen source with the frozen JDK plus frozen ant/JPP preprocess at build.xml defaults against the pinned Maven Central jcardsim 3.0.6.0 jar (source-building jcardsim needs the proprietary Oracle JavaCard SDK); the yubico-piv-tool 2.7.3, vsmartcard (virtualsmartcard-0.11) and jcardsim jar plus jcardsim source-evidence pins are shared across channels. One P11Lab-authored host-transport patch caps chained ykpiv blocks at 254 data bytes (Lc 0xfe) and chains while more than 254 bytes remain (threshold 0xfe), so no T=1 case-4S block exceeds the emulator's 260-byte short-APDU ceiling; no PIV, PKCS#11 or simulation semantic changes exist.",
+    "Basic runtime has the module, libopensc, the yubico-piv-tool CLI plus libykpiv, the sealed jcardsim jar with the compiled PivApplet and the P11Lab wrapper, the whole-package JRE, the ifd-vpcd handler with its generated reader.conf entry, the stock opensc.conf, pcscd, base libraries and the exact extracted closure (7 whole packages, audited with ldd receipts and a removal proof). pkcs15-init, the openssl CLI, USB CCID drivers, the polkitd/dbus daemons, pkcs11-tool, opensc-tool, sc-hsm-tool, Python, javac, checker, datasets and tracing are excluded; nothing links them.",
+    "The caller UID may be root or non-root with any primary group; both are qualified. No NSS wrapper or fixed group is required.",
+    "Bind writable /var/lib/p11lab; a private ephemeral /run/p11lab is required. /run/pcscd is an in-image symlink into the control tmpfs so the fixed daemon socket path works without a caller mount. Never share /run with another runtime. Each shard/client owns a separate volume, container, daemons and network namespace. The JVM dials the frozen vpcd handler at 127.0.0.1:35963, but the handler itself listens wildcard on 35963/35964 (frozen code with no loopback knob; only the loopback JVM is a legitimate peer). The frozen VSmartCard reloader is disabled (non-numeric port, so no 8099 listener exists); pre-fix any bridge peer could tear down the card over 8099. Logs and pid state live under /run; the lease and marker persist under /var/lib/p11lab/opensc-pivapplet.",
+    "The emulator is RAM-only: every init, health and exec provisions a fresh card with caller credentials (ykpiv change-pin/change-puk plus per-slot generate plus selfsign plus import-certificate) and proves it with a native census. No card state persists across operations; re-provisioning is explicit documented semantics, never a silent reset. The marker binds the non-secret configuration only.",
+    "Caller user PIN and caller SO-PUK (unblock code) are each 6..8 ASCII digits (native PIV bounds plus alphabet, enforced by both the adapter and the supervisor); every other byte is refused because it cannot be provisioned exactly. Both are required at every operation. No baked caller credentials ship. The token label stays the fixed 9a subject piv-9a; any other P11LAB_LABEL value is refused.",
+    "The token label is fixed natively as piv-9a at slot 0, token-present index 0; P11LAB_LABEL defaults to it and any other value is refused. The four-slot card carries 9a ECCP256, 9c RSA2048, 9d ECCP256 and 9e ECCP384 identities with matching selfsigned certificates: 28 objects (4 private keys, 4 public keys, 4 certificates, 15 data objects, 1 driver profile object) with the identities selected by CKA_ID 01..04. The user PIN retries report natively; a locked card is restored by the next operation's fresh provision.",
+    "init/health/exec supervise pcscd plus the JVM for that operation only: subreaper adoption, volume/control leases, pcscd socket plus vpcd-slots plus reader-with-card plus ATR-match plus native census readiness, daemon-death detection, signal forwarding, bounded logs and bounded terminate/kill/reap. exec retains both services for the complete application lifetime and preserves argv/status.",
+    "Provisioning uses only the pinned yubico-piv-tool CLI with caller secrets on stdin pipes (--stdin-input) and public artifacts in control-tmpfs files (-i/-o), never argv/logs/disk. The reader is pinned by frozen ATR with the exact-reader form; every stage's exact native success markers plus certificate file bounds (200..8192 bytes) are asserted. Slot 9c is generated with --pin-policy once (experiment-isolated: with the applet default the RSA sign fails 0x101 after a discovery-object GET DATA lands between VERIFY and the GENERAL AUTHENTICATE final block, which the card rejects with 6982, while the identical provision with once succeeds; 9a/9d default to once and 9e to never). The management key stays the tool-default 3DES key (auto-applied by the tool, never a caller secret). A card that cannot present the frozen ATR is refused before any PKCS#11 call.",
+    "Unknown/hidden entries, unsafe links/hardlinks/modes, changed non-secret configuration, stale daemon debris, missing marker and busy state are refused before native open. Failures retain partial state for investigation.",
+    "The general-token profile holds in both channels: raw CKM_ECDSA plus ECDSA_SHA1 P-256 sign with independent host-side oracles plus altered-message rejection, RSA-2048 SHA256_RSA_PKCS sign with on-card verify plus RSA-2048 raw DigestInfo sign with host-side oracle only (no on-card verify on the raw path) plus altered-message rejection in direct and proxy modes (generated mode is natively inapplicable since on-card keygen is absent: the shared smoke tool reports mechanism-unavailable before any crypto), ECDSA_SHA384 P-384 sign with oracle, SHA-256 digest with oracle, per-slot certificate read with DER bounds, session AES import/create/destroy-by-handle with the driver-dropped label (find-by-label reads empty before and after destroy, so post-destroy find-absence proves nothing), token DATA creation reporting 0x54 and session DATA/CERTIFICATE creation reporting 0x7. On-card PKCS#11 keygen is absent natively (C_GenerateKeyPair reports 0x54 in the session-RSA, token-RSA and session-EC cells; no EC-token cell is run) and SO login reports 0x5; identities are provisioned per-operation by the PIV tooling instead. ECDH derive is presence-gated only (no derive lane exists). Fresh cards carry deterministic key material (RSA modulus sha256 a3cd738f... identical across independent provisions, both channels); key uniqueness across operations is explicitly unqualified. The installed checker lane completes 23 nodes with 16 passed, 7 skipped, 0 failed (composition pinned, not just zero-fail). The RSA mechanism keySize bounds differ by channel (release {1024,3072}, rolling {2048,2048}); all other pinned behaviors are identical. Wider mechanisms, other key sizes, multi-client concurrency, other readers/backends and provider-wide qualification are not asserted.",
+    "Unqualified surface disclosed: the emulator answers any 261-byte short APDU (5 header plus 255 data plus 1 Le on T=1) with SW 6F00 from its 260-byte buffer ceiling; the frozen tooling never emits such traffic (chained blocks capped at 254 data bytes with the chain threshold at 0xfe), but the 6F00 behavior itself is emulator-native and unrepaired.",
+    "All runtime/consumer/checker/proxy artifacts remain blocked for distribution. Preserve exact provider sources, the jar plus git closure, Debian closure sources/notices and generated build inputs; source admission, public delivery and publication are separate gates."
+  ]
+}

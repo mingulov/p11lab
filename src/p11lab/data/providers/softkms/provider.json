@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "id": "softkms",
+  "module_implementation": {
+    "name": "softKMS PKCS#11"
+  },
+  "backend": {
+    "name": "local authenticated softKMS daemon",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libsoftkms.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "softKMS"
+    }
+  },
+  "services": [
+    "softkms-daemon"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    },
+    "release": {
+      "status": "unavailable",
+      "reason": "Upstream publishes no tags or release refs; no release source exists to freeze."
+    }
+  },
+  "application_profile": "softkms-local-token",
+  "distribution": {
+    "status": "blocked",
+    "reason": "softKMS is AGPL-3.0 with network copyleft and the sealed dependency closure adds LGPL/GPL code (nettle, sequoia-openpgp) plus 480+ permissive/dual crates without completed corresponding-source, notice or relinking delivery; base-package source obligations, toolchain reachability and actual-layer review remain pending. No publication authorized."
+  },
+  "constraints": [
+    "Linux amd64/glibc 2.41. Rolling builds libsoftkms.so, softkms-daemon and softkms from source with cargo build --locked --offline --release --jobs 2 from 487 sealed registry archives plus one sealed ed25519-bip32 Git checkout consumed as a directory source and one sealed Falcon C checkout, with downloads disabled. Six ordered P11Lab patches (function-table order, attribute encoding, finalization invalidation, info outputs, CLI provisioning secrets, mechanism/token flag constants) repair the ABI/finalization defects and add file-based provisioning; ECDSA-always-SHA-256, fixed label and permissive SO behavior are preserved, not silently changed.",
+    "Base-library linkage: libsoftkms.so dynamically uses Debian base libssl/libcrypto/libc; softkms-daemon additionally uses base libnettle/libhogweed/libgmp via sequoia-openpgp; the softkms CLI is libc-only; the supervisor is libc/dl-only C. No source-built system crypto, no openssl CLI, no Python, no Rust toolchain in the runtime; ldd receipts identify actual usage.",
+    "Co-located supervised daemon: one keykeeper runs as a direct supervisor child for the operation/application lifetime and self-forks its key-free REST frontend child (reparented to the supervisor as subreaper); both exit with the operation. No permanent server/serve-ready operation exists; the preferred proxy daemon uses the same supervised exec lifetime.",
+    "Fixed loopback topology: the keykeeper listens on 127.0.0.1:50051 (gRPC) and the frontend on 127.0.0.1:8080 (REST); the supervisor gates readiness on TCP accept plus exact health JSON (healthy/initialized/unlocked) plus a native login-bearing check, never ports alone. Each independent shard/client owns its volume, container, PID namespace and network namespace; no host/shared networking.",
+    "Init provisions the keystore with the caller passphrase as the admin secret (32..200 ASCII, pipe-only, never argv/logs) plus exactly one pkcs11 identity whose 192-character server-generated token IS the PKCS#11 PIN; health/exec unlock the existing keystore with the persisted admin secret. No baked keys, credentials or initialized state ship; uninitialized storage on health/exec is refused, never implicitly initialized.",
+    "P11LAB_LABEL defaults to softKMS and is fixed: any other value is refused. The label names the single token (slot 0, token-present index 0); native flags are exactly 0x404 (TOKEN_INITIALIZED|LOGIN_REQUIRED, standard bits via the repaired constants) and the mechanism roster is exactly 10 entries in native order (0x1001,0x1041,0x1042,0x1043,0x1044,0x1040,0x1050,0x1057,0x1080,0x1087).",
+    "Readiness logs in with the provisioned identity token (persisted 0600 in owned state for the state owner): only a real login proves the daemon is unlocked and the identity is valid. The caller passphrase never reaches PKCS#11 login; the identity token never appears in logs, markers or process arguments.",
+    "No distinct security-officer role exists: native C_Login(CKU_SO) succeeds with the identity token, exactly like CKU_USER. P11LAB_SO_PIN/P11LAB_SO_PIN_FILE inputs are shape-checked and ignored; direct consumers log in with the provisioned identity token at <state>/softkms/identity-token as the PKCS#11 PIN.",
+    "Native reads are exact-byte: library/slot/token info structs are fully deterministic (version 2.40, manufacturer softKMS, model softKMS, serial zeros, pin 4..256, zeroed utcTime). Find returns the provisioned roster with exact attribute encoding; private-key objects expose no CKA_ID/EC_POINT/EC_PARAMS, C_DestroyObject is unsupported, and P-256 signing always applies SHA-256; general-token is falsified.",
+    "Existing init validates static state and native readiness and ignores changed credential inputs. Static exact-byte marker checks, .init-lock, an exclusive volume lease, private control lock, ownership/mode/link/roster checks run before any native process. Missing, partial, foreign, incompatible and occupied state is refused. No reset, reprovisioning or state-changing retry is implicit.",
+    "init/health/exec use the P11Lab C supervisor: direct keykeeper child, real readiness gating (owned PID, TCP accept on both fixed ports, exact health JSON, native slot/label/flags/mechanism/login/object check), bounded startup and 64-KiB log sink, required-service death monitoring, signal forwarding, TERM/KILL escalation and subreaper/adopted-child cleanup.",
+    "Keystore and secrets persist across restarts (locked at boot until unlock); the completion marker and identity binding persist and re-validate. Reset is explicit caller removal/replacement of disposable state after all operations stop; persistent tokens are never silently reset. Crash/power-loss recovery is unqualified.",
+    "Basic runtime contains no checker, Python, datasets, tracing, compiler, Rust toolchain or upstream release binaries. Consumer/checker/proxy derivatives are separate test artifacts with independent identity and admission. A shared network never makes the native module remotely loadable.",
+    "softkms-local-token means exactly the proven narrow observation: one fixed-label token with the exact 10-mechanism roster, identity-token login for USER and SO, ECDSA P-256/Ed25519 signing each with an independent oracle (RSA and ECDSA-secp256k1 are advertised in CLI help but unimplemented natively and in the daemon), exact-byte info outputs, and restart/isolation evidence. Wider mechanisms, key types, session objects, concurrent clients, other architectures/libcs and multi-tenant behavior are unqualified.",
+    "Distribution is blocked independently of crypto or lifecycle outcomes. AGPL-3.0 network copyleft on the provider plus LGPL/GPL closure code has no completed corresponding-source, notice or relinking delivery; base-package source obligations, toolchain reachability and actual-layer review remain pending."
+  ]
+}

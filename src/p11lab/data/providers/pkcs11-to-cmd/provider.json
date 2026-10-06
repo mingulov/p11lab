@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "id": "pkcs11-to-cmd",
+  "module_implementation": {
+    "name": "pkcs11-to-cmd"
+  },
+  "backend": {
+    "name": "local signing command and certificate files",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libpkcs11-to-cmd.so",
+  "inputs": {},
+  "services": [],
+  "channels": {
+    "release": {
+      "status": "locked",
+      "lock": "release.lock.json"
+    },
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    }
+  },
+  "application_profile": "pkcs11-to-cmd-signing",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Local file-signer candidate: upstream MIT grant verified; actual base/bundled-tool/layer review and digest-bound source companion/delivery remain incomplete. Signing baseline is falsified; only bounded native RSA/P-256 observations are retained."
+  },
+  "constraints": [
+    "Linux amd64/glibc 2.41. Module dynamically links the frozen Debian system libcrypto.so.3 and C++ runtime. Source tag v1.0.0 and main were both verified at 8fddf3b4cec6bf5d4287f71f5c3c4a7cfc9c7aa3, so channels legitimately share provider bytes; their selector and build identities remain distinct.",
+    "NO authentication or PIN inputs. Native C_Login/C_Logout unconditionally return CKR_OK even for invalid handles/roles. Token flags omit CKF_LOGIN_REQUIRED and PIN bounds are 0/0; C_InitToken/C_InitPIN/C_SetPIN return CKR_FUNCTION_NOT_SUPPORTED (0x54). Key-file possession and command execution are signing authority.",
+    "First init generates disposable RSA-2048 and P-256 keys and self-signed certificates at runtime; no baked keys or upstream test fixtures. Bind caller-owned writable /var/lib/p11lab. The owned pkcs11-to-cmd directory is 0700, all six files 0600. Runtime-generated keys are the only managed provisioning mode.",
+    "Sparse slots: 0 RSA, 1 empty, 2 P-256; immutable native labels pkcs11-to-cmd-0 and pkcs11-to-cmd-2. C_GetSlotList(CK_TRUE) incorrectly includes the empty slot; NUL-filled native token-label tails are preserved. One session per process; no general-token claim.",
+    "P2C_SLOT_CERT_0/2, P2C_CMD and P2C_DEBUG are fixed non-secret native wiring. Equal overrides are accepted; unequal or extra slot controls fail before persistent state is opened. P2C_CERT and P2C_MECHANISM are outputs set by the native module.",
+    "Each init/health/exec reserves a private 0700 directory under /run/p11lab with unique P2C_DATA/P2C_SIG paths. The signing-directory wrapper preserves the application CWD. Incoming data/signature controls are refused. Upstream uses relative r.bin/s.bin for EC conversion, so only the unchanged upstream signing command runs in that private directory. Temporary signing files live until command/container shutdown; use private tmpfs /run/p11lab for each container.",
+    "init requires empty state and takes .init-lock; complete seals artifact identity and exact public wiring. Compatible repeated init validates and preserves keys. health validates ownership, modes, links, roster, exact marker/wiring and certificate/key equality before native module readiness. No silent reset; partial/corrupt/conflicting state is retained. The native helper makes no login or provisioning calls.",
+    "exec -- ARGV preserves arbitrary argv and exit status after readiness. No card, daemon, server/server-ready or remote signing CLI is started. Serialize consumers of each key store and use independent state/processes/tmpfs for shards. Explicitly remove the entire owned state only after all consumers stop to reset.",
+    "The signing baseline is falsified by native NUL token-label tails and unsupported C_GetMechanismList/C_GetMechanismInfo (0x54). The pkcs11-to-cmd-signing exception records narrow explicit-mechanism native signing with independent positive/altered-input verification; it does not repair discovery or qualify the common consumer.",
+    "PKCS#11 2.40 declaration plus unsupported discovery/encrypt/decrypt/digest/keygen/import/wrap/derive/verify/RNG are adversarial capability-honesty observations. Preserve original RVs and classifier outcomes; unsupported calls are not normalized into success.",
+    "RSA uses the upstream raw-digest pkeyutl command behavior; no standard DigestInfo/RSA dgst compatibility claim. P-256 native raw-digest signing is independently checked. Other curves/mechanisms, concurrent/crash/certificate-trust/expiry/hardware/platform behavior and full provider/checker/proxy qualification remain unqualified.",
+    "Basic runtime has only provider/closure/readiness/OpenSSL/xxd/signing shell command. Optional consumer/checker/proxy artifacts are separately pinned; remote use requires the compatible pkcs11-proxy-ng daemon/client shim and documented isolation limits. Whole-image rights/source delivery and public qualification remain blocked."
+  ],
+  "runtime_env": [
+    {
+      "name": "P2C_SLOT_CERT_0",
+      "value": "/var/lib/p11lab/pkcs11-to-cmd/rsa.pem"
+    },
+    {
+      "name": "P2C_SLOT_CERT_2",
+      "value": "/var/lib/p11lab/pkcs11-to-cmd/ec.pem"
+    },
+    {
+      "name": "P2C_CMD",
+      "value": "/usr/local/bin/p11lab-p2c-sign"
+    },
+    {
+      "name": "P2C_DEBUG",
+      "value": "0"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+From 44a35804824bbf6b4b68c4949c3d7604cc9dad2d Mon Sep 17 00:00:00 2001
+From: P11Lab <p11lab@local>
+Date: Sun, 4 Oct 2026 18:58:43 +0300
+Subject: [PATCH] p11lab 06 mechanism flags
+
+---
+ src/pkcs11/mod.rs | 19 ++++++++++---------
+ 1 file changed, 10 insertions(+), 9 deletions(-)
+
+diff --git a/src/pkcs11/mod.rs b/src/pkcs11/mod.rs
+index c307672..8053a42 100644
+--- a/src/pkcs11/mod.rs
++++ b/src/pkcs11/mod.rs
+@@ -171,14 +171,15 @@ const CKM_EDDSA: CK_ULONG = 0x1057; // Ed25519 (EdDSA) signing
+ const CKM_AES_KEY_GEN: CK_ULONG = 0x1080; // AES key generation
+ const CKM_AES_GCM: CK_ULONG = 0x1087; // AES-GCM authenticated encryption
+ 
+-// CK_MECHANISM_INFO flags
+-const CKF_SIGN: CK_ULONG = 0x00000002;
+-const CKF_VERIFY: CK_ULONG = 0x00000004;
+-const CKF_GENERATE: CK_ULONG = 0x00000040;
+-const CKF_GENERATE_KEY_PAIR: CK_ULONG = 0x00000080;
+-const CKF_DERIVE: CK_ULONG = 0x00000100;
+-const CKF_ENCRYPT: CK_ULONG = 0x00000200;
+-const CKF_DECRYPT: CK_ULONG = 0x00000400;
++// CK_MECHANISM_INFO flags (P11Lab: standard PKCS#11 v2.40 values; the
++// previous sequential values misdescribed capabilities to consumers)
++const CKF_SIGN: CK_ULONG = 0x00000800;
++const CKF_VERIFY: CK_ULONG = 0x00002000;
++const CKF_GENERATE: CK_ULONG = 0x00008000;
++const CKF_GENERATE_KEY_PAIR: CK_ULONG = 0x00010000;
++const CKF_DERIVE: CK_ULONG = 0x00080000;
++const CKF_ENCRYPT: CK_ULONG = 0x00000100;
++const CKF_DECRYPT: CK_ULONG = 0x00000200;
+ 
+ // CK_SESSION_INFO flags
+ const CKF_RW_SESSION: CK_ULONG = 0x00000002;
+@@ -190,7 +191,7 @@ const CKF_TOKEN_PRESENT: CK_ULONG = 0x00000001;
+ 
+ // CK_TOKEN_INFO flags
+ const CKF_TOKEN_INITIALIZED: CK_ULONG = 0x00000400; // Correct value per PKCS#11 spec
+-const CKF_LOGIN_REQUIRED: CK_ULONG = 0x00000100; // Correct value per PKCS#11 spec
++const CKF_LOGIN_REQUIRED: CK_ULONG = 0x00000004; // P11Lab: standard value (was 0x100)
+ 
+ // PKCS#11 Session Info structure
+ #[repr(C)]
+-- 
+2.53.0
+

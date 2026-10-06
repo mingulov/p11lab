@@ -1,0 +1,54 @@
+P11Lab tpm2 provider file notices
+
+Original P11Lab Dockerfile, entrypoint.sh, provision.c, p11lab-tpm2-ptool,
+dbus.conf and runtime-debs.txt: Apache-2.0, root LICENSE. These separate
+orchestration modules do not relicense tpm2-pkcs11 or the Debian closure.
+No reference script text, credentials or initialized token data is copied.
+The Fedora reference Dockerfile/run script informed only the daemon topology
+and capacity bounds; this recipe follows the Debian snapshot norm instead.
+No upstream patches, no silent behavior changes, no simulated PKCS#11 calls.
+
+tpm2-pkcs11: https://github.com/tpm2-software/tpm2-pkcs11.git
+release 1.10.1: 9a3bfbd6b9e20513cbf5413b395ba1fe8b23ef0c
+rolling master snapshot 1.10.1-21-gd8375fa: d8375fa68e4ce8a477f7f5953511711e500e4143
+Root LICENSE and source headers: BSD-2-Clause. The configured tree builds
+the module and installs the tpm2_pkcs11 Python tree (tpm2-pkcs11-tools,
+static version 1.33.7, same license); the argv-taking tpm2_ptool console
+script is deliberately excluded from the runtime because caller secrets must
+never travel over argv. The argv-free P11Lab driver replaces its init/addtoken
+surface and calls the frozen commandlets as a library without modification.
+VERSION is stamped from the locked upstream_version through a throwaway tag
+so unmodified bootstrap/configure observe exact upstream release identity.
+
+tpm2-pytss 2.3.0 sdist (sole Python build/runtime dependency):
+https://files.pythonhosted.org/packages/07/1f/0f2521440e330342ef757a6605b61e1dbf5fe47fd97397c6e5f02791d520/tpm2-pytss-2.3.0.tar.gz
+sha256 20071129379656f5f3c3bc16d364612672b147d81191fb4eb9f9ff9fbee48410
+BSD license (sdist LICENSE retained in-image). Installed offline from the
+frozen sdist with system build backends; no PyPI resolution at build time.
+The test-only python-pkcs11 client is not installed: nothing in the module
+or provisioning path imports it, and configure runs --disable-ptool-checks.
+Its absence is covered by the offline wrapper-import build check.
+
+Daemon closure ships as exact extracted Debian package bytes, not rebuilt
+sources: 60 whole packages plus dbus-send and the tpm2 multicall with its
+invoked symlinks picked from dbus-bin and tpm2-tools. Whole-package
+/usr/share/doc copyright files ship inside the image; the two picked
+packages have their copyright files retained in runtime-closure/. The
+p11-kit PKCS#11 build header has a permissive unrestricted-copy notice;
+header and package copyright are retained. libp11-kit itself is not linked.
+
+Observed closure license flags requiring review before any distribution:
+GPL-3 stanzas scoped to Debian packaging in some copyright files, LGPL
+terms in the glib stack, a CPL stanza scoped to configure.ac in swtpm, and
+IBM-Custom terms in libtpms. Provider BSD licensing alone does not clear
+the image. Corresponding-source, notice and source-access obligations for
+the actual extracted set are incomplete; no source companion is delivered
+here. Build-only package presence in the lock does not mean its contents
+ship; the extraction manifest and picked-files receipt identify runtime
+bytes exactly.
+
+POLICY: local candidate only. Actual-layer licensing, generated content,
+source companions, distributor source access and digest-bound delivery are
+incomplete. Distribution remains BLOCKED. Consumer, checker, proxy and
+datasets are separately assessed artifacts. No push, external cache export,
+tag, release or publication is authorized here.

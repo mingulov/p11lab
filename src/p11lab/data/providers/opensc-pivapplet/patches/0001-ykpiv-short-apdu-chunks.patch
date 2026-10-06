@@ -1,0 +1,65 @@
+Cap ykpiv chained command blocks at 254 data bytes.
+
+Upstream _ykpiv_transfer_data fragments chained commands into 255-byte
+blocks; on T=1 it appends an Le byte, so every full block travels as a
+261-byte case-4S APDU (5 header + 255 data + 1 Le). The frozen jcardsim
+3.0.6.0 emulator backs short APDUs with a 260-byte buffer (APDUProxy
+BUFFER_SIZE) and throws ArrayIndexOutOfBoundsException on the 261st
+byte, which SimulatorRuntime.transmitCommand reports as SW 6F00. That
+single ceiling breaks PIV certificate provisioning end to end: RSA
+selfsign (chained GENERAL AUTHENTICATE) and every slot's
+import-certificate (chained PUT DATA) all fail natively with 6F00,
+while single-APDU operations succeed.
+
+This patch caps chained blocks at 254 data bytes (Lc 0xfe) AND lowers
+the chain threshold to 0xfe (chain while in_len > 0xfe), so the final
+block can never be exactly 255 bytes either: a lone 255-byte transfer
+or a 255-byte remainder would otherwise still travel as 5 + 255 + 1 =
+261 on T=1. The maximum on-wire block is therefore 5 + 254 + 1 = 260,
+so no block can reach the emulator ceiling. ISO 7816 chaining permits
+any block split, so the resulting traffic stays protocol-valid for any
+peer, real or emulated; only transport fragmentation changes. No PIV
+command, no authentication flow, no PIN/PUK handling, no certificate
+content and no PKCS#11-visible behavior changes. The emulator keeps
+its exact native behavior, including the 6F00 on 261-byte short
+APDUs, which stays a documented unqualified surface.
+
+Host-transport compatibility fix in frozen provisioning tooling: not
+a provisioning extension (no new capability) and not a PIV, PKCS#11
+or simulation semantic change. A declared patch that fails to apply
+fails the build.
+
+P11Lab-authored for the opensc-pivapplet provider recipe.
+SPDX-License-Identifier: Apache-2.0
+Applies to yubico-piv-tool at
+ed1cd7862d39a92502c0476f53dfcf93f195007a (both channels share one
+tool pin).
+
+Upstream: https://github.com/Yubico/yubico-piv-tool.git (commit ed1cd7862d39a92502c0476f53dfcf93f195007a)
+
+diff --git a/lib/ykpiv.c b/lib/ykpiv.c
+index b1520f6..30ae6e9 100644
+--- a/lib/ykpiv.c
++++ b/lib/ykpiv.c
+@@ -1325,7 +1325,9 @@ ykpiv_rc _ykpiv_transfer_data(ykpiv_state *state,
+   *out_len = 0;
+
+   do {
+-    APDU apdu = {templ[0], templ[1], templ[2], templ[3], 0xff};
++    /* Cap chained command blocks at 254 data bytes so case-4S blocks
++     * (5 header + data + 1 Le on T=1) never exceed 260 bytes. */
++    APDU apdu = {templ[0], templ[1], templ[2], templ[3], 0xfe};
+     unsigned char data[YKPIV_OBJ_MAX_SIZE] = {0};
+
+
+@@ -1339,7 +1341,9 @@ ykpiv_rc _ykpiv_transfer_data(ykpiv_state *state,
+       in_len = 0;
+       apdu_len = (pcsc_word)apdu_length;
+     } else {
+-      if(in_len > 0xff) {
++      /* Chain while more than 254 bytes remain so the final block
++       * can never be exactly 255 bytes (5+255+1=261 on T=1). */
++      if(in_len > 0xfe) {
+         apdu.st.cla |= 0x10;
+       } else {
+         apdu.st.lc = (unsigned char)in_len;

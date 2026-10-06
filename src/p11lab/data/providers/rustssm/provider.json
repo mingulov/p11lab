@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "id": "rustssm",
+  "module_implementation": {
+    "name": "RustSSM"
+  },
+  "backend": {
+    "name": "Rust/SQLite software token with declared discovery patch",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/librustssm.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "P11Lab"
+    }
+  },
+  "services": [],
+  "channels": {
+    "release": {
+      "status": "unavailable",
+      "reason": "No official refs/tags in snapshot"
+    },
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Local source-build-only/no-publication candidate. Actual-layer, crate/Rust runtime, OASIS header/IPR and corresponding-source delivery admission incomplete."
+  },
+  "constraints": [
+    "Linux amd64/glibc 2.41. Frozen main d2781d13d5314893e1e6ba85fb309b9f850546bd only; release unavailable (no tag in the frozen snapshot). Default Cargo features, no cli/rustssm-util. SQLite is bundled by the frozen rusqlite dependency.",
+    "Semantic addition: ordered MIT 0001-implement-mechanism-discovery.patch, SHA-256 d7652f66f7c50cf13e925ccac85d02a5146efaf38420618364c53a86d75625b7, author Denis Mingulov, pkcs11-check-ws commit b5ab075a965fb52d3d99eb3e82ff568dc5000c57, replaces unsupported C_GetMechanismList/C_GetMechanismInfo stubs. It advertises RSA_PKCS_KEY_PAIR_GEN, RSA_PKCS, SHA256_HMAC, GENERIC_SECRET_KEY_GEN, EC_KEY_PAIR_GEN, ECDSA, AES_KEY_GEN, AES_ECB, AES_CBC, AES_CBC_PAD, AES_GCM, AES_KEY_WRAP_PAD with source-defined sizes/flags plus discovery tests. This changes PKCS#11 discovery, separately from provisioning. Patch application must succeed; both source-file hashes are verified.",
+    "AES-GCM advertises 16..32-byte keys but upstream supports only 16/32, returning native CKR_KEY_SIZE_RANGE for 24-byte keys. The advertisement is preserved. Smoke/lifecycle observations and provider findings are not provider-wide qualification or certification.",
+    "Bind private writable /var/lib/p11lab; init owns rustssm/token.sqlite, rustssm.conf and complete. RUSTSSM_DATABASE_URL is fixed to /var/lib/p11lab/rustssm/token.sqlite; native slot 0 is token-present index 0. The config records that binding; the provider consumes its environment value.",
+    "P11LAB_LABEL defaults to P11Lab: 1..32 ASCII letters/digits/spaces/dot/underscore/hyphen. PIN_FILE and SO_PIN_FILE required for first init; common single-line/4096-byte validation precedes state creation. PINs reach the libc/dl helper over private pipes, never argv/logs/markers; C buffers are wiped. Native invalid PIN errors remain failures with exact RVs.",
+    "Compatible repeated init preserves state and ignores changed PIN files. Static DB/config/marker roster, SQLite header, exact config/marker bytes, ownership, symlink/hard-link and occupied .init-lock checks precede native module open. Unknown/partial/conflicting state is refused without reset or retry.",
+    "Readiness loads/initializes/finalizes the real module and checks initialized-token/user-PIN flags plus exact label. exec -- ARGV preserves arguments and exit status. No supervised server for this local library. Clean application close/finalize and process shutdown preserve SQLite state; reset is explicit caller replacement/removal of disposable state.",
+    "SQLite WAL uses upstream busy_timeout=5 seconds. Serialize every client/writer, including health and exec preflight, to each database; independent shards and clients require independent provider/token state. Parallel/shared-state qualification and proxy isolation guarantees are not implied.",
+    "Basic runtime contains module, dependency closure and native adapter, no checker/Python/datasets/tracing/OpenSC/build tools. Optional checker/consumer/proxy artifacts are separate; remote use needs the compatible pinned proxy client and its documented isolation limits.",
+    "Upstream and patch MIT notices are retained independently. OASIS headers/generated bindings, crate licenses, Rust standard-library reachability, base-package sources and actual layers require distribution review. Legacy source-build-only-no-publication policy persists; no runtime or derivative is admitted/published."
+  ],
+  "runtime_env": [
+    {
+      "name": "RUSTSSM_DATABASE_URL",
+      "value": "/var/lib/p11lab/rustssm/token.sqlite"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "id": "cryptech",
+  "module_implementation": {
+    "name": "CrypTech PKCS#11"
+  },
+  "backend": {
+    "name": "libhal software keystore simulator",
+    "simulated": true
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libcryptech-pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "Cryptech Token"
+    },
+    "P11LAB_PIN": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [],
+  "channels": {
+    "release": {
+      "status": "unavailable",
+      "reason": "No refs/tags in any of three official simulator repository snapshots"
+    },
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    }
+  },
+  "application_profile": "cryptech-fixed-credential-simulator",
+  "distribution": {
+    "status": "blocked",
+    "reason": "Migrated credential/build/lifecycle patches and NOR/platform stub have no verified grant (NOASSERTION); actual-content/source-delivery and crypto qualification pending. Local research only."
+  },
+  "constraints": [
+    "Linux amd64/glibc 2.41; one in-process statically linked module; no FPGA/HSM or network peer. UDP loopback port 17425 is unused on RPC_CLIENT_LOCAL.",
+    "SO and user PINs are fixed to fnord, PBKDF2-HMAC-SHA256 with all-zero 16-byte salt and 2000 iterations. Not a general credential store. Optional caller PIN controls must match; C_InitToken/C_InitPIN/C_SetPIN remain unsupported.",
+    "Persistent 512-KiB file NOR simulator under /var/lib/p11lab/cryptech; no hardware protection, atomicity, concurrency or wear claims. Bad-PIN delay is disabled by the migrated stub; native hardware-I/O errors remain visible.",
+    "Native slot 0/token-present index 0; label fixed to Cryptech Token. Independent processes and directories required per shard/client; explicit operator reset only.",
+    "general-token application profile falsified by preserved RNG failure CKR_FUNCTION_FAILED; key generation/import/signing/persistent-key paths are unqualified. No hardware fallback or provider normalization.",
+    "Release permanently unavailable: no release tags. Rolling inputs frozen; random WHEEL salt prevents a bit-for-bit reproducibility claim."
+  ]
+}

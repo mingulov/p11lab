@@ -1,0 +1,63 @@
+{
+  "application_profile": "embedded-p256-process-local",
+  "backend": {
+    "name": "in-memory PAL with real Mbed TLS cryptography",
+    "simulated": false
+  },
+  "channels": {
+    "release": {
+      "lock": "release.lock.json",
+      "status": "locked"
+    },
+    "rolling": {
+      "lock": "rolling.lock.json",
+      "status": "locked"
+    }
+  },
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "constraints": [
+    "Linux amd64/glibc 2.41; raw libcore_pkcs.so plus declared generic PAL/config patches. The reference metadata/digest adapter is not compiled or installed. No general-token, FIPS, certification or persistent-token qualification.",
+    "Generic PAL replaces POSIX current-directory files and eight fixed labels with 256 process-local heap entries, exact byte labels 1..32 and same-label overwrite/handle reuse. Upstream object list capacity 128 and sessions 32. Label-only search, token-only objects and upstream template parsing remain unchanged. These are disclosed PKCS#11 semantic changes, not provisioning-only extensions.",
+    "All sessions of one loaded library share objects. PAL storage survives C_Finalize/C_Initialize in that library instance, but fresh independent exec/process starts empty; unloading/process exit ends access. Fork can inherit a memory snapshot and must not be used as independent token state. No shared-memory/persistence/restart-reopen claim. Use independent processes/instances per shard and client.",
+    "PAL privacy uses a DER first-child INTEGER heuristic instead of fixed private-key labels; CKA_CLASS/CKA_VALUE visibility changes. Snapshot reads, mutex-protected store, malloc/free with no secure erasure, destroy-and-reuse versus stock zeroing fallback; allocation/full-store errors and provider return values are preserved. See FILE-NOTICES.txt for all port/config deltas.",
+    "Real upstream Mbed TLS CTR-DRBG uses Linux platform entropy (getrandom or /dev/urandom). Static Mbed TLS 3.6.5 code is incorporated into the .so; ldd alone is not the complete content/license closure. Both FetchContent archives include URL/hash locks; configure/build are offline.",
+    "Native slot ID 1 is token-present index 0. C_GetInfo, C_GetSlotInfo, C_GetMechanismList, C_GetSessionInfo, C_Logout and C_Digest among others are NULL; C_GetTokenInfo returns OK without writing metadata. Missing queries remain missing, HMAC/CMAC advertisement and RSA flags are not normalized. Consumers must tolerate these upstream limits.",
+    "C_Login and C_InitToken are upstream no-op CKR_OK stubs: wrong PIN is accepted, token labels/PINs are not provisioned, and there is no native authentication boundary. Optional PIN/SO_PIN files are syntax-validated only, never logged or copied into token state; no PIN rejection claim.",
+    "P11LAB_LABEL defaults to P11Lab and is a 1..32 ASCII application/object hint (letters, digits, spaces, dot, underscore, hyphen), not native token metadata. init validates controls and module readability only; creates no files or token. health initializes a fresh standalone module, opens/closes a session, uses RNG and finalizes; it cannot attest to the app token. exec validates controls then preserves argv/exit status with no module preflight.",
+    "Provider token state needs no writable files or volume; arbitrary UID/read-only rootfs works with readable module and optional input files. Caller output mounts can be writable. No server/server-ready op. Application closes/finalizes and owns termination; new independent process supplies a fresh volatile store.",
+    "Checker module lives in each in-process test/file child with an independent store. Preferred proxy module lives in the daemon process (pinned proxy a348a5f59b535b1ca309ea9f0a722e3bec692f72: one logical client/trusted domain and one managed provider chain; max_contexts=1 is admission, not isolation); health/init are not its token. Raw metadata gaps can prevent installed checker/proxy lanes; record incomplete evidence/native failure without inventing metadata or verdicts.",
+    "Basic runtime excludes checker, Python, datasets, tracing, OpenSC and build tools. Optional consumer/checker/proxy derivatives have independent identities, actual-size evidence and admission. Migrated files have missing grants; root Apache-2.0 does not cover them; OASIS headers and all base/layer/source obligations still need review. Local-only/unreviewed."
+  ],
+  "distribution": {
+    "reason": "Local-only port: migrated PAL/config/allocator grants are missing; OASIS IPR, actual-content and digest-bound source-delivery review remain incomplete. No publication eligibility.",
+    "status": "unreviewed"
+  },
+  "id": "corepkcs11",
+  "inputs": {
+    "P11LAB_LABEL": {
+      "default": "P11Lab",
+      "required": false,
+      "secret": false
+    },
+    "P11LAB_PIN_FILE": {
+      "required": false,
+      "secret": true
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "required": false,
+      "secret": true
+    }
+  },
+  "module_implementation": {
+    "name": "corePKCS11"
+  },
+  "module_path": "/usr/local/lib/p11lab/libcore_pkcs.so",
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "schema_version": 1,
+  "services": [],
+  "state_mode": "process-local"
+}

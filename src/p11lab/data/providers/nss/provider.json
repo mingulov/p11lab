@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "id": "nss",
+  "module_implementation": {
+    "name": "NSS softoken"
+  },
+  "backend": {
+    "name": "NSS/NSPR database",
+    "simulated": false
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libsoftokn3.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_PIN": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN": {
+      "secret": true,
+      "required": false
+    }
+  },
+  "services": [],
+  "channels": {
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    },
+    "release": {
+      "status": "locked",
+      "lock": "release.lock.json"
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "unreviewed",
+    "reason": "Local softoken candidate. All lanes qualified (27/27) with eligible per-channel source companions (0 blockers); anonymous digest-bound source delivery and publication remain incomplete. No publication authorized."
+  },
+  "constraints": [
+    "Linux amd64, glibc 2.41; softoken plus its NSS/NSPR closure is supplied in-image with an ld.so.conf entry. Token-present index 1 is the P11Lab database token; its native slot ID is 2.",
+    "The adapter always selects configdir sql:/var/lib/p11lab/nss with fixed dbTokenDescription P11Lab, via generated NSS_LIB_PARAMS_FILE and the baked Linux default /etc/nss/params.config.",
+    "Initialize only an empty writable /var/lib/p11lab volume; the SQL database is private to the named nss directory. Compatible init is non-destructive; partial or incompatible state fails. certutil -N never runs against existing state.",
+    "PIN_FILE/SO_PIN_FILE are preferred; scalar alternatives are explicit disposable-test inputs. Conflicting scalar/file or absent/empty credentials fail initial provisioning. The SO credential satisfies the shared checker protocol only; softoken has no SO role.",
+    "Runtime controls/config are recreated under writable /run/p11lab by every invocation. The adapter preserves argv and native/application exit status. Health opens the real certificate database with the pinned stock certutil.",
+    "Ordinary application consumers do not require checker, Python, tracing or a workspace mount. Reset is an explicit removal/replacement of disposable state; no automatic reset or retry.",
+    "Whole-image licensing, source companion delivery and digest-bound admission remain separate requirements."
+  ]
+}

@@ -1,0 +1,102 @@
+P11Lab opensc-pico provider file notices
+
+Original P11Lab Dockerfile, entrypoint.sh, provision.c,
+runtime-debs.txt and the SDK build-freeze patch: Apache-2.0, root
+LICENSE. These separate orchestration modules do not relicense
+OpenSC, pico-hsm, the SDK, mbedTLS, mlkem, tinycbor, vsmartcard or
+the Debian closure. No reference script text, credentials or
+initialized flash data is copied. The pkcs11-check-ws reference lane
+(docker/pico-hsm) informed only the pcscd/vpcd/emulator topology
+and the key-provisioning roster shape; this recipe re-derives
+sources, pins, supervision and the credential model, fabricates a
+fresh flash at runtime, provisions caller PINs over a pty where the
+reference reuses baked credentials, and asserts every provisioning
+outcome where the reference tolerates keygen failure. No simulated
+PKCS#11 calls and no silent behavior changes exist.
+
+OpenSC: https://github.com/OpenSC/OpenSC.git
+release 0.27.1: 19868984dc4dc697af6a86d65ab32a1f19a43ea4
+rolling master snapshot 0.27.1-339-g4f3ff51:
+4f3ff5111314bde380c3d4e9e25bb1fa0169196d
+Root COPYING: LGPL-2.1 (identical in both channels); per-source
+headers carry the same LGPL-2.1-or-later grant (verified on
+card-sc-hsm.c, sc-hsm-tool.c and ifd-vpcd-adjacent build inputs).
+The build compiles the module (opensc-pkcs11.so), its support
+library (libopensc) and the sc-hsm-tool provisioning CLI from the
+pinned archive with autotools defaults
+(--prefix=/usr/local --sysconfdir=/usr/local/etc --disable-tests
+--disable-doc --disable-man); only pkcs11-tool, opensc-tool and the
+other 20 tools are left out of the runtime. The stock opensc.conf
+ships at the compiled path.
+
+pico-hsm backend (shared pin across both OpenSC channels):
+https://github.com/polhenarejos/pico-hsm.git tag v6.6 at
+251b35dd9c4fd929923fc3b192f6793826efeaef (AGPL-3.0 root LICENSE),
+plus pico-keys-sdk 44ee0254165d6338e27e6739c19c648f83b5c6c9
+(AGPL-3.0 root LICENSE). The SDK's declared mbedTLS submodule pin
+is 3.6.2 (107ea89daaefb9867ea9121002fbbdf926780e98), but its own
+configure logic silently upgrades the tree to v3.6.6 at configure
+time, so the effective reference input is v3.6.6
+(0bebf8b8c7f07abe3571ded48a11aa907a1ffb20), frozen here directly
+with its framework sub-tree
+dff9da04438d712f7647fd995bc90fadd0c0e2ce (both dual Apache-2.0 OR
+GPL-2.0-or-later); mlkem-native
+1453da5cd11ea6be7ae83d619d1a72b21e48ec7d (Apache-2.0 OR ISC OR
+MIT); tinycbor c0aad2fb2137a31b9845fbaae3653540c410f215 (MIT).
+Only the ENABLE_EMULATION native binary is built (mbedTLS backend,
+no EdDSA, no PQC, no OpenSSL wrapper); the dual-licensed mbedTLS
+sources are taken under their Apache-2.0 option for this build.
+All seven license texts ship in-image.
+
+SDK patch patches/0001-pico-keys-sdk-frozen-mbedtls.patch is
+P11Lab-authored for this recipe (SPDX-License-Identifier:
+Apache-2.0, same as the recipe). It forces the SDK configure
+self-update flag off with an explanatory status line, so the
+frozen vendored mbedTLS v3.6.6 tree is used exactly as vendored
+instead of being probed, fetched over the network, partially
+deleted and checked out at configure time. Without it the build
+would require build-time network access and mutate its own
+inputs. Build-freeze provisioning extension, not a semantic
+change: the built library sources are exactly the v3.6.6 tree the
+unpatched network build produces after its silent upgrade. A
+declared patch that fails to apply fails source resolution before
+any build starts.
+
+vsmartcard backend (shared pin across both OpenSC channels):
+https://github.com/frankmorgner/vsmartcard.git tag
+virtualsmartcard-0.11 at 82bc5ad066b26ee057d2af200c1a66e3a65a9743
+(GPL-3.0 root COPYING; the ifd-vpcd sources carry GPL-3.0-or-later
+headers). Only the ifd-vpcd C handler and its generated
+reader.conf entry ship; the vicc/vpcd-config tools, the Python
+bindings and the unrelated ACardEmulator/ccid/win32 submodules
+(including the win32-only DevMsi placeholder, which the Linux
+handler build never references) are excluded.
+
+Daemon closure ships as exact extracted Debian package bytes, not
+rebuilt sources: 6 whole packages (pcscd, libpcsclite1 plus the
+proven link closure), audited with ldd receipts. Whole-package
+/usr/share/doc copyright files ship inside the image. libccid (USB
+driver bundles) and the polkitd/dbus daemons are installed in the
+builder to satisfy dependencies but never extracted: nothing links
+them, and no USB driver may be visible to pcscd. The p11-kit PKCS#11
+build header has a permissive unrestricted-copy notice and the
+libpcsclite headers ship under their package copyright; both
+headers' notices are retained. libp11-kit itself is not linked.
+
+Observed closure license flags requiring review before any
+distribution: AGPL-3.0 in the emulator and SDK sources,
+GPL-3.0-or-later in the vpcd handler, LGPL terms in the glib
+stack, and GPL-2.0-or-later dual-license options in mbedTLS
+sources. Provider LGPL licensing alone does not clear the image.
+Corresponding-source, notice and source-access obligations for
+the actual extracted set are incomplete; no source companion is
+delivered here. Build-only package presence in the lock does not
+mean its contents ship; the extraction manifest identifies runtime
+bytes exactly.
+
+POLICY: local candidate only. Actual-layer licensing, generated
+content, source companions, distributor source access and
+digest-bound delivery are incomplete. Distribution remains
+BLOCKED. Consumer, checker, proxy and datasets are separately
+assessed artifacts. No push, external cache export, tag, release
+or publication is authorized here.

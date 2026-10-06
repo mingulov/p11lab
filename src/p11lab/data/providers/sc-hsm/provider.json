@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "id": "sc-hsm",
+  "module_implementation": {
+    "name": "CardContact sc-hsm-embedded"
+  },
+  "backend": {
+    "name": "pico-hsm firmware emulator",
+    "simulated": true
+  },
+  "runtime_platforms": [
+    "linux/amd64"
+  ],
+  "client_platforms": [
+    "linux/amd64"
+  ],
+  "state_mode": "persistent",
+  "module_path": "/usr/local/lib/p11lab/libsc-hsm-pkcs11.so",
+  "inputs": {
+    "P11LAB_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_SO_PIN_FILE": {
+      "secret": true,
+      "required": false
+    },
+    "P11LAB_LABEL": {
+      "secret": false,
+      "required": false,
+      "default": "SmartCard-HSM"
+    }
+  },
+  "services": [
+    "pico-hsm",
+    "pcscd",
+    "vpcd"
+  ],
+  "channels": {
+    "rolling": {
+      "status": "locked",
+      "lock": "rolling.lock.json"
+    },
+    "release": {
+      "status": "locked",
+      "lock": "release.lock.json"
+    }
+  },
+  "application_profile": "general-token",
+  "distribution": {
+    "status": "blocked",
+    "reason": "Local emulator candidate. Observed closure flags (AGPL-3.0 emulator and SDK, GPL-3.0 vpcd handler, LGPL glib, GPL-2.0-or-later dual-license options in mbedTLS sources), actual-layer/generated-content review and digest-bound source-companion delivery remain incomplete; checker/consumer/proxy admission is separate."
+  },
+  "constraints": [
+    "Linux amd64/glibc, pico-hsm emulator only. Real SmartCard-HSM hardware, other readers, other backends, FIPS claims and other architectures/libcs are excluded. This qualifies libsc-hsm-pkcs11 against pico-hsm, never real HSM hardware.",
+    "Both channels source-build unpatched sc-hsm-embedded (release V2.12, rolling master ae01b29d) with explicit --enable-libcrypto and system OpenSSL 3.5.7 libcrypto.so.3; no legacy provider and no from-source OpenSSL. The pico-hsm backend pin (v6.6 plus pico-keys-sdk, mbedTLS v3.6.6, framework, mlkem and tinycbor) and the vsmartcard pin (virtualsmartcard-0.11) are shared across channels with two patches (SDK build-freeze; pico-hsm bare terminal-CA CVC in EF_TERMCA); upstream PKCS#11 semantics are unchanged.",
+    "Basic runtime has the module, the pico-hsm emulator, the ifd-vpcd handler with its generated reader.conf entry, pcscd, base libraries and the exact extracted closure (6 whole packages, audited with ldd receipts). The openssl CLI, USB CCID drivers, the polkitd/dbus daemons, pkcs11-tool, opensc-tool, sc-hsm-tool, opensc-pkcs11.so, Python, checker, datasets and tracing are excluded; nothing links them.",
+    "The caller UID may be root or non-root with any primary group; both are qualified. No NSS wrapper or fixed group is required.",
+    "Bind writable /var/lib/p11lab; a private ephemeral /run/p11lab is required. /run/pcscd is an in-image symlink into the control tmpfs so the fixed daemon socket path works without a caller mount. Never share /run with another runtime. Each shard/client owns a separate volume, container, daemons and network namespace (the emulator and vpcd use the fixed loopback port 35963). Logs and pid state live under /run; the flash, lease and marker persist under /var/lib/p11lab/sc-hsm.",
+    "The emulator self-fabricates its 8 MiB flash in the owned state directory on first init; later operations resume it. First init initializes the fresh flash with the caller PINs over in-process native INITIALIZE and generates three on-card keys (P-256 id 01, RSA-2048 id 02, P-384 id 03); INITIALIZE is never re-run because it silently resets the token. Repeated init validates state and checks readiness like health, without consuming credentials.",
+    "Caller user PIN is 6..16 bytes single-line and caller SO-PIN is exactly 16 hexadecimal characters; both are required at first init only. No baked caller credentials or initialized flash ship. The token label stays the firmware default SmartCard-HSM; the module fixes it natively with no relabel path.",
+    "The token label is fixed natively as SmartCard-HSM at slot 1, token-present index 0; P11LAB_LABEL defaults to it and any other value is refused. SO login verifies shape eagerly (16 hex) and value only at SO-gated operations; the user PIN has a 3-try budget (two 0xa0 then 0xa4) and SO unblock via C_InitPIN restores it with a digit-only SO-PIN (letter SO-PINs hit an upstream parseSOPIN defect and fail 0xa0). Session objects are natively rejected (0xd1); only token objects persist.",
+    "init/health/exec supervise pcscd plus the emulator for that operation only: subreaper adoption, volume/control leases, socket plus reader-with-card plus ATR-match plus native pre-login token readiness, daemon-death detection, signal forwarding, bounded logs and bounded terminate/kill/reap. exec retains both services for the complete application lifetime and preserves argv/status.",
+    "Provisioning uses only in-process native INITIALIZE APDUs with caller secrets in process memory (no child tool prompts, so no pty) plus in-process PKCS#11 keygen. The provision log carries only fixed native status words. A card that cannot present the frozen ATR is refused before any PKCS#11 call.",
+    "Unknown/hidden entries, unsafe links/hardlinks/modes/sizes, changed non-secret configuration, stale daemon debris, missing flash and busy state are refused before native open. Failures retain partial state for investigation.",
+    "The general-token profile is retained after native on-card keygen plus P-256 independent verification and altered-message rejection in existing mode in both channels; session objects, SO-gated operations with letter SO-PINs, wider mechanisms, multi-client concurrency, other readers/backends and provider-wide qualification are not asserted.",
+    "All runtime/consumer/checker/proxy artifacts remain blocked for distribution. Preserve exact provider sources, the 8-repository closure, Debian closure sources/notices and generated build inputs; source admission, public delivery and publication are separate gates."
+  ]
+}

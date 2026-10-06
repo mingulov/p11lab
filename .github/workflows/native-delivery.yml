@@ -1,0 +1,581 @@
+# SPDX-License-Identifier: Apache-2.0
+# Native-bundle source-first delivery for catalogue-packaged native targets
+# (softhsm2/debian13-amd64 today; the seal step fails closed for unpackaged
+# targets with the catalogue reason). Dispatch-only. Sequence: seal native
+# inputs (upstream archives fetched and hash-verified against the target
+# lock) -> publish the sealed source -> read it back anonymously -> build the
+# exact bundle from the frozen parent and test install/run in a pinned
+# Debian container -> admit -> expose the bundle (verdict-gated) -> finalize
+# the handoff. Native acquisition and installation never require Docker on
+# the consumer side; Docker here is build/test tooling only.
+name: native-delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Catalogue environment ID.'
+        required: true
+        default: 'softhsm2'
+      channel:
+        description: 'Locked channel: release or rolling.'
+        required: true
+        default: 'release'
+      registry:
+        description: 'Registry package for delivery artifacts.'
+        required: true
+        default: 'ghcr.io/mingulov/p11lab'
+      parent:
+        description: 'Frozen native parent image digest reference (no default; fail closed).'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-delivery-${{ inputs.environment }}-${{ inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  seal-build-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.10'
+
+      - name: Install P11Lab and build the producer wheel
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install .
+          python -m pip wheel --no-deps --wheel-dir dist-wheel .
+          sha256sum dist-wheel/* > wheel.sha256
+          cat wheel.sha256
+          python --version
+          docker version --format '{{.Server.Version}}'
+          echo "ImageVersion=$ImageVersion"
+
+      - name: Seal native inputs
+        shell: bash
+        run: |
+          set -eu
+          p11lab publish seal-native "${{ inputs.environment }}" --channel "${{ inputs.channel }}" \
+            --target debian13-amd64 --output-dir seal-out
+
+      - name: Acquire and verify the frozen parent
+        shell: bash
+        run: |
+          set -eu
+          docker pull "${{ inputs.parent }}"
+          docker image inspect "${{ inputs.parent }}" --format '{{.Id}}' > parent-id.txt
+          python -c '
+          import json
+          from p11lab.catalog import load_native_target
+          lock = load_native_target("${{ inputs.environment }}", "${{ inputs.channel }}", "debian13-amd64")["native_lock"]
+          actual = open("parent-id.txt").read().strip()
+          assert actual == lock["parent"]["reference"], (actual, lock["parent"]["reference"])
+          print("parent ok:", actual)
+          '
+
+      - name: Build the exact native bundle
+        shell: bash
+        run: |
+          set -eu
+          p11lab build "${{ inputs.environment }}" --channel "${{ inputs.channel }}" \
+            --role native --output-dir native-out
+          python -c 'import json; print(json.load(open("native-out/artifact.json"))["artifact"])'
+
+      - name: Test install and run in a pinned Debian container
+        shell: bash
+        run: |
+          set -eu
+          DEBIAN_DIGEST="sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a"
+          docker pull "debian:trixie-slim@$DEBIAN_DIGEST"
+          printf '1234' > pin
+          printf '12345678' > so-pin
+          chmod 600 pin so-pin
+          BUNDLE_SHA=$(python -c 'import json; print(json.load(open("native-out/artifact.json"))["artifact"]["sha256"])')
+          docker run --rm --network default \
+            --mount "type=bind,src=$PWD,dst=/io" \
+            "debian:trixie-slim@$DEBIAN_DIGEST" \
+            bash -c '
+              set -eu
+              # Frozen package universe: same snapshot the provider locks
+              # record (apt_snapshot) and the same .sources shape
+              # src/p11lab/build.py generates for provider images.
+              # printf lines: a heredoc would carry YAML indentation into
+              # the file and break DEB822 parsing.
+              SNAP=/etc/apt/sources.list.d/p11lab-snapshot.sources
+              printf "%s\n" "Types: deb deb-src" \
+                "URIs: http://snapshot.debian.org/archive/debian/20260918T000000Z/" \
+                "Suites: trixie trixie-updates" "Components: main" \
+                "Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp" \
+                "Check-Valid-Until: no" "" "Types: deb deb-src" \
+                "URIs: http://snapshot.debian.org/archive/debian-security/20260918T000000Z/" \
+                "Suites: trixie-security" "Components: main" \
+                "Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp" \
+                "Check-Valid-Until: no" > "$SNAP"
+              rm -f /etc/apt/sources.list.d/debian.sources
+              apt-get update -qq
+              apt-get install -y -qq --no-install-recommends python3 python3-pip libc6 libstdc++6 libgcc-s1 libssl3t64 zlib1g libzstd1 dash coreutils findutils mawk
+              dpkg-query -W -f=\${Package}\\t\${Version}\\t\${Architecture}\\n libc6 libstdc++6 libgcc-s1 libssl3t64 zlib1g libzstd1 dash coreutils findutils mawk
+              python3 -m pip install --break-system-packages /io/dist-wheel/*.whl
+              BUNDLE=$(ls /io/native-out/*.tar.gz)
+              test "$(sha256sum "$BUNDLE" | cut -d" " -f1)" = "'"$BUNDLE_SHA"'"
+              p11lab install "${{ inputs.environment }}" --channel "${{ inputs.channel }}" --platform linux/amd64 \
+                --artifact "$BUNDLE" --sha256 "'"$BUNDLE_SHA"'" --prefix /tmp/prefix
+              mkdir -p /tmp/caller
+              p11lab run "${{ inputs.environment }}" --channel "${{ inputs.channel }}" --mode native \
+                --installed-prefix /tmp/prefix --cwd /tmp/caller \
+                --input "P11LAB_PIN_FILE=/io/pin" --input "P11LAB_SO_PIN_FILE=/io/so-pin" \
+                --output-dir /tmp/lifecycle-run -- true
+              p11lab run "${{ inputs.environment }}" --channel "${{ inputs.channel }}" --mode native \
+                --installed-prefix /tmp/prefix --cwd /tmp/caller \
+                --input "P11LAB_PIN_FILE=/io/pin" --input "P11LAB_SO_PIN_FILE=/io/so-pin" \
+                --output-dir /tmp/slots-run -- /tmp/prefix/payload/bin/softhsm2-util \
+                --module /tmp/prefix/payload/lib/libsofthsm2.so --show-slots
+              grep -q "P11Lab" /tmp/slots-run/application.stdout.log
+              '
+          echo "native lifecycle test passed"
+
+      - name: Stage job transport
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p staging/seal-out staging/native-out staging/meta staging/dist-wheel
+          cp seal-out/sealed-source.tar.gz seal-out/sealed-source.json staging/seal-out/
+          cp native-out/artifact.json native-out/manifest.json staging/native-out/
+          cp native-out/*.tar.gz staging/native-out/
+          cp wheel.sha256 staging/meta/
+          cp dist-wheel/*.whl staging/dist-wheel/
+          tar -czf transport-build.tar.gz -C staging .
+
+      - name: Upload job transport (short-lived; registry is the durable record)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-delivery-build
+          retention-days: 1
+          path: transport-build.tar.gz
+
+  publish-source:
+    needs: seal-build-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.10'
+
+      - name: Install P11Lab and pinned ORAS
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install .
+          bash src/p11lab/data/delivery/install-oras.sh --output-dir "$RUNNER_TEMP/p11lab-oras"
+          echo "$RUNNER_TEMP/p11lab-oras" >> "$GITHUB_PATH"
+          echo "P11LAB_ORAS=$RUNNER_TEMP/p11lab-oras/oras" >> "$GITHUB_ENV"
+
+      - name: Download job transport
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: native-delivery-build
+          path: transport-dl
+
+      - name: Unpack job transport
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p transport
+          tar -xzf transport-dl/transport-build.tar.gz -C transport
+          find transport | sort | head -30
+
+      - name: Verify the seal before publishing
+        shell: bash
+        working-directory: transport
+        run: |
+          set -eu
+          python -c '
+          import json
+          from p11lab.publish import artifact_tag, verify_sealed_archive
+          manifest = verify_sealed_archive("seal-out/sealed-source.tar.gz", "seal-check")
+          assert (manifest["environment"], manifest["channel"]) == ("${{ inputs.environment }}", "${{ inputs.channel }}"), manifest
+          receipt = json.load(open("seal-out/sealed-source.json"))
+          tag = artifact_tag("src", receipt["environment"], receipt["channel"], receipt["archive_sha256"])
+          open("src-tag.txt", "w").write(tag + "\n")
+          print(tag, receipt["archive_sha256"])
+          '
+
+      - name: Publish the sealed source
+        shell: bash
+        working-directory: transport
+        run: |
+          set -eu
+          echo "${{ secrets.GITHUB_TOKEN }}" | "$P11LAB_ORAS" login "$(echo '${{ inputs.registry }}' | cut -d/ -f1)" --username "${{ github.actor }}" --password-stdin
+          cd seal-out
+          "$P11LAB_ORAS" push --artifact-type application/vnd.p11lab.sealed-source.v1 \
+            --format json --export-manifest ../pushed-src-manifest.json \
+            "${{ inputs.registry }}:$(cat ../src-tag.txt)" \
+            sealed-source.tar.gz sealed-source.json | tee ../pushed-src.json
+
+      - name: Pack the sealed receipt for readback
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p seal-stage/seal-out
+          cp transport/seal-out/sealed-source.json seal-stage/seal-out/
+          cp transport/pushed-src.json transport/pushed-src-manifest.json seal-stage/
+          tar -czf transport-seal.tar.gz -C seal-stage .
+
+      - name: Upload the sealed receipt for readback
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-delivery-seal
+          retention-days: 1
+          path: transport-seal.tar.gz
+
+  readback:
+    needs: publish-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: none
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.10'
+
+      - name: Install P11Lab and pinned ORAS
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install .
+          bash src/p11lab/data/delivery/install-oras.sh --output-dir "$RUNNER_TEMP/p11lab-oras"
+          echo "P11LAB_ORAS=$RUNNER_TEMP/p11lab-oras/oras" >> "$GITHUB_ENV"
+
+      - name: Download job transport
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: native-delivery-seal
+          path: transport-dl
+
+      - name: Unpack job transport
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p transport
+          tar -xzf transport-dl/transport-seal.tar.gz -C transport
+          find transport | sort | head -30
+
+      - name: Pull the sealed source anonymously
+        shell: bash
+        run: |
+          set -eu
+          MANIFEST_DIGEST=$(python -c 'import json; print(json.load(open("transport/pushed-src.json"))["digest"])')
+          echo "manifest=$MANIFEST_DIGEST"
+          mkdir -p "$RUNNER_TEMP/anon/home" "$RUNNER_TEMP/anon/xdg" pulled
+          printf '{"auths":{}}\n' > "$RUNNER_TEMP/anon/auth.json"
+          {
+            echo "=== empty credential state ==="
+            ls -la "$RUNNER_TEMP/anon"
+            echo "=== anonymous pull by manifest digest ==="
+            env -i "PATH=/usr/bin:/bin" "HOME=$RUNNER_TEMP/anon/home" "XDG_CONFIG_HOME=$RUNNER_TEMP/anon/xdg" \
+              "$P11LAB_ORAS" pull --registry-config "$RUNNER_TEMP/anon/auth.json" --no-tty \
+              -o "$PWD/pulled" "${{ inputs.registry }}@$MANIFEST_DIGEST"
+            echo "=== pulled ==="
+            ls -la pulled
+          } 2>&1 | tee readback-transcript.log
+
+      - name: Verify the readback byte for byte
+        shell: bash
+        run: |
+          set -eu
+          p11lab publish verify-readback --sealed-receipt transport/seal-out/sealed-source.json \
+            --pulled-dir pulled --transcript readback-transcript.log --extract-dir readback/extract
+
+      - name: Pack the readback proof
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p readback-stage
+          cp -r readback readback-transcript.log readback-stage/
+          cp transport/pushed-src.json transport/pushed-src-manifest.json readback-stage/
+          tar -czf transport-readback.tar.gz -C readback-stage .
+
+      - name: Upload the readback proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-delivery-readback
+          retention-days: 1
+          path: transport-readback.tar.gz
+
+  admit:
+    needs: [seal-build-test, readback]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      status: ${{ steps.gate.outputs.status }}
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.10'
+
+      - name: Install P11Lab
+        shell: bash
+        run: python -m pip install .
+
+      - name: Download job transports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: native-delivery-build
+          path: build-dl
+
+      - name: Download the readback proof
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: native-delivery-readback
+          path: readback-dl
+
+      - name: Unpack job transports
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p build-transport readback-transport
+          tar -xzf build-dl/transport-build.tar.gz -C build-transport
+          tar -xzf readback-dl/transport-readback.tar.gz -C readback-transport
+          find build-transport readback-transport | sort | head -40
+
+      - name: Run the delivery gate
+        id: gate
+        shell: bash
+        run: |
+          set -eu -o pipefail
+          BUNDLE=$(ls build-transport/native-out/*.tar.gz)
+          BIN_SHA=$(python -c 'import json; print(json.load(open("build-transport/native-out/artifact.json"))["artifact"]["sha256"])')
+          test "$(sha256sum "$BUNDLE" | cut -d' ' -f1)" = "$BIN_SHA"
+          WHEEL_SHA=$(cut -d' ' -f1 build-transport/meta/wheel.sha256)
+          SRC_MANIFEST_DIGEST=$(python -c 'import json; print(json.load(open("readback-transport/pushed-src.json"))["digest"].removeprefix("sha256:"))')
+          p11lab publish check-inputs "${{ inputs.environment }}" --channel "${{ inputs.channel }}" \
+            --sealed-manifest readback-transport/readback/extract/sealed.json \
+            --build-receipt build-transport/native-out/artifact.json \
+            --manifest build-transport/native-out/manifest.json
+          set +e
+          p11lab publish admit "${{ inputs.environment }}" --channel "${{ inputs.channel }}" \
+            --sealed-receipt build-transport/seal-out/sealed-source.json \
+            --sealed-manifest readback-transport/readback/extract/sealed.json \
+            --readback-proof readback-transport/readback/readback-proof.json \
+            --build-receipt build-transport/native-out/artifact.json \
+            --manifest build-transport/native-out/manifest.json \
+            --artifact-kind bundle --artifact-reference "$BUNDLE" --artifact-digest "$BIN_SHA" \
+            --registry "${{ inputs.registry }}" --output-dir admission-out \
+            --producer-wheel-sha256 "$WHEEL_SHA" \
+            --source-manifest-digest "$SRC_MANIFEST_DIGEST" \
+            --source-manifest readback-transport/pushed-src-manifest.json | tee admit.json
+          code=$?
+          set -e
+          if [ -f admission-out/verdict.json ]; then
+            echo "status=$(python -c "import json; print(json.load(open('admission-out/verdict.json'))['status'])")" >> "$GITHUB_OUTPUT"
+            cat admission-out/verdict.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "status=crashed" >> "$GITHUB_OUTPUT"
+            echo "admit produced no verdict" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$code"
+
+      - name: Pack the admission record
+        if: always()
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p admit-stage
+          cp -r admission-out admit-stage/ 2>/dev/null || mkdir -p admit-stage/admission-out
+          tar -czf transport-admission.tar.gz -C admit-stage .
+
+      - name: Upload the admission record
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-delivery-admission
+          retention-days: 1
+          path: transport-admission.tar.gz
+
+  expose-binary:
+    needs: admit
+    if: needs.admit.outputs.status == 'eligible'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      pushed-digest: ${{ steps.push.outputs['pushed-digest'] }}
+      pushed-tag: ${{ steps.push.outputs['pushed-tag'] }}
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.10'
+
+      - name: Install P11Lab and pinned ORAS
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install .
+          bash src/p11lab/data/delivery/install-oras.sh --output-dir "$RUNNER_TEMP/p11lab-oras"
+          echo "$RUNNER_TEMP/p11lab-oras" >> "$GITHUB_PATH"
+          echo "P11LAB_ORAS=$RUNNER_TEMP/p11lab-oras/oras" >> "$GITHUB_ENV"
+
+      - name: Download job transport
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: native-delivery-build
+          path: build-dl
+
+      - name: Unpack job transport
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p build-transport
+          tar -xzf build-dl/transport-build.tar.gz -C build-transport
+          find build-transport | sort | head -40
+
+      - name: Push the admitted bundle and read it back anonymously
+        id: push
+        shell: bash
+        run: |
+          set -eu
+          cd build-transport
+          BUNDLE=$(ls native-out/*.tar.gz)
+          BIN_SHA=$(python -c 'import json; print(json.load(open("native-out/artifact.json"))["artifact"]["sha256"])')
+          TARGET=$(python -c 'import json; print(json.load(open("native-out/manifest.json"))["target"])')
+          test "$(sha256sum "$BUNDLE" | cut -d' ' -f1)" = "$BIN_SHA"
+          NATIVE_TAG=$(python -c "from p11lab.publish import artifact_tag; print(artifact_tag('native', '${{ inputs.environment }}', '${{ inputs.channel }}', '$BIN_SHA', '$TARGET'))")
+          echo "${{ secrets.GITHUB_TOKEN }}" | "$P11LAB_ORAS" login "$(echo '${{ inputs.registry }}' | cut -d/ -f1)" --username "${{ github.actor }}" --password-stdin
+          PUSHED=$(cd native-out && "$P11LAB_ORAS" push --artifact-type application/vnd.p11lab.native-bundle.v1 \
+            --format json "${{ inputs.registry }}:$NATIVE_TAG" "$(basename "$BUNDLE")" | tee ../pushed-native.json | \
+            python -c 'import json,sys; print(json.load(sys.stdin)["digest"])')
+          # The manifest digest differs from the file digest; the file bytes
+          # are verified after the anonymous pull below.
+          echo "pushed-tag=$NATIVE_TAG" >> "$GITHUB_OUTPUT"
+          echo "pushed-digest=$PUSHED" >> "$GITHUB_OUTPUT"
+          "$P11LAB_ORAS" logout "$(echo '${{ inputs.registry }}' | cut -d/ -f1)"
+          mkdir -p "$RUNNER_TEMP/anon/home" pulled-bundle
+          printf '{"auths":{}}\n' > "$RUNNER_TEMP/anon/auth.json"
+          {
+            echo "=== empty credential state ==="
+            ls -la "$RUNNER_TEMP/anon"
+            echo "=== anonymous bundle pull ==="
+            env -i "PATH=/usr/bin:/bin" "HOME=$RUNNER_TEMP/anon/home" \
+              "$P11LAB_ORAS" pull --registry-config "$RUNNER_TEMP/anon/auth.json" --no-tty \
+              -o "$PWD/pulled-bundle" "${{ inputs.registry }}@$PUSHED"
+            ls -la pulled-bundle
+          } 2>&1 | tee ../binary-readback-transcript.log
+          test "$(sha256sum pulled-bundle/*.tar.gz | cut -d' ' -f1)" = "$BIN_SHA"
+          mv pulled-bundle/*.tar.gz ../pulled-bundle.tar.gz
+
+      - name: Pack the exposure evidence
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p exposure-stage
+          cp build-transport/pushed-native.json pulled-bundle.tar.gz binary-readback-transcript.log exposure-stage/
+          tar -czf transport-exposure.tar.gz -C exposure-stage .
+
+      - name: Upload the exposure evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-delivery-exposure
+          retention-days: 1
+          path: transport-exposure.tar.gz
+
+  finalize-handoff:
+    needs: [admit, expose-binary]
+    # Defense in depth: the admit job already exits nonzero on a blocked
+    # verdict, but the handoff push must never run without eligibility.
+    if: needs.admit.outputs.status == 'eligible'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout P11Lab
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.10'
+
+      - name: Install P11Lab and pinned ORAS
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install .
+          bash src/p11lab/data/delivery/install-oras.sh --output-dir "$RUNNER_TEMP/p11lab-oras"
+          echo "P11LAB_ORAS=$RUNNER_TEMP/p11lab-oras/oras" >> "$GITHUB_ENV"
+
+      - name: Download the admission record
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: native-delivery-admission
+          path: admit-dl
+
+      - name: Download the exposure evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: native-delivery-exposure
+          path: exposure-dl
+
+      - name: Unpack job transports
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p admit-transport exposure-transport
+          tar -xzf admit-dl/transport-admission.tar.gz -C admit-transport
+          tar -xzf exposure-dl/transport-exposure.tar.gz -C exposure-transport
+          find admit-transport exposure-transport | sort | head -40
+
+      - name: Write and publish the handoff
+        shell: bash
+        run: |
+          set -eu
+          PUSHED_DIGEST="${{ needs['expose-binary'].outputs['pushed-digest'] }}"
+          PUSHED_TAG="${{ needs['expose-binary'].outputs['pushed-tag'] }}"
+          PUSHED_SIZE=$(stat -c%s exposure-transport/pulled-bundle.tar.gz)
+          p11lab publish expose --admission admit-transport/admission-out/admission.json \
+            --pushed-digest "${PUSHED_DIGEST#sha256:}" --pushed-tag "$PUSHED_TAG" --pushed-size "$PUSHED_SIZE" \
+            --pulled-bundle exposure-transport/pulled-bundle.tar.gz \
+            --registry "${{ inputs.registry }}" --output-dir handoff-out
+          HANDOFF_SHA=$(sha256sum handoff-out/handoff.json | cut -d' ' -f1)
+          HANDOFF_TAG=$(python -c "from p11lab.publish import artifact_tag; print(artifact_tag('handoff', '${{ inputs.environment }}', '${{ inputs.channel }}', '$HANDOFF_SHA'))")
+          echo "${{ secrets.GITHUB_TOKEN }}" | "$P11LAB_ORAS" login "$(echo '${{ inputs.registry }}' | cut -d/ -f1)" --username "${{ github.actor }}" --password-stdin
+          cd handoff-out
+          "$P11LAB_ORAS" push --artifact-type application/vnd.p11lab.handoff.v1 \
+            --format json "${{ inputs.registry }}:$HANDOFF_TAG" handoff.json | tee ../pushed-handoff.json
+          echo "## Handoff" >> "$GITHUB_STEP_SUMMARY"
+          echo "tag: \`$HANDOFF_TAG\`, bundle: \`$PUSHED_TAG\`" >> "$GITHUB_STEP_SUMMARY"
