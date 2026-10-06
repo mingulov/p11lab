@@ -821,7 +821,7 @@ def test_bouncy_completed_failure_keeps_status_after_post_health_failure(
         + bouncy_installed.manifest_sha256
         + "\nlabel=P11Lab\nslot=1\nbackend=litedb\n"
     )
-    (state / "bouncyhsm" / "complete").write_text(marker)
+    (state / "bouncyhsm" / "complete").write_bytes(marker.encode())
     (state / "bouncyhsm" / "BouncyHsm.db").write_bytes(b"db")
     result = run_native_bouncyhsm(run, bouncy_installed)
     assert result.exit_code == 9
@@ -903,7 +903,7 @@ def test_bouncy_static_refusal_precedes_server_open(tmp_path, bouncy_installed, 
     state = tmp_path / 'state'
     owned = state / 'bouncyhsm'
     owned.mkdir(parents=True)
-    (owned / 'complete').write_text(_bouncy_marker(bouncy_installed.manifest_sha256, 'P11Lab', 1))
+    (owned / 'complete').write_bytes(_bouncy_marker(bouncy_installed.manifest_sha256, 'P11Lab', 1).encode())
     (owned / 'BouncyHsm.db').write_bytes(b'original-db')
     outside = tmp_path / 'outside'
     outside.write_bytes(b'untouched')
@@ -968,7 +968,7 @@ def test_bouncy_probe_counts_must_match_live_token(tmp_path, bouncy_installed, m
     state = tmp_path / 'state'
     owned = state / 'bouncyhsm'
     owned.mkdir(parents=True)
-    (owned / 'complete').write_text(_bouncy_marker(bouncy_installed.manifest_sha256, 'P11Lab', 1))
+    (owned / 'complete').write_bytes(_bouncy_marker(bouncy_installed.manifest_sha256, 'P11Lab', 1).encode())
     (owned / 'BouncyHsm.db').write_bytes(b'db')
     spec = replace(bouncy_spec(tmp_path), artifact=bouncy_installed.artifact,
                    argv=(sys.executable, '-c', 'pass'), inputs={'P11LAB_STATE_DIR': str(state)})
@@ -1141,3 +1141,17 @@ def test_native_application_reaps_escaped_descendants(tmp_path, request, monkeyp
     finally:
         if pidfile.exists() and alive(int(pidfile.read_text())):
             os.kill(int(pidfile.read_text()), signal.SIGKILL)
+
+
+def test_complete_markers_are_written_bytes_exact():
+    """Byte-exact markers must never go through text-mode writes.
+
+    The static-state reader requires LF-only bytes; Path.write_text would
+    translate LF to CRLF on Windows and every such fixture would fail there
+    while staying green on Linux (windows-native-bouncyhsm runs 37362207937,
+    37372395400, 37387257615). Production writes bytes; fixtures must too.
+    """
+    text = Path(__file__).read_text()
+    for quote in ("'", '"'):
+        needle = "complete')".replace("'", quote) + ".write" + "_text"
+        assert needle not in text, needle
