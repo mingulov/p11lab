@@ -101,6 +101,16 @@ the token; SoftHSM assigns its native slot ID. A consumer's token-present slot
 
 The adapter uses private permissions (`umask 077`). State is a local file store;
 ordinary process exit/finalization is shutdown. There is no background service.
+Before owned initialization cleanup, handled HUP, INT and TERM exit with status
+129, 130 and 143 and do not resume marker publication. Shell traps may wait until a
+foreground utility returns; signaling only this adapter does not promptly cancel
+or forward the signal to a blocked native child. Exit cleanup attempts both the
+owned lock and control temporaries even if a stop arrives, preserving an existing
+failure. Otherwise, the first observed cleanup failure or stop supplies the exit
+status. Cleanup failure makes an otherwise-successful init nonzero, without rolling
+back token state or an already-published marker. Partial state is retained, not
+retried.
+
 Remove an owned installation prefix explicitly after applications exit, retaining
 external token state. Reset only an explicitly disposable state directory after
 applications exit. This release provides no upgrade or garbage collection service.

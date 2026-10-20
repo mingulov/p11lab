@@ -68,6 +68,20 @@ label (`P11Lab` by default), and verifies initialization before reaching the
 application. Native slot IDs and consumer slot indices are different values.
 No module becomes remotely loadable by placing containers on a shared network.
 
+Before SoftHSM initialization cleanup, handled HUP, INT and TERM stop the adapter
+with status 129, 130 and 143 respectively, without resuming marker publication.
+The shell may defer its trap until a foreground utility returns; signaling
+only the adapter does not promise prompt cancellation of a blocked native child.
+The adapter does not forward these signals to that child. Owned exit cleanup
+attempts both lock and control-temporary removal even if a stop arrives, preserving
+an existing failure status. Otherwise, the first observed cleanup failure or
+stop supplies the exit status. A cleanup failure makes otherwise-successful
+initialization nonzero; provider state and any already-published completion marker
+are not rolled back.
+Diagnostic write failures do not replace native failure statuses. Partial token
+state, including an unpromoted completion temporary, is retained for explicit
+inspection, not automatically reset or retried.
+
 Containers explicitly use the invoking caller's UID/GID, no Linux capabilities,
 no network, a read-only root filesystem and
 `no-new-privileges`. Writes are limited to token state, `/run/p11lab`, `/tmp`, the
