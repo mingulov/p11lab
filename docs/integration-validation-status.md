@@ -55,10 +55,16 @@ updates need their own evidence.
 - [#6: SoftHSM2 initialization outcomes](https://github.com/mingulov/p11lab/pull/6)
   ([c1fbe90d](https://github.com/mingulov/p11lab/commit/c1fbe90df29d4a68f582b7c84e2f854a4bac47d4)):
   preserve native/signal failures and cleanup ownership in container and native
-  adapters. Exact identity/marker bytes and traversal/type hardening remain
-  separate work.
+  adapters. Identity/marker bytes are addressed separately by #8.
+- [#8: SoftHSM2 identity and marker bytes](https://github.com/mingulov/p11lab/pull/8)
+  ([e3b6dcc2](https://github.com/mingulov/p11lab/commit/e3b6dcc252468a9d6f533038b03a763b5a37fb2f)),
+  stacked on unmerged #6: enforce existing byte-exact identity and completion
+  marker contracts in both adapters. Its full local run recorded **2016 passed,
+  1000 skipped, 3 known failures**; independent review repeated all **1028 adapter
+  cases** plus 64 boundary probes. These tests substitute native tools; runtime
+  remains unqualified.
 
-The local unfiltered suites for #1, #3 and #6 still report three known failures:
+The local unfiltered suites for #1, #3, #6 and #8 report the same three failures:
 the stale proxy expectation addressed separately by #2 and two local sandbox
 AF_UNIX restrictions. Both socket cases pass in #4's hosted run. That hosted
 result does not cover the other open branches. Existing opt-in runtime skips
@@ -90,8 +96,9 @@ is not qualification.
 2. Design reusable public acquisition/build operations for pinned OpenSC,
    checker/Python and proxy/native-client derivatives. Current packaged
    Dockerfiles accept preacquired sealed inputs; they are not those public APIs.
-3. Address SoftHSM2 marker/identity and traversal/type boundaries in separate,
-   reviewed changes without assuming a fixed layout for opaque provider state.
+3. Address remaining SoftHSM2 traversal/type boundaries without assuming a fixed
+   layout for opaque provider state. Foreground-child cancellation remains a
+   separate design question; neither is covered by #6 or #8.
 4. Review source redistribution eligibility **before upload**, complete companion
    identity and actual-content admission. Repository naming by artifact role and
    a versioned handoff contract also remain design decisions, not approved
