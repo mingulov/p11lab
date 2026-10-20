@@ -24,7 +24,6 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       UV_PYTHON: '3.12.14'
       UV_PYTHON_DOWNLOADS: never
-      UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
       # Inherited by the installed-wheel test fixtures' isolated uv builds.
       UV_BUILD_CONSTRAINT: ${{ github.workspace }}/.github/requirements/linux-unit.txt
     steps:
@@ -40,6 +39,8 @@ jobs:
 
       - name: Install pinned test environment
         run: |
+          export UV_CACHE_DIR="$RUNNER_TEMP/uv-cache"
+          printf 'UV_CACHE_DIR=%s\n' "$UV_CACHE_DIR" >> "$GITHUB_ENV"
           python -m venv .venv
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
           .venv/bin/python -m pip install --disable-pip-version-check --no-deps uv==0.12.23

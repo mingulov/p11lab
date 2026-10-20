@@ -56,6 +56,10 @@ operations.
 
 ## Local reproduction
 
+When editing this workflow, run `actionlint` 1.7.12 against
+`.github/workflows/linux-unit-validation.yml` as well as the pytest contract
+tests. YAML parsing alone does not validate GitHub's expression-context rules.
+
 Use Python 3.12.14 and an isolated virtual environment. The workflow's install
 steps are the authoritative commands: install uv 0.12.23, install the pinned
 requirements without dependency resolution, then install P11Lab and the checker

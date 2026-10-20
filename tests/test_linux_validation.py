@@ -69,6 +69,35 @@ def test_linux_validation_actions_and_toolchain_are_exactly_pinned():
     assert "UV_BUILD_CONSTRAINT: ${{ github.workspace }}/.github/requirements/linux-unit.txt" in text
 
 
+def test_linux_validation_job_environment_uses_only_available_contexts():
+    # GitHub resolves job env before runner contexts become available.
+    # https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability
+    job_env = re.search(r"^    env:\n(.*?)^    steps:\n", workflow(), re.M | re.S).group(1)
+    available = {"github", "needs", "strategy", "matrix", "vars", "secrets", "inputs"}
+    for expression in re.findall(r"\$\{\{(.*?)\}\}", job_env):
+        roots = re.findall(r"(?<![\w.])([A-Za-z_]\w*)\s*[.\[]", expression)
+        assert set(roots) <= available, f"unavailable job-env context in {expression!r}"
+
+
+def test_linux_validation_cache_is_set_for_current_and_later_steps(tmp_path):
+    # Exercise the real bootstrap before environment creation/install, without
+    # downloading anything. Spaces in runner paths must remain intact.
+    bootstrap = step("Install pinned test environment").split("python -m venv", 1)[0]
+    bootstrap = textwrap.dedent(bootstrap.split("run: |\n", 1)[1])
+    environment_file = tmp_path / "github-env"
+    runner_temp = tmp_path / "runner temp"
+    result = subprocess.run(
+        ["bash", "-eo", "pipefail", "-c", bootstrap + '\nprintf "%s" "$UV_CACHE_DIR"\n'],
+        env=os.environ | {"RUNNER_TEMP": str(runner_temp), "GITHUB_ENV": str(environment_file),
+                          "UV_CACHE_DIR": "wrong inherited cache"},
+        text=True, capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    expected = str(runner_temp / "uv-cache")
+    assert result.stdout == expected
+    assert environment_file.read_text() == f"UV_CACHE_DIR={expected}\n"
+
+
 def test_linux_validation_dependencies_and_build_backend_are_closed():
     assert REQUIREMENTS.is_file(), "CI dependencies must be pinned separately"
     entries = [line for line in REQUIREMENTS.read_text().splitlines()
