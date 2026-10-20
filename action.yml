@@ -110,6 +110,17 @@ runs:
         P11LAB_ACTION_TIMEOUT: ${{ inputs.timeout }}
         P11LAB_ACTION_WORKING_DIRECTORY: ${{ inputs.working-directory }}
       run: |
+        # Reserve a private parent, leaving the wrapper's run directory absent.
+        # Forward slashes and no CRLF make the Windows path usable by Git Bash.
+        run_dir="$(python - <<'PY'
+        import os
+        import tempfile
+        from pathlib import Path
+        parent = Path(tempfile.mkdtemp(prefix="p11lab-run-", dir=os.environ["RUNNER_TEMP"]))
+        print((parent / "run").as_posix(), end="")
+        PY
+        )"
+        printf 'run-dir=%s\n' "$run_dir" >> "$GITHUB_OUTPUT"
         python "${{ github.action_path }}/src/p11lab/data/delivery/action-run.py" \
           --environment "$P11LAB_ACTION_ENVIRONMENT" \
           --channel "$P11LAB_ACTION_CHANNEL" \
@@ -122,15 +133,17 @@ runs:
           --timeout "$P11LAB_ACTION_TIMEOUT" \
           --working-directory "$GITHUB_WORKSPACE/$P11LAB_ACTION_WORKING_DIRECTORY" \
           --oras "$P11LAB_ORAS" \
-          --run-dir "$RUNNER_TEMP/p11lab-run"
+          --run-dir "$run_dir"
 
     - name: Collect receipts
       id: collect
       if: always()
       shell: bash
+      env:
+        P11LAB_ACTION_RUN_DIR: ${{ steps.run.outputs['run-dir'] }}
       run: |
-        f="$RUNNER_TEMP/p11lab-run/action-outputs.env"
-        if [ -f "$f" ]; then
+        f="$P11LAB_ACTION_RUN_DIR/action-outputs.env"
+        if [ -n "$P11LAB_ACTION_RUN_DIR" ] && [ -f "$f" ]; then
           while IFS='=' read -r k v; do
             [ -n "$k" ] || continue
             echo "$k=$v" >> "$GITHUB_OUTPUT"
