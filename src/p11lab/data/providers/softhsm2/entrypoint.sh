@@ -21,6 +21,40 @@ expected_marker() {
     [ "${#label}" -le 32 ] || p11lab_die "label exceeds 32 bytes"
     printf '%s\n' 'schema=1' 'provider=softhsm2' "artifact=$(cat /usr/share/p11lab/runtime-id)" "label=$label" 'backend=file'
 }
+init_signal() {
+    if [ "$cleaning_up" -eq 1 ]; then
+        # Finish cleanup rather than exit midway. Preserve the first observed
+        # failure, including one captured before its primary-status update.
+        if [ "$init_status" -eq 0 ]; then
+            if [ "$cleanup_status" -ne 0 ]; then
+                init_status=$cleanup_status
+            else
+                init_status=$1
+            fi
+        fi
+    else
+        exit "$1"
+    fi
+}
+cleanup_init() {
+    # Enter cleanup and capture its incoming status in one command; the signal
+    # handlers stay installed throughout rather than briefly remaining exits.
+    init_status=$? cleaning_up=1 cleanup_status=0
+    trap - EXIT
+    # Try both owned resources even if a command fails or a stop is received.
+    rmdir -- "$state/.init-lock" 2>/dev/null || {
+        cleanup_status=$?
+        if [ "$init_status" -eq 0 ]; then init_status=$cleanup_status; fi
+    }
+    rm -f -- "$control/marker.$$" "$control/init.$$" || {
+        cleanup_status=$?
+        if [ "$init_status" -eq 0 ]; then init_status=$cleanup_status; fi
+    }
+    if [ "$cleanup_status" -ne 0 ]; then
+        printf '%s\n' 'p11lab: initialization cleanup failed' >&2 || :
+    fi
+    exit "$init_status"
+}
 complete() {
     [ ! -L "$owned" ] && [ ! -L "$owned/complete" ] && [ ! -L "$owned/tokens" ] || p11lab_die "partial or unsafe state"
     [ -f "$owned/complete" ] && [ -d "$owned/tokens" ] || p11lab_die "partial state: missing completion marker or token directory"
@@ -49,7 +83,7 @@ complete() {
         ' || p11lab_die "partial state: expected initialized token is not ready"
     else
         status=$?
-        printf '%s\n' 'p11lab: native slot enumeration failed' >&2
+        printf '%s\n' 'p11lab: native slot enumeration failed' >&2 || :
         exit "$status"
     fi
 }
@@ -66,19 +100,25 @@ case "${1-}" in
         configure
         if [ -e "$owned/complete" ]; then complete; exit 0; fi
         p11lab_check_find empty "partial state: refusing to initialize nonempty volume" "$state" -mindepth 1 -maxdepth 1 -print -quit
-        expected_marker > "$control/marker.$$"
         p11lab_secret P11LAB_PIN P11LAB_PIN_FILE
         user_credential=$credential
         p11lab_secret P11LAB_SO_PIN P11LAB_SO_PIN_FILE
         mkdir "$state/.init-lock" || p11lab_die "state initialization is already in progress"
-        trap 'rmdir "$state/.init-lock" 2>/dev/null || :; rm -f "$control/marker.$$" "$control/init.$$"' EXIT HUP INT TERM
+        cleaning_up=0
+        trap cleanup_init EXIT
+        # Foreground native children may defer these traps until they return.
+        # Once handled, a stop must not resume initialization or publish complete.
+        trap 'init_signal 129' HUP
+        trap 'init_signal 130' INT
+        trap 'init_signal 143' TERM
+        expected_marker > "$control/marker.$$"
         mkdir -m 700 "$owned" "$owned/tokens"
         if softhsm2-util --module "$P11LAB_MODULE" --init-token --free --label "$label" --pin "$user_credential" --so-pin "$credential" > "$control/init.$$" 2>&1; then
             cp -- "$control/marker.$$" "$owned/.complete.$$"
             mv -- "$owned/.complete.$$" "$owned/complete"
         else
             status=$?
-            printf '%s\n' 'p11lab: native token initialization failed; partial state retained' >&2
+            printf '%s\n' 'p11lab: native token initialization failed; partial state retained' >&2 || :
             exit "$status"
         fi
         ;;
