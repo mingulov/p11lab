@@ -92,11 +92,15 @@ carry an `if: eligible` gate so a blocked run can never upload.
 - Non-eligible handoffs are refused. The application exit code propagates
   unchanged, and receipts are collected even on failure (`exit-code`,
   `app-returncode`, `receipt-path`, `handoff-sha256` outputs).
+- Each invocation gets a separate temporary directory, so multiple action
+  steps in one job do not overwrite or reuse earlier receipts. Explicitly
+  configured persistent state (such as `state-dir`) is still shared as requested.
 
 Example (Linux, direct mode):
 
 ```yaml
 - uses: mingulov/p11lab@<pinned-sha>
+  id: provider
   with:
     environment: softhsm2
     channel: release
@@ -105,7 +109,21 @@ Example (Linux, direct mode):
     inputs: |
       P11LAB_PIN_FILE=${{ github.workspace }}/pin
       P11LAB_SO_PIN_FILE=${{ github.workspace }}/so-pin
+
+- uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+  if: ${{ always() && steps.provider.outputs['receipt-path'] != '' }}
+  with:
+    name: provider-receipt
+    path: ${{ steps.provider.outputs['receipt-path'] }}
+    if-no-files-found: error
+    retention-days: 1
 ```
+
+Upload the exact `receipt-path`, not its parent directory, a temporary-root
+glob, or `RUNNER_TEMP`: these broader paths may include token state,
+credentials, provider configuration, and downloaded bundles. Give each
+invocation's receipt artifact a distinct name. Failures before application
+execution may have no receipt; collection never falls back to a prior run.
 
 Direct mode needs Linux runners with Docker; native mode needs the
 bundle's host floor instead (Debian 13 amd64, or the Windows floor for

@@ -1021,10 +1021,10 @@ def test_admit_malformed_proof_fails_as_gate_message(tmp_path):
             source_manifest_digest=manifest_digest, source_manifest_path=manifest_path)
 
 
-def _composite_run_step():
-    """Split the composite run step into env bindings and the bash body."""
+def _composite_run_step(name="Run the caller application"):
+    """Split a composite step into env bindings and the bash body."""
     lines = (ROOT / "action.yml").read_text().splitlines()
-    start = next(i for i, line in enumerate(lines) if line.strip() == "- name: Run the caller application")
+    start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {name}")
     env, body, mode = {}, [], None
     for line in lines[start + 1:]:
         if re.match(r"    - name: ", line):
@@ -1037,7 +1037,7 @@ def _composite_run_step():
             env[match.group(1)] = line.split(": ", 1)[1].strip()
         elif mode == "run" and line.startswith("        "):
             body.append(line[8:])
-    assert env and body
+    assert body
     return env, "\n".join(body) + "\n"
 
 
@@ -1085,7 +1085,7 @@ def test_composite_run_step_passes_caller_inputs_literally(tmp_path):
     bindir.joinpath("python").symlink_to(Path(sys.executable))
     env.update(PATH=str(bindir) + os.pathsep + env.get("PATH", ""),
                GITHUB_WORKSPACE=str(tmp_path / "ws"), RUNNER_TEMP=str(tmp_path),
-               P11LAB_ORAS=str(tmp_path / "oras"))
+               P11LAB_ORAS=str(tmp_path / "oras"), GITHUB_OUTPUT=str(tmp_path / "github-output"))
     completed = subprocess.run([bash, "-c", body], cwd=tmp_path, env=env,
                                capture_output=True, text=True, timeout=60)
     assert completed.returncode == 0, completed.stderr
@@ -1097,3 +1097,275 @@ def test_composite_run_step_passes_caller_inputs_literally(tmp_path):
     assert got["--inputs"] == inputs
     assert got["--working-directory"] == str(tmp_path / "ws") + "/."
     assert json.loads(got["--command"])[0] == "python"
+
+
+@pytest.mark.parametrize("second_code", [0, 37, None])
+def test_composite_repeated_runs_collect_only_their_own_receipts(tmp_path, second_code):
+    """Exercise real run/collect shells and wrapper; stub only acquisition/run.
+
+    Both calls share RUNNER_TEMP, as repeated `uses:` steps do. A failed
+    application still yields its own receipt; an acquisition failure must
+    never report the successful first call's receipt or return code.
+    """
+    import os
+    import shutil
+    import subprocess
+    import sys
+    import textwrap
+
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash required")
+    runner_temp = tmp_path / "runner temp with spaces '$(touch ALLOCATION-INJECTED)'"
+    runner_temp.mkdir()
+    work = tmp_path / "workspace"
+    work.mkdir()
+    action = tmp_path / "action"
+    stub = action / "src/p11lab/data/delivery/action-run.py"
+    stub.parent.mkdir(parents=True)
+    real_wrapper = ROOT / "src/p11lab/data/delivery/action-run.py"
+    stub.write_text(textwrap.dedent(f"""\
+        import hashlib, importlib.util, json, os, sys
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        spec = importlib.util.spec_from_file_location("action_run", {str(real_wrapper)!r})
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        bundle = b"native bundle"
+        registry = "127.0.0.1:5050/p11lab"
+        handoff = {{
+            "schema_version": 1, "registry": registry,
+            "catalogue": {{"environment": "softhsm2", "channel": "release", "runtime_role": "native"}},
+            "source": {{"manifest_sha256": "dd" * 32, "tag": "source",
+                       "reference": registry + "@sha256:" + "dd" * 32, "file_sha256": "ee" * 32}},
+            "binary": {{"kind": "bundle", "manifest_sha256": "cc" * 32, "tag": "binary",
+                       "reference": registry + "@sha256:" + "cc" * 32,
+                       "file_sha256": hashlib.sha256(bundle).hexdigest(), "platform": "linux/amd64"}},
+            "admission": {{"status": "eligible", "blockers": []}},
+            "readback": {{}}, "producer": {{}}, "exposure": {{}},
+        }}
+
+        def fake_run(argv, *, env, cwd):
+            if argv[1:4] == ["-m", "p11lab", "run"]:
+                assert "GITHUB_OUTPUT" not in env and "P11LAB_ACTION_INPUTS" not in env
+                output = Path(argv[argv.index("--output-dir") + 1])
+                output.mkdir(exist_ok=False)
+                code = int(os.environ["TEST_APP_CODE"])
+                (output / "receipt.json").write_text(json.dumps({{"app_returncode": code}}))
+                (output / "private-token-state").write_text("not an artifact")
+                return code
+            if os.environ["TEST_APP_CODE"] == "fetch-failure":
+                return 1
+            target = Path(argv[argv.index("-o") + 1])
+            if target.name == "handoff":
+                (target / "handoff.json").write_text(json.dumps(handoff))
+            else:
+                (target / "bundle.tar.gz").write_bytes(bundle)
+            return 0
+
+        module._run = fake_run
+        module.subprocess.run = lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr="")
+        sys.exit(module.main())
+        """))
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    bindir.joinpath("python").symlink_to(Path(sys.executable))
+    fixtures = {"environment": "softhsm2", "channel": "release", "mode": "native",
+                "registry": "127.0.0.1:5050/p11lab", "handoff-digest": "sha256:" + "ab" * 32,
+                "command": '["app"]', "inputs": "P11LAB_PIN_FILE=/private/pin", "state-dir": "",
+                "timeout": "300", "working-directory": "."}
+    run_bindings, run_body = _composite_run_step()
+    collect_bindings, collect_body = _composite_run_step("Collect receipts")
+    run_body = run_body.replace("${{ github.action_path }}", str(action))
+    env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ.get("PATH", ""),
+               RUNNER_TEMP=str(runner_temp), GITHUB_WORKSPACE=str(work), P11LAB_ORAS="oras",
+               PYTHONPATH=str(ROOT / "src"))
+    for var, bound in run_bindings.items():
+        match = re.fullmatch(r"\$\{\{ inputs\.([a-z-]+) \}\}", bound)
+        assert match, bound
+        env[var] = fixtures[match.group(1)]
+
+    def read_outputs(path):
+        return dict(line.split("=", 1) for line in path.read_text().splitlines())
+
+    receipts = []
+    for index, code in enumerate((0, second_code)):
+        run_output = tmp_path / f"run-output-{index}"
+        run_output.touch()
+        env.update(GITHUB_OUTPUT=str(run_output), TEST_APP_CODE=str(code) if code is not None else "fetch-failure")
+        run = subprocess.run([bash, "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", run_body],
+                             cwd=work, env=env, capture_output=True, text=True, timeout=60)
+        assert run.returncode == (1 if code is None else code), run.stderr
+        step_outputs = read_outputs(run_output)
+        for var, bound in collect_bindings.items():
+            match = re.fullmatch(r"\$\{\{ steps\.run\.outputs\['([a-z-]+)'\] \}\}", bound)
+            assert match, bound
+            env[var] = step_outputs.get(match.group(1), "")
+        collect_output = tmp_path / f"collect-output-{index}"
+        env["GITHUB_OUTPUT"] = str(collect_output)
+        collect = subprocess.run([bash, "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", collect_body],
+                                 cwd=work, env=env, capture_output=True, text=True, timeout=60)
+        assert collect.returncode == 0, collect.stderr
+        outputs = read_outputs(collect_output)
+        if code is None:
+            assert outputs == {"exit-code": "1"}
+            continue
+        assert outputs["exit-code"] == outputs["app-returncode"] == str(code)
+        assert set(outputs) == {"exit-code", "app-returncode", "receipt-path", "handoff-sha256"}
+        receipt = Path(outputs["receipt-path"])
+        assert receipt.relative_to(runner_temp).parts[-2:] == ("run-output", "receipt.json")
+        assert json.loads(receipt.read_text()) == {"app_returncode": code}
+        # Uploading this exact output selects only the receipt, never its
+        # sibling token state or the wrapper's ORAS auth/handoff/bundle tree.
+        assert receipt.is_file() and (receipt.parent / "private-token-state").is_file()
+        assert (receipt.parent.parent / "oras-auth.json").is_file()
+        assert "/private/pin" not in collect_output.read_text()
+        receipts.append(receipt)
+    assert len(set(receipts)) == len(receipts)
+    assert json.loads(receipts[0].read_text()) == {"app_returncode": 0}
+    assert not (work / "ALLOCATION-INJECTED").exists()
+
+
+def test_composite_allocation_is_atomic_and_leaves_run_directory_absent(tmp_path):
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash required")
+    _, body = _composite_run_step()
+    allocation = body.split('python "${{ github.action_path }}', 1)[0]
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    bindir.joinpath("python").symlink_to(Path(sys.executable))
+    env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ.get("PATH", ""), RUNNER_TEMP=str(tmp_path))
+    processes = []
+    for index in range(2):
+        output = tmp_path / f"allocated-{index}"
+        process = subprocess.Popen([bash, "-e", "-o", "pipefail", "-c", allocation],
+                                   env=env | {"GITHUB_OUTPUT": str(output)},
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        processes.append((process, output))
+    directories = []
+    for process, output in processes:
+        _, stderr = process.communicate(timeout=60)
+        assert process.returncode == 0, stderr
+        key, value = output.read_text().strip().split("=", 1)
+        assert key == "run-dir"
+        directory = Path(value)
+        assert directory.parent.parent == tmp_path and directory.parent.is_dir()
+        assert not directory.exists()
+        if os.name == "posix":
+            assert directory.parent.stat().st_mode & 0o777 == 0o700
+        directories.append(directory)
+    assert directories[0] != directories[1]
+
+
+def test_composite_allocation_formats_windows_path_for_git_bash(monkeypatch):
+    import contextlib
+    import tempfile
+
+    _, body = _composite_run_step()
+    match = re.search(r"python - <<'PY'\n(.+?)\nPY\n", body, re.DOTALL)
+    assert match
+    source = match.group(1)
+    # Execute the actual allocator with Windows path semantics, without
+    # claiming a native Windows/Git Bash integration run on this host.
+    source = source.replace("from pathlib import Path", "from pathlib import PureWindowsPath as Path")
+    monkeypatch.setenv("RUNNER_TEMP", r"D:\Runner temp")
+
+    def fake_mkdtemp(*, prefix, dir):
+        assert prefix == "p11lab-run-" and dir == r"D:\Runner temp"
+        return r"D:\Runner temp\p11lab-run-random"
+
+    monkeypatch.setattr(tempfile, "mkdtemp", fake_mkdtemp)
+    captured = io.BytesIO()
+    # Windows Python stdout translates a text newline to CRLF. Bash removes
+    # LF in command substitution, but a leftover CR would corrupt the path.
+    stdout = io.TextIOWrapper(captured, encoding="utf-8", newline="\r\n")
+    with contextlib.redirect_stdout(stdout):
+        exec(source, {})
+    stdout.flush()
+    assert captured.getvalue() == b"D:/Runner temp/p11lab-run-random/run"
+
+
+def test_composite_collect_after_allocation_failure_has_no_stale_receipt(tmp_path):
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash required")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    bindir.joinpath("python").symlink_to(Path(sys.executable))
+    _, run_body = _composite_run_step()
+    run_body = run_body.replace("${{ github.action_path }}", str(tmp_path / "unused-action"))
+    run_output = tmp_path / "run-output"
+    run_output.touch()
+    env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ.get("PATH", ""),
+               RUNNER_TEMP=str(tmp_path / "missing"), GITHUB_OUTPUT=str(run_output))
+    run = subprocess.run([bash, "-e", "-o", "pipefail", "-c", run_body], env=env,
+                         capture_output=True, text=True, timeout=60)
+    assert run.returncode != 0
+    assert "FileNotFoundError" in run.stderr and "unused-action" not in run.stderr
+    assert run_output.read_text() == ""
+    # A prior invocation's output cannot become the fallback when this run
+    # failed before emitting a run-dir step output.
+    stale = tmp_path / "p11lab-run/action-outputs.env"
+    stale.parent.mkdir()
+    stale.write_text("exit-code=0\nreceipt-path=stale-receipt.json\n")
+    bindings, body = _composite_run_step("Collect receipts")
+    assert "${{ steps." not in body
+    env.update(RUNNER_TEMP=str(tmp_path), GITHUB_OUTPUT=str(tmp_path / "collected"))
+    for var in bindings:
+        env[var] = ""
+    collected = subprocess.run([bash, "-e", "-o", "pipefail", "-c", body], env=env,
+                               capture_output=True, text=True, timeout=60)
+    assert collected.returncode == 0, collected.stderr
+    assert (tmp_path / "collected").read_text() == "exit-code=1\n"
+
+
+@pytest.mark.parametrize("existing_kind", ["directory", "file", "symlink"])
+def test_action_run_still_refuses_existing_run_directory(tmp_path, monkeypatch, capsys, existing_kind):
+    module = _action_run_module()
+    run_dir = tmp_path / "existing"
+    sentinel = tmp_path / "sentinel"
+    sentinel.write_text("keep")
+    if existing_kind == "directory":
+        run_dir.mkdir()
+    elif existing_kind == "file":
+        run_dir.write_text("keep")
+    else:
+        run_dir.symlink_to(sentinel)
+
+    def unexpected_run(*args, **kwargs):
+        pytest.fail("existing directories must fail before any acquisition")
+
+    monkeypatch.setattr(module, "_run", unexpected_run)
+    assert module.main([
+        "--environment", "softhsm2", "--channel", "release", "--mode", "native",
+        "--registry", "127.0.0.1:5050/p11lab", "--handoff-digest", "sha256:" + "ab" * 32,
+        "--command", '["app"]', "--timeout", "300", "--working-directory", str(tmp_path),
+        "--oras", "oras", "--run-dir", str(run_dir)]) == 2
+    assert "run directory must be fresh" in capsys.readouterr().err
+    assert sentinel.read_text() == "keep"
+    if existing_kind == "directory":
+        assert list(run_dir.iterdir()) == []
+    else:
+        assert run_dir.read_text() == "keep"
+
+
+def test_action_receipt_artifact_example_selects_only_public_receipt():
+    doc = (ROOT / "docs/delivery.md").read_text()
+    example = doc.split("Example (Linux, direct mode):", 1)[1].split("```yaml", 1)[1].split("```", 1)[0]
+    artifact = example.split("- uses: actions/upload-artifact@", 1)[1]
+    assert re.findall(r"^    path: (.+)$", artifact, re.MULTILINE) == ["${{ steps.provider.outputs['receipt-path'] }}"]
+    assert "id: provider" in example
+    public_outputs = (ROOT / "action.yml").read_text().split("outputs:\n", 1)[1].split("\nruns:", 1)[0]
+    assert "run-dir:" not in public_outputs
