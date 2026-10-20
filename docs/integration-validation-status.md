@@ -1,14 +1,14 @@
 # Integration validation status
 
-Status: **2026-10-20**. Baseline:
-[`main` at 3dead295](https://github.com/mingulov/p11lab/commit/3dead295e586927168b6586c2f3e09fddaa51ef2).
+Status: **2026-10-20, after reviewed integration**. Current baseline:
+[`main` at 4507bc85](https://github.com/mingulov/p11lab/commit/4507bc855919dcbbace4ddd719da907376d1b30b).
 The catalogue contains 24 locked provider candidates. Current integration work
 focuses on SoftHSM2 and Haskoki, not catalogue expansion.
 
 This is a contributor evidence snapshot and roadmap, not provider certification.
-The proposals below are **open and unmerged** at this date. Their tests do not
-establish that the changes are present on `main` or that provider artifacts are
-eligible for distribution.
+Seven scoped changes are now merged into `main`. Only #5 and #7 remain open;
+neither is approved for merge. Source/package tests do not qualify provider
+runtime behavior or establish eligibility for distribution.
 
 ## What the evidence establishes
 
@@ -22,11 +22,14 @@ eligible for distribution.
   complete source obligations, evidence of actual artifact contents and immutable
   public source readback bound to the binary. Tests cannot grant those rights.
 
-## Open review proposals
+## Merged changes and original review evidence
 
-Each linked PR records commands, exact reviewed trees, red/green regressions,
-independent review and limitations. The revisions here fix this snapshot; later
-updates need their own evidence.
+The seven PRs in this section are merged. Their linked revisions below identify
+the original patch-level independent reviews, before rebasing onto cumulative
+`main`; they are not the rebased commit IDs. Those reviews retain their commands,
+red/green regressions and limitations. Later cumulative evidence is reported
+separately below. Scoped independent review is not a formal GitHub `APPROVE`
+review: none is recorded for #1–#9, all authored by `mingulov`.
 
 - [#1: Haskoki lifecycle failures](https://github.com/mingulov/p11lab/pull/1)
   ([1cd5e3a4](https://github.com/mingulov/p11lab/commit/1cd5e3a4e0d49b4d7ca7818787204ee810752e0f)):
@@ -43,39 +46,68 @@ updates need their own evidence.
   caller-controlled host processes; Windows behavior remains simulated.
 - [#4: Bounded Linux source/package CI](https://github.com/mingulov/p11lab/pull/4)
   ([569f05d3](https://github.com/mingulov/p11lab/commit/569f05d38b053771d20f19166f551b71e8e30344)),
-  stacked on #2: one read-only, 10-minute job with pinned Python dependencies and
-  checker source. The [hosted run](https://github.com/mingulov/p11lab/actions/runs/39454787936)
+  originally stacked on #2: one read-only, 10-minute job with pinned Python
+  dependencies and checker source. The
+  [hosted run](https://github.com/mingulov/p11lab/actions/runs/39454787936)
   recorded **1001 passed, 1000 skipped in 58.06 seconds**. It built no provider.
-- [#5: Manual Haskoki release validation](https://github.com/mingulov/p11lab/pull/5)
-  ([fca1b148](https://github.com/mingulov/p11lab/commit/fca1b148f074bc0f3fd527bc02fe7920f33fa4cd)),
-  stacked on the [release candidate at 4f753f3f](https://github.com/mingulov/p11lab/commit/4f753f3f0a54ca8ae1131b3d0657494022b2c086):
-  a no-publication pipeline with a separate manual runtime job. The
-  [corrected hosted static run](https://github.com/mingulov/p11lab/actions/runs/39463132399)
-  recorded **203 passed in 3.42 seconds** on its PR merge; runtime was skipped.
 - [#6: SoftHSM2 initialization outcomes](https://github.com/mingulov/p11lab/pull/6)
   ([c1fbe90d](https://github.com/mingulov/p11lab/commit/c1fbe90df29d4a68f582b7c84e2f854a4bac47d4)):
   preserve native/signal failures and cleanup ownership in container and native
   adapters. Identity/marker bytes are addressed separately by #8.
 - [#8: SoftHSM2 identity and marker bytes](https://github.com/mingulov/p11lab/pull/8)
   ([e3b6dcc2](https://github.com/mingulov/p11lab/commit/e3b6dcc252468a9d6f533038b03a763b5a37fb2f)),
-  stacked on unmerged #6: enforce existing byte-exact identity and completion
+  originally stacked on #6: enforce existing byte-exact identity and completion
   marker contracts in both adapters. Its full local run recorded **2016 passed,
   1000 skipped, 3 known failures**; independent review repeated all **1028 adapter
   cases** plus 64 boundary probes. These tests substitute native tools; runtime
   remains unqualified.
 - [#9: SoftHSM2 native traversal status](https://github.com/mingulov/p11lab/pull/9)
   ([1d8318fe](https://github.com/mingulov/p11lab/commit/1d8318fec5730b02c79316fe52dd3d5fb600d585)),
-  stacked on unmerged #8: check failures at five native `find` guards using the
+  originally stacked on #8: check failures at five native `find` guards using the
   existing helper, preserving query predicates and adapter status 1 with
   `cannot enumerate`. Its full local run recorded **2188 passed, 1000 skipped,
   3 known failures**; all **1200 adapter cases** passed, including an independent
   archive rerun. This is adapter evidence, not a real-provider runtime result.
 
-The local unfiltered suites for #1, #3, #6, #8 and #9 report the same three failures:
-the stale proxy expectation addressed separately by #2 and two local sandbox
-AF_UNIX restrictions. Both socket cases pass in #4's hosted run. That hosted
-result does not cover the other open branches. Existing opt-in runtime skips
-remain intact; no local Docker/provider execution is claimed.
+The changes landed by rebase in order #2, #4, #1, #3, #6, #8, #9, preserving
+#2 before #4 and #6 before #8 before #9. #1 and #3 were independent proposals
+against the original baseline. The original local suites for #1, #3, #6, #8 and
+#9 had three failures: the stale proxy expectation later fixed by #2 and two
+sandbox AF_UNIX restrictions. These historical results are not the final
+combined-tree result.
+
+## Cumulative source/package verification
+
+Fresh hosted cumulative checks passed before each landing from #4 onward.
+The [final pre-merge hosted run](https://github.com/mingulov/p11lab/actions/runs/39484924716)
+recorded **2507 passed, 1000 skipped, 0 failed**. The tested rebased #9 tree is
+byte-identical to current `main` and the locally tested cumulative tree:
+`a47bab8406393a4117fc744a02daed3f5fe43748`. This is verified pre-merge evidence
+for that exact final tree, not a claim of a separate post-merge workflow run.
+
+The local unfiltered cumulative suite recorded **2505 passed, 1000 skipped,
+2 failed in 190.47 seconds**. Both failures were the known sandbox AF_UNIX
+restrictions in `test_assert_owned_socket_happy_path` and
+`test_assert_owned_socket_refuses_foreign_uid`; both passed in the final hosted
+run. No failures were suppressed. Existing opt-in integration skips remain
+intact and are missing runtime evidence, not passes. No provider build, real
+Haskoki/SoftHSM runtime qualification, image, release or cache publication is
+established by these checks.
+
+## Open proposals
+
+- [#5: Manual Haskoki release validation](https://github.com/mingulov/p11lab/pull/5)
+  ([fca1b148](https://github.com/mingulov/p11lab/commit/fca1b148f074bc0f3fd527bc02fe7920f33fa4cd)),
+  stacked on the [release candidate at 4f753f3f](https://github.com/mingulov/p11lab/commit/4f753f3f0a54ca8ae1131b3d0657494022b2c086):
+  a no-publication pipeline with a separate manual runtime job. The
+  [corrected hosted static run](https://github.com/mingulov/p11lab/actions/runs/39463132399)
+  recorded **203 passed in 3.42 seconds** on its PR merge; runtime was skipped.
+- [#7: Integration validation status](https://github.com/mingulov/p11lab/pull/7):
+  this documentation-only evidence snapshot, independent of the code proposals.
+
+#5 still targets its release-candidate branch, which has no separate PR; that
+candidate and its static result are not part of the cumulative tree above.
+#7 targets `main` and changes documentation only. Neither open PR has been merged.
 
 ## Haskoki runtime evidence still pending
 
@@ -85,14 +117,28 @@ GLIBC_2.38 and two-Hackage recipe gates remain unchanged and unmeasured for the
 candidate build. Source inspection and pipeline preparation do not verify that
 runtime closure.
 
-No manual Haskoki runtime attempt has started as of this snapshot. The one-run
-plan has a hard 240-minute ceiling, no matrix, no publication and no automatic
-rerun; it awaits maintainer dispatch. Its 49 selected acceptance cases comprise
-39 runtime cases, two static cases and eight derivative-dependent cases whose
-inputs are missing. Missing derivative evidence must produce an incomplete,
-nonzero outcome. The schema-readiness gap is covered by ordinary acceptance
-assertions; any observed failure must not be xfailed or waived, and preparation
-is not qualification.
+No manual Haskoki runtime attempt has started as of this snapshot. Both recorded
+Haskoki runs were `pull_request` static checks, with runtime skipped, including
+the [initial failed static run](https://github.com/mingulov/p11lab/actions/runs/39461303417)
+and the corrected run above. Workflow `390791808` is registered, but its file
+is absent from default `main` at the baseline above.
+[GitHub's dispatch documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)
+states that `workflow_dispatch` requires the file on the default branch, while
+also describing branch/tag dispatch after a workflow has run. The previously
+suggested `gh workflow run` command has not been verified successful;
+registration and static runs do not establish a working runtime launch path.
+A label-triggered alternative is only a proposal awaiting explicit approval,
+not implemented.
+
+The approved one-run budget remains unused: the frozen payload is
+[`fca1b148`](https://github.com/mingulov/p11lab/commit/fca1b148f074bc0f3fd527bc02fe7920f33fa4cd),
+with a hard 240-minute ceiling, no matrix, no publication and no automatic
+rerun. Resolve the launch path without changing those limits. Its 49 selected
+acceptance cases comprise 39 runtime cases, two static cases and eight
+derivative-dependent cases whose inputs are missing. Missing derivative evidence
+must produce an incomplete, nonzero outcome. The schema-readiness gap is covered
+by ordinary acceptance assertions; any observed failure must not be xfailed or
+waived, and preparation is not qualification.
 
 ## Remaining work
 
@@ -103,17 +149,28 @@ evidence, rather than additional shell-only hardening.
    fresh/repeated initialization, health, native errors, direct consumers,
    checker, proxy and failure isolation. Keep provider findings, infrastructure
    failures and evidence completeness separate.
-2. Design reusable public acquisition/build operations for pinned OpenSC,
-   checker/Python and proxy/native-client derivatives. Current packaged
-   Dockerfiles accept preacquired sealed inputs; they are not those public APIs.
+2. Implement the accepted consumer/OpenSC/C-smoke resolve/build architecture.
+   The acquisition-only implementation was reconciled unchanged onto current
+   `main` and independently re-reviewed: **193 focused tests passed**. The
+   acquisition implementation is not merged.
+   One real installed-wheel acquisition completed: **100 pinned network files
+   (398,198,218 bytes)** plus **8 installed resources (190,630 bytes)**, exit
+   status 0 in 950.7246 seconds, with no partial files. Separate installed-API
+   reverification passed. This is acquisition evidence only: no extraction,
+   acquired-package installation, payload execution, Docker build or publication
+   occurred. ABI, compiler and cryptographic behavior, and license admission,
+   remain unverified. No builder exists yet; builder execution, checker/Python
+   and proxy/native-client derivatives remain later work. The legacy consumer
+   recipe still installs packages online; it is not the new public builder API.
 3. Track exhaustive traversal, descendant-type, state-root and foreground-child
    cancellation concerns separately. #9 checks existing query failures; it does
    not settle those policies or establish a fixed layout for opaque provider
    state.
 4. Review source redistribution eligibility **before upload**, complete companion
-   identity and actual-content admission. Repository naming by artifact role and
-   a versioned handoff contract also remain design decisions, not approved
-   implementation requirements.
+   identity and actual-content admission. Role-separated repository naming is an
+   accepted design direction; detailed migration is not implemented. Source
+   rights, publication, schema/handoff details and private-information disclosure
+   remain separate decisions, not permissions granted by that direction.
 5. Maintain the provider/version and platform gap survey as research. Discovery
    alone does not add providers, change locks or expand the supported matrix.
 
