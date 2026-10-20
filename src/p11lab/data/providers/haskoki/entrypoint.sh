@@ -56,17 +56,36 @@ single_token_report() {
     fi
 }
 
+init_signal() {
+    if [ "$cleaning_up" -eq 1 ]; then
+        # A stop during cleanup must not abort the remaining owned removals
+        # or replace an already-observed native, cleanup or signal failure.
+        if [ "$init_status" -eq 0 ]; then
+            if [ "$cleanup_status" -ne 0 ]; then
+                init_status=$cleanup_status
+            else
+                init_status=$1
+            fi
+        fi
+    else
+        exit "$1"
+    fi
+}
+
 cleanup_init() {
-    init_status=$?
+    # Capture the primary status and enter cleanup in one command while the
+    # same signal handlers remain installed throughout.
+    init_status=$? cleaning_up=1 cleanup_status=0
     trap - EXIT
-    cleanup_status=0
     rmdir -- "$state/.init-lock" || {
-        printf '%s\n' 'p11lab: initialization lock cleanup failed' >&2 || :
         cleanup_status=1
+        [ "$init_status" -ne 0 ] || init_status=$cleanup_status
+        printf '%s\n' 'p11lab: initialization lock cleanup failed' >&2 || :
     }
     rm -f -- "$control/marker.$$" "$control/init.$$" || {
-        printf '%s\n' 'p11lab: initialization temporary-file cleanup failed' >&2 || :
         cleanup_status=1
+        [ "$init_status" -ne 0 ] || init_status=$cleanup_status
+        printf '%s\n' 'p11lab: initialization temporary-file cleanup failed' >&2 || :
     }
     # The native failure remains primary. Cleanup failure still prevents a
     # successful init from being reported when owned resources remain.
@@ -144,10 +163,11 @@ case "${1-}" in
         [ "$user_credential" = '1234' ] || p11lab_die "caller PIN does not match the provider-provisioned PIN"
         [ "$so_credential" = '5678' ] || p11lab_die "caller SO PIN does not match the provider-provisioned SO PIN"
         mkdir "$state/.init-lock" || p11lab_die "state initialization is already in progress"
+        cleaning_up=0
         trap cleanup_init EXIT
-        trap 'exit 129' HUP
-        trap 'exit 130' INT
-        trap 'exit 143' TERM
+        trap 'init_signal 129' HUP
+        trap 'init_signal 130' INT
+        trap 'init_signal 143' TERM
         expected_marker > "$control/marker.$$"
         mkdir -p -m 700 "$owned"
         cp -- "$expected" "$owned/.haskoki.toml.$$"
