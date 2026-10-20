@@ -63,8 +63,15 @@ updates need their own evidence.
   1000 skipped, 3 known failures**; independent review repeated all **1028 adapter
   cases** plus 64 boundary probes. These tests substitute native tools; runtime
   remains unqualified.
+- [#9: SoftHSM2 native traversal status](https://github.com/mingulov/p11lab/pull/9)
+  ([1d8318fe](https://github.com/mingulov/p11lab/commit/1d8318fec5730b02c79316fe52dd3d5fb600d585)),
+  stacked on unmerged #8: check failures at five native `find` guards using the
+  existing helper, preserving query predicates and adapter status 1 with
+  `cannot enumerate`. Its full local run recorded **2188 passed, 1000 skipped,
+  3 known failures**; all **1200 adapter cases** passed, including an independent
+  archive rerun. This is adapter evidence, not a real-provider runtime result.
 
-The local unfiltered suites for #1, #3, #6 and #8 report the same three failures:
+The local unfiltered suites for #1, #3, #6, #8 and #9 report the same three failures:
 the stale proxy expectation addressed separately by #2 and two local sandbox
 AF_UNIX restrictions. Both socket cases pass in #4's hosted run. That hosted
 result does not cover the other open branches. Existing opt-in runtime skips
@@ -89,6 +96,9 @@ is not qualification.
 
 ## Remaining work
 
+The next focus is reusable tool-input builders and real end-to-end workflow
+evidence, rather than additional shell-only hardening.
+
 1. Establish scoped runtime evidence for pinned Haskoki and SoftHSM2 builds:
    fresh/repeated initialization, health, native errors, direct consumers,
    checker, proxy and failure isolation. Keep provider findings, infrastructure
@@ -96,9 +106,10 @@ is not qualification.
 2. Design reusable public acquisition/build operations for pinned OpenSC,
    checker/Python and proxy/native-client derivatives. Current packaged
    Dockerfiles accept preacquired sealed inputs; they are not those public APIs.
-3. Address remaining SoftHSM2 traversal/type boundaries without assuming a fixed
-   layout for opaque provider state. Foreground-child cancellation remains a
-   separate design question; neither is covered by #6 or #8.
+3. Track exhaustive traversal, descendant-type, state-root and foreground-child
+   cancellation concerns separately. #9 checks existing query failures; it does
+   not settle those policies or establish a fixed layout for opaque provider
+   state.
 4. Review source redistribution eligibility **before upload**, complete companion
    identity and actual-content admission. Repository naming by artifact role and
    a versioned handoff contract also remain design decisions, not approved
