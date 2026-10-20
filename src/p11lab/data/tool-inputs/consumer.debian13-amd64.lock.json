@@ -1,0 +1,2314 @@
+{
+  "apt_snapshot": "20260918T000000Z",
+  "base_image": "docker.io/library/debian@sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c",
+  "license_status": "unreviewed",
+  "limits": {
+    "attempt_seconds": 3600,
+    "file_bytes": 268435456,
+    "io_seconds": 60,
+    "payload_seconds": 900,
+    "redirects": 5,
+    "total_bytes": 536870912
+  },
+  "metadata": [
+    {
+      "filename": "trixie.InRelease",
+      "path": "metadata/trixie.InRelease",
+      "sha256": "0584fba32e13e0ab8285fb16c27adea1ec03a73669c18702821094fd6ca86675",
+      "size": 140421,
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/dists/trixie/InRelease"
+    },
+    {
+      "filename": "trixie.Packages.xz",
+      "path": "metadata/trixie.Packages.xz",
+      "sha256": "7778d3e3f303b7ddb8ce0fe7c8d57473a076c6bf2e8f241f75421d2396352498",
+      "size": 9678380,
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/dists/trixie/main/binary-amd64/Packages.xz"
+    },
+    {
+      "filename": "trixie.Sources.xz",
+      "path": "metadata/trixie.Sources.xz",
+      "sha256": "6002f81f463a2d976d84b34170367cc16da2d60bd0ba9ab9d868d6e1c1a935d9",
+      "size": 10540436,
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/dists/trixie/main/source/Sources.xz"
+    },
+    {
+      "filename": "trixie-updates.InRelease",
+      "path": "metadata/trixie-updates.InRelease",
+      "sha256": "cdab5e62be015db5b6eceabcd6987788fab1f5dfb855b5d6f3514d473d491008",
+      "size": 47340,
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/dists/trixie-updates/InRelease"
+    },
+    {
+      "filename": "trixie-updates.Packages.xz",
+      "path": "metadata/trixie-updates.Packages.xz",
+      "sha256": "10012cb384dc2613586d7b3d391d92a5637c9faa36017239739f2a6109a0d45f",
+      "size": 4412,
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/dists/trixie-updates/main/binary-amd64/Packages.xz"
+    },
+    {
+      "filename": "trixie-updates.Sources.xz",
+      "path": "metadata/trixie-updates.Sources.xz",
+      "sha256": "ee5f96a8668d9845d7d8020ebef75d27c7d41c1dcc92d3fa61597ed5ed89ad51",
+      "size": 1840,
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/dists/trixie-updates/main/source/Sources.xz"
+    },
+    {
+      "filename": "trixie-security.InRelease",
+      "path": "metadata/trixie-security.InRelease",
+      "sha256": "ff9e26df483ab7af014170d14a1c5cfce31d2da81d7986495f4238cfbd8fb85e",
+      "size": 43409,
+      "url": "https://snapshot.debian.org/archive/debian-security/20260918T000000Z/dists/trixie-security/InRelease"
+    },
+    {
+      "filename": "trixie-security.Packages.xz",
+      "path": "metadata/trixie-security.Packages.xz",
+      "sha256": "0fa9c8002797b15c43cbc16292a9516698861e294de97ff2c909d88d1645690f",
+      "size": 261848,
+      "url": "https://snapshot.debian.org/archive/debian-security/20260918T000000Z/dists/trixie-security/main/binary-amd64/Packages.xz"
+    },
+    {
+      "filename": "trixie-security.Sources.xz",
+      "path": "metadata/trixie-security.Sources.xz",
+      "sha256": "bb55ebcfb58e1e61186e525f65aba0bab3df1d6a0027da7393dd8dc76724341e",
+      "size": 229724,
+      "url": "https://snapshot.debian.org/archive/debian-security/20260918T000000Z/dists/trixie-security/main/source/Sources.xz"
+    }
+  ],
+  "packages": [
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/binutils/copyright",
+      "filename": "pool/main/b/binutils/binutils_2.44-3_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "binutils",
+      "path": "binaries/6bc08c02539ba53b5e748142397144c499f9b20b5fa9bb56431545db124addeb.deb",
+      "relations": {
+        "Breaks": "binutils-aarch64-linux-gnu (<< 2.43.90), binutils-i686-linux-gnu (<< 2.43.90), binutils-riscv64-linux-gnu (<< 2.43.90), binutils-x86-64-linux-gnu (<< 2.43.90)",
+        "Conflicts": "binutils-mingw-w64-i686 (<< 2.23.52.20130612-1+3), binutils-mingw-w64-x86-64 (<< 2.23.52.20130612-1+3), binutils-multiarch (<< 2.27-8), modutils (<< 2.4.19-1)",
+        "Depends": "libbinutils (= 2.44-3), libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libgprofng0 (>= 2.44), libstdc++6 (>= 13.1), binutils-common (= 2.44-3), binutils-x86-64-linux-gnu (= 2.44-3)",
+        "Provides": "elf-binutils",
+        "Replaces": "binutils-aarch64-linux-gnu (<< 2.43.90), binutils-common (<< 2.43.90), binutils-i686-linux-gnu (<< 2.43.90), binutils-riscv64-linux-gnu (<< 2.43.90), binutils-x86-64-linux-gnu (<< 2.43.90)",
+        "Suggests": "binutils-doc (>= 2.44-3), gprofng-gui, binutils-gold"
+      },
+      "sha256": "6bc08c02539ba53b5e748142397144c499f9b20b5fa9bb56431545db124addeb",
+      "size": 265400,
+      "source_package": "binutils",
+      "source_version": "2.44-3",
+      "stanza_sha256": "7761c9cffe2cbb29124620312507c57eae9c4c691f5fdd8a1a41e192502a298f",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/b/binutils/binutils_2.44-3_amd64.deb",
+      "version": "2.44-3"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/binutils-common/copyright",
+      "filename": "pool/main/b/binutils/binutils-common_2.44-3_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "binutils-common",
+      "path": "binaries/002da5d23f8757dee97a2c0a40e0e1d4d85a43da094488ee2ee7068d4d3691f9.deb",
+      "relations": {
+        "Breaks": "binutils (<< 2.38.50.20220527-2), binutils-multiarch (<< 2.38.50.20220527-2)",
+        "Multi-Arch": "same",
+        "Replaces": "binutils (<< 2.38.50.20220527-2), binutils-multiarch (<< 2.38.50.20220527-2)"
+      },
+      "sha256": "002da5d23f8757dee97a2c0a40e0e1d4d85a43da094488ee2ee7068d4d3691f9",
+      "size": 2508768,
+      "source_package": "binutils",
+      "source_version": "2.44-3",
+      "stanza_sha256": "4f1bdd90613a998c29b41ce9eb29cc9fc26c9139c87dfb1afa4de474635d9b6f",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/b/binutils/binutils-common_2.44-3_amd64.deb",
+      "version": "2.44-3"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/binutils-x86-64-linux-gnu/copyright",
+      "filename": "pool/main/b/binutils/binutils-x86-64-linux-gnu_2.44-3_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "binutils-x86-64-linux-gnu",
+      "path": "binaries/e6741ce95ff0f7a131c8d9faa3528ccbbc453078bbc62a97da81340ed7462c53.deb",
+      "relations": {
+        "Breaks": "binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)",
+        "Depends": "binutils-common (= 2.44-3), libbinutils (= 2.44-3), libc6 (>= 2.38), libctf-nobfd0 (>= 2.36), libctf0 (>= 2.36), libjansson4 (>= 2.14), libsframe1 (>= 2.41), libzstd1 (>= 1.5.5), zlib1g (>= 1:1.1.4)",
+        "Multi-Arch": "allowed",
+        "Replaces": "binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)",
+        "Suggests": "binutils-doc (= 2.44-3)"
+      },
+      "sha256": "e6741ce95ff0f7a131c8d9faa3528ccbbc453078bbc62a97da81340ed7462c53",
+      "size": 1013844,
+      "source_package": "binutils",
+      "source_version": "2.44-3",
+      "stanza_sha256": "5527baaf1416d556f327d97241a937b949d82f9d726ce6a233cebfbc5f596337",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/b/binutils/binutils-x86-64-linux-gnu_2.44-3_amd64.deb",
+      "version": "2.44-3"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/cpp/copyright",
+      "filename": "pool/main/g/gcc-defaults/cpp_14.2.0-1_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "cpp",
+      "path": "binaries/a6ba40550aadec80437813e0fce5516574945ff40e72306a5b378c03af3a6544.deb",
+      "relations": {
+        "Conflicts": "cpp-doc (<< 1:2.95.3), gcc (<< 4:13.2.0-3)",
+        "Depends": "cpp-14 (>= 14.2.0-6~), cpp-x86-64-linux-gnu (= 4:14.2.0-1)",
+        "Multi-Arch": "allowed",
+        "Suggests": "cpp-doc"
+      },
+      "sha256": "a6ba40550aadec80437813e0fce5516574945ff40e72306a5b378c03af3a6544",
+      "size": 1568,
+      "source_package": "gcc-defaults",
+      "source_version": "1.220",
+      "stanza_sha256": "a89bf0e092a0b50b45eeb0b4ee5edf8e94f5bc2afe6b3a09adf3e46a796b25a0",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-defaults/cpp_14.2.0-1_amd64.deb",
+      "version": "4:14.2.0-1"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/cpp-14/copyright",
+      "filename": "pool/main/g/gcc-14/cpp-14_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "cpp-14",
+      "path": "binaries/3bae5fe03c56c6d021900ab4fb79e35c6f75eee72a73fccc6f28a39db559d6a0.deb",
+      "relations": {
+        "Breaks": "hardening-wrapper (<< 2.8+nmu3), libmagics++-dev (<< 2.28.0-4)",
+        "Depends": "gcc-14-base (= 14.2.0-19), cpp-14-x86-64-linux-gnu (= 14.2.0-19)",
+        "Suggests": "gcc-14-locales (>= 14)"
+      },
+      "sha256": "3bae5fe03c56c6d021900ab4fb79e35c6f75eee72a73fccc6f28a39db559d6a0",
+      "size": 1280,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "7c30c4694b742f7605c00bbcbea6a4718b716cec1077990100e9ee06c3aae536",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/cpp-14_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/cpp-14-x86-64-linux-gnu/copyright",
+      "filename": "pool/main/g/gcc-14/cpp-14-x86-64-linux-gnu_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "cpp-14-x86-64-linux-gnu",
+      "path": "binaries/ef274b5379f5f97fc71619d39ecc84d039d3e184570d207b909c90afaa5d79e0.deb",
+      "relations": {
+        "Breaks": "hardening-wrapper (<< 2.8+nmu3), libmagics++-dev (<< 2.28.0-4)",
+        "Depends": "gcc-14-base (= 14.2.0-19), libc6 (>= 2.38), libgmp10 (>= 2:6.3.0+dfsg), libisl23 (>= 0.15), libmpc3 (>= 1.1.0), libmpfr6 (>= 3.1.3), libzstd1 (>= 1.5.5), zlib1g (>= 1:1.1.4)",
+        "Multi-Arch": "foreign",
+        "Suggests": "gcc-14-locales (>= 14), cpp-14-doc (>= 14)"
+      },
+      "sha256": "ef274b5379f5f97fc71619d39ecc84d039d3e184570d207b909c90afaa5d79e0",
+      "size": 11047460,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "e70ff5feff716455e443b05b3feea3cb9819bb2ccf7b85b10efc691410b96e3d",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/cpp-14-x86-64-linux-gnu_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/cpp-x86-64-linux-gnu/copyright",
+      "filename": "pool/main/g/gcc-defaults/cpp-x86-64-linux-gnu_14.2.0-1_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "cpp-x86-64-linux-gnu",
+      "path": "binaries/d902f484e38bce59e82efc0df2fe20139a0932ca759ecafdfe6e5b6c72238eb8.deb",
+      "relations": {
+        "Breaks": "cpp (<< 4:13.2.0-3)",
+        "Depends": "cpp-14-x86-64-linux-gnu (>= 14.2.0-6~)",
+        "Multi-Arch": "foreign",
+        "Replaces": "cpp (<< 4:13.2.0-3)",
+        "Suggests": "cpp-doc"
+      },
+      "sha256": "d902f484e38bce59e82efc0df2fe20139a0932ca759ecafdfe6e5b6c72238eb8",
+      "size": 4840,
+      "source_package": "gcc-defaults",
+      "source_version": "1.220",
+      "stanza_sha256": "50c6a7ac2b3c78b73b7359a87617aa9b1dbaa21356ab8c14873d0e35064ec544",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-defaults/cpp-x86-64-linux-gnu_14.2.0-1_amd64.deb",
+      "version": "4:14.2.0-1"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/gcc/copyright",
+      "filename": "pool/main/g/gcc-defaults/gcc_14.2.0-1_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "gcc",
+      "path": "binaries/eee65c41a441c57c05f754ced1b9d093956966a1c7da9938c3ec00d3dc2f905d.deb",
+      "relations": {
+        "Conflicts": "gcc-doc (<< 1:2.95.3)",
+        "Depends": "cpp (= 4:14.2.0-1), cpp-x86-64-linux-gnu (= 4:14.2.0-1), gcc-14 (>= 14.2.0-6~), gcc-x86-64-linux-gnu (= 4:14.2.0-1)",
+        "Provides": "c-compiler",
+        "Recommends": "libc6-dev | libc-dev",
+        "Suggests": "gcc-multilib, make, manpages-dev, autoconf, automake, libtool, flex, bison, gdb, gcc-doc"
+      },
+      "sha256": "eee65c41a441c57c05f754ced1b9d093956966a1c7da9938c3ec00d3dc2f905d",
+      "size": 5136,
+      "source_package": "gcc-defaults",
+      "source_version": "1.220",
+      "stanza_sha256": "f3d2c465cf00536cd5bc7bd7f67f42a3f4c90987babacee0fa85702f741eaa85",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-defaults/gcc_14.2.0-1_amd64.deb",
+      "version": "4:14.2.0-1"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/gcc-14/copyright",
+      "filename": "pool/main/g/gcc-14/gcc-14_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "gcc-14",
+      "path": "binaries/21500408b5019d8d29f70ce58488e2eea469a1adb4b5fd7db45e819b5efcac4e.deb",
+      "relations": {
+        "Depends": "gcc-14-x86-64-linux-gnu (= 14.2.0-19), gcc-14-base (= 14.2.0-19), cpp-14 (= 14.2.0-19), binutils (>= 2.39)",
+        "Provides": "c-compiler",
+        "Recommends": "libc6-dev (>= 2.23-1~)",
+        "Replaces": "cpp-14 (<< 7.1.1-8)",
+        "Suggests": "gcc-14-multilib, gcc-14-doc (>= 14), gcc-14-locales (>= 14)"
+      },
+      "sha256": "21500408b5019d8d29f70ce58488e2eea469a1adb4b5fd7db45e819b5efcac4e",
+      "size": 540064,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "e762eba0fb3d136e8aa3df2264e8c465c331ea4fd78abc4447c909ea85fde733",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/gcc-14_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/gcc-14-x86-64-linux-gnu/copyright",
+      "filename": "pool/main/g/gcc-14/gcc-14-x86-64-linux-gnu_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "gcc-14-x86-64-linux-gnu",
+      "path": "binaries/a17ef039f1ba482051c3efb5c2c24070002e60dd0bd09fd456ec31481a11b725.deb",
+      "relations": {
+        "Depends": "cpp-14-x86-64-linux-gnu (= 14.2.0-19), gcc-14-base (= 14.2.0-19), libcc1-0 (>= 14.2.0-19), binutils-x86-64-linux-gnu (>= 2.39), libgcc-14-dev (= 14.2.0-19), libc6 (>= 2.38), libgcc-s1 (>= 3.0), libgmp10 (>= 2:6.3.0+dfsg), libisl23 (>= 0.15), libmpc3 (>= 1.1.0), libmpfr6 (>= 3.1.3), libstdc++6 (>= 5), libzstd1 (>= 1.5.5), zlib1g (>= 1:1.1.4)",
+        "Multi-Arch": "foreign",
+        "Provides": "c-compiler-x86-64-linux-gnu",
+        "Recommends": "libc6-dev (>= 2.23-1~)",
+        "Suggests": "gcc-14-doc (>= 14), gcc-14-locales (>= 14)"
+      },
+      "sha256": "a17ef039f1ba482051c3efb5c2c24070002e60dd0bd09fd456ec31481a11b725",
+      "size": 21389968,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "5edc0af02ee6cbc36fa0c8837d52666548053ca7b830e1fe7e91d6e4385d1915",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/gcc-14-x86-64-linux-gnu_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/gcc-x86-64-linux-gnu/copyright",
+      "filename": "pool/main/g/gcc-defaults/gcc-x86-64-linux-gnu_14.2.0-1_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "gcc-x86-64-linux-gnu",
+      "path": "binaries/04c28c2760b0094b3d7758154ac095303dd00599b63ebad4086a325b607308b7.deb",
+      "relations": {
+        "Breaks": "gcc (<< 4:13.2.0-3)",
+        "Depends": "cpp-x86-64-linux-gnu (= 4:14.2.0-1), gcc-14-x86-64-linux-gnu (>= 14.2.0-6~)",
+        "Multi-Arch": "foreign",
+        "Recommends": "libc6-dev, libc-dev",
+        "Replaces": "gcc (<< 4:13.2.0-3)",
+        "Suggests": "make, manpages-dev, autoconf, automake, libtool, flex, bison, gdb-x86-64-linux-gnu, gcc-doc"
+      },
+      "sha256": "04c28c2760b0094b3d7758154ac095303dd00599b63ebad4086a325b607308b7",
+      "size": 1436,
+      "source_package": "gcc-defaults",
+      "source_version": "1.220",
+      "stanza_sha256": "7fe28b87043d8a17396c892c4f81f97b133e8e8617bff16ab2b8a127dbb2bda3",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-defaults/gcc-x86-64-linux-gnu_14.2.0-1_amd64.deb",
+      "version": "4:14.2.0-1"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libasan8/copyright",
+      "filename": "pool/main/g/gcc-14/libasan8_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libasan8",
+      "path": "binaries/771899ade7310fe31aa538a509354c33d62bbe4e408b4e5fc1e513988dc42645.deb",
+      "relations": {
+        "Depends": "gcc-14-base (= 14.2.0-19), libc6 (>= 2.34), libgcc-s1 (>= 3.3)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "771899ade7310fe31aa538a509354c33d62bbe4e408b4e5fc1e513988dc42645",
+      "size": 2725272,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "25488b6d81ccb8ec5482383706f41cf2e421a1adb4e86f1e42a4c946a02592ae",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/libasan8_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libatomic1/copyright",
+      "filename": "pool/main/g/gcc-14/libatomic1_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libatomic1",
+      "path": "binaries/212b399aae2f7299203d261a57e49372e09565a9a5ea971905f94a3960366c05.deb",
+      "relations": {
+        "Depends": "gcc-14-base (= 14.2.0-19), libc6 (>= 2.14)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "212b399aae2f7299203d261a57e49372e09565a9a5ea971905f94a3960366c05",
+      "size": 9308,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "b6292ab58616b5576fd9439b1a79aefdae74a07db7b05e2bce870a9fd7588aad",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/libatomic1_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libbinutils/copyright",
+      "filename": "pool/main/b/binutils/libbinutils_2.44-3_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libbinutils",
+      "path": "binaries/4f4664c8a8f0ad0c8631c39fab02e3d8d86ccc6f4436a1d59f059dbcb0492679.deb",
+      "relations": {
+        "Breaks": "binutils (<< 2.29-6)",
+        "Depends": "libc6 (>= 2.38), libsframe1, libzstd1 (>= 1.5.5), zlib1g (>= 1:1.2.0), binutils-common (= 2.44-3)",
+        "Multi-Arch": "same",
+        "Replaces": "binutils (<< 2.29-6)"
+      },
+      "sha256": "4f4664c8a8f0ad0c8631c39fab02e3d8d86ccc6f4436a1d59f059dbcb0492679",
+      "size": 534440,
+      "source_package": "binutils",
+      "source_version": "2.44-3",
+      "stanza_sha256": "26060499b06bb9753bd99a7c4e35e6572757f9f9e0371f44f6feb12eb8744fdc",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/b/binutils/libbinutils_2.44-3_amd64.deb",
+      "version": "2.44-3"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libc-dev-bin/copyright",
+      "filename": "pool/main/g/glibc/libc-dev-bin_2.41-12+deb13u4_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libc-dev-bin",
+      "path": "binaries/2c21175d6a8283ed566d154c0c0bc06f60836e53b0b9e1f74c14eac586b68c24.deb",
+      "relations": {
+        "Depends": "libc6 (>> 2.41), libc6 (<< 2.42)",
+        "Multi-Arch": "foreign",
+        "Recommends": "manpages, manpages-dev",
+        "Suggests": "libc-devtools (>> 2.41)"
+      },
+      "sha256": "2c21175d6a8283ed566d154c0c0bc06f60836e53b0b9e1f74c14eac586b68c24",
+      "size": 59960,
+      "source_package": "glibc",
+      "source_version": "2.41-12+deb13u4",
+      "stanza_sha256": "053d4f877c60306c47ff31ae097e974b97c5cfc9eeef2ce26860f3fb4a6ca075",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/glibc/libc-dev-bin_2.41-12+deb13u4_amd64.deb",
+      "version": "2.41-12+deb13u4"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libc6-dev/copyright",
+      "filename": "pool/main/g/glibc/libc6-dev_2.41-12+deb13u4_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libc6-dev",
+      "path": "binaries/1fda734dabcd80b77266a09ab62b0f1e3e16d8091db62899890b2200745632a2.deb",
+      "relations": {
+        "Breaks": "binutils (<< 2.38), catch (<< 1.12.2-0.1), heimdal-multidev (<= 7.7.0+dfsg-4), igblast (<= 1.19.0-1), libassimp-dev (<= 5.2.4~ds0-1), libasyncns-dev (<= 0.8-6+b2), libatm1-dev (<= 1:2.5.1-4), libaws20-dev (<= 20.2-2+b1), libboinc-app-dev (<= 7.20.2+dfsg-1), libbson-dev (<= 1.22.0-1), libc6-dev-amd64-cross (<< 2.41~), libcups2-dev (<= 2.4.2-1), libdeal.ii-dev (<= 9.4.0-1), libdkim-dev (<= 1:1.0.21-4+b2), libdolfin-dev-common (<= 2019.2.0~git20220407.d29e24d-5), libdpkg-perl (<< 1.22.22), libeckit-dev (<= 1.20.0-1), libfclib-dev (<= 3.1.0+dfsg-2), libfltk1.3-dev (<= 1.3.8-4+b1), libghc-resolv-dev (<= 0.1.2.0-3), libghc-resolv-prof (<= 0.1.2.0-3), libglib2.0-dev (<= 2.72.3-1), libgloox-dev (<= 1.0.24-2+b1), libhesiod-dev (<= 3.2.1-3.1+b1), libinfinity-0.7-dev (<= 0.7.2-1+b1), libinsighttoolkit4-dev (<= 4.13.3withdata-dfsg2-3+b1), libinsighttoolkit5-dev (<= 5.2.1-5+b1), libismrmrd-dev (<= 1.8.0-2), libldap-dev (<= 2.5.12+dfsg-2), liblog4cplus-dev (<= 2.0.7-1), libloudmouth1-dev (<= 1.5.4-1), libmgl-dev (<= 8.0.1-2), libmimalloc2.0 (<= 2.0.6+ds-1), libminc-dev (<= 2.4.03-5), libmongoc-dev (<= 1.22.1-1), libmrpt-ros1bridge-dev (<= 1:2.4.9+ds-4+b2), libmysqlclient-dev (<= 8.0.29-1), libnetcdf-dev (<= 1:4.9.0-3), libnetcdf-mpi-dev (<= 1:4.9.0-1), libnetcdf-pnetcdf-dev (<= 1:4.9.0-1), libnfsidmap-dev (<= 1:2.6.1-2), libns3-dev (<= 3.36.1+dfsg-4), libola-dev (<= 0.10.8.nojsmin-2), libopenafs-dev (<= 1.8.8.1-3), libopendkim-dev (<= 2.11.0~beta2-7), libopendmarc-dev (<= 1.4.2-1), libopenms-dev (<= 2.6.0+cleaned1-3+b1), libopenzwave1.6-dev (<= 1.6.1914+ds-1), libpg-query-dev (<= 13-2.1.2-2), librbl-dev (<= 2.11.0~beta2-7), libre-dev (<= 1.1.0-1+b1), libshishi-dev (<= 1.0.2-11), libslurm-dev (<= 21.08.8.2-1), libsocksd0-dev (<= 1.4.2+dfsg-7+b4), libspf2-dev (<= 1.2.10-7.1+b1), libstrophe-dev (<= 0.12.1-2), libtaningia-dev (<= 0.2.2-2+b1), libtrilinos-amesos-dev (<= 13.2.0-3), libtrilinos-amesos2-dev (<= 13.2.0-3), libtrilinos-anasazi-dev (<= 13.2.0-3), libtrilinos-aztecoo-dev (<= 13.2.0-3), libtrilinos-belos-dev (<= 13.2.0-3), libtrilinos-epetra-dev (<= 13.2.0-3), libtrilinos-epetraext-dev (<= 13.2.0-3), libtrilinos-galeri-dev (<= 13.2.0-3), libtrilinos-ifpack-dev (<= 13.2.0-3), libtrilinos-ifpack2-dev (<= 13.2.0-3), libtrilinos-intrepid-dev (<= 13.2.0-3), libtrilinos-intrepid2-dev (<= 13.2.0-3), libtrilinos-isorropia-dev (<= 13.2.0-3), libtrilinos-kokkos-dev (<= 13.2.0-3), libtrilinos-kokkos-kernels-dev (<= 13.2.0-3), libtrilinos-komplex-dev (<= 13.2.0-3), libtrilinos-ml-dev (<= 13.2.0-3), libtrilinos-moertel-dev (<= 13.2.0-3), libtrilinos-muelu-dev (<= 13.2.0-3), libtrilinos-nox-dev (<= 13.2.0-3), libtrilinos-phalanx-dev (<= 13.2.0-3), libtrilinos-pike-dev (<= 13.2.0-3), libtrilinos-piro-dev (<= 13.2.0-3), libtrilinos-pliris-dev (<= 13.2.0-3), libtrilinos-rol-dev (<= 13.2.0-3), libtrilinos-rtop-dev (<= 13.2.0-3), libtrilinos-rythmos-dev (<= 13.2.0-3), libtrilinos-sacado-dev (<= 13.2.0-3), libtrilinos-shylu-dev (<= 13.2.0-3), libtrilinos-stokhos-dev (<= 13.2.0-3), libtrilinos-stratimikos-dev (<= 13.2.0-3), libtrilinos-teko-dev (<= 13.2.0-3), libtrilinos-teuchos-dev (<= 13.2.0-3), libtrilinos-thyra-dev (<= 13.2.0-3), libtrilinos-tpetra-dev (<= 13.2.0-3), libtrilinos-trilinoscouplings-dev (<= 13.2.0-3), libtrilinos-triutils-dev (<= 13.2.0-3), libtrilinos-xpetra-dev (<= 13.2.0-3), libtrilinos-zoltan2-dev (<= 13.2.0-3), libvbr-dev (<= 2.11.0~beta2-7), libvisp-dev (<= 3.5.0-2+b1), libvotca-dev (<= 2022-3), libvtk6-dev (<= 6.3.0+dfsg2-8.1+b1), libvtk7-dev (<= 7.1.1+dfsg2-10.2), open-vm-tools-dev (<= 2:12.0.5-2), pidgin-librvp (<= 0.9.7cvs-3), proftpd-dev (<= 1.3.7d+dfsg-2), slurm-wlm-basic-plugins-dev (<= 21.08.8.2-1)",
+        "Conflicts": "libc0.3-dev, libc6.1-dev",
+        "Depends": "libc6 (= 2.41-12+deb13u4), libc-dev-bin (= 2.41-12+deb13u4), linux-libc-dev, libcrypt-dev, rpcsvc-proto",
+        "Multi-Arch": "same",
+        "Provides": "libc-dev (= 2.41-12+deb13u4)",
+        "Replaces": "libc6 (<= 2.32-1)",
+        "Suggests": "glibc-doc, manpages-dev"
+      },
+      "sha256": "1fda734dabcd80b77266a09ab62b0f1e3e16d8091db62899890b2200745632a2",
+      "size": 1994660,
+      "source_package": "glibc",
+      "source_version": "2.41-12+deb13u4",
+      "stanza_sha256": "24a4910e28d5d5c3fee6f8f21a47d4ba91c28c31464f3958f381774185770433",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/glibc/libc6-dev_2.41-12+deb13u4_amd64.deb",
+      "version": "2.41-12+deb13u4"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libcc1-0/copyright",
+      "filename": "pool/main/g/gcc-14/libcc1-0_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libcc1-0",
+      "path": "binaries/2d587e3bfba4aec701946b7ba0c1640b97b6d8dd0a34ba1c70ae85261ecedefa.deb",
+      "relations": {
+        "Depends": "gcc-14-base (= 14.2.0-19), libc6 (>= 2.14), libgcc-s1 (>= 3.0), libstdc++6 (>= 5.2)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "2d587e3bfba4aec701946b7ba0c1640b97b6d8dd0a34ba1c70ae85261ecedefa",
+      "size": 42796,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "0dc3f271e0ceb89d9bece628942d7b04b6897a0e9538e3780a36d67b210d011e",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/libcc1-0_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libcrypt-dev/copyright",
+      "filename": "pool/main/libx/libxcrypt/libcrypt-dev_4.4.38-1_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libcrypt-dev",
+      "path": "binaries/98e2333aea8d64ca68f9b75c16256d3a05492fd8f9e6dba96adbc6f19e4f5a09.deb",
+      "relations": {
+        "Breaks": "libc6-dev (<< 2.29-4), manpages-dev (<< 5.01-1)",
+        "Conflicts": "libcrypt1-dev, libcrypt2-dev",
+        "Depends": "libcrypt1 (= 1:4.4.38-1)",
+        "Multi-Arch": "same",
+        "Provides": "libcrypt1-dev",
+        "Replaces": "libc6-dev (<< 2.29-4), libcrypt1-dev, libcrypt2-dev, manpages-dev (<< 5.01-1)"
+      },
+      "sha256": "98e2333aea8d64ca68f9b75c16256d3a05492fd8f9e6dba96adbc6f19e4f5a09",
+      "size": 119040,
+      "source_package": "libxcrypt",
+      "source_version": "1:4.4.38-1",
+      "stanza_sha256": "939298d67f56fad7d9452f1d2f0ea04ee6685bfbc306fdda9d82d176fce8a1f7",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/libx/libxcrypt/libcrypt-dev_4.4.38-1_amd64.deb",
+      "version": "1:4.4.38-1"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libctf-nobfd0/copyright",
+      "filename": "pool/main/b/binutils/libctf-nobfd0_2.44-3_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libctf-nobfd0",
+      "path": "binaries/e280b2be3db6e584500e865c251605b95c346767d87ccb2524e44992048fc657.deb",
+      "relations": {
+        "Breaks": "libbinutils (<< 2.33.50.20191128-1~)",
+        "Depends": "libc6 (>= 2.14), zlib1g (>= 1:1.2.0)",
+        "Multi-Arch": "same",
+        "Replaces": "libbinutils (<< 2.33.50.20191128-1~)"
+      },
+      "sha256": "e280b2be3db6e584500e865c251605b95c346767d87ccb2524e44992048fc657",
+      "size": 155672,
+      "source_package": "binutils",
+      "source_version": "2.44-3",
+      "stanza_sha256": "c720e89529c1b6595042406c174d3b001f406785c8f270d47710a6a6483bf129",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/b/binutils/libctf-nobfd0_2.44-3_amd64.deb",
+      "version": "2.44-3"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libctf0/copyright",
+      "filename": "pool/main/b/binutils/libctf0_2.44-3_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libctf0",
+      "path": "binaries/120cafcd93132a276fa92a8fb4cf39b23d14e5a3e348f4f5580638d71ca95ac5.deb",
+      "relations": {
+        "Depends": "libbinutils (= 2.44-3), libc6 (>= 2.33), zlib1g (>= 1:1.2.0)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "120cafcd93132a276fa92a8fb4cf39b23d14e5a3e348f4f5580638d71ca95ac5",
+      "size": 88616,
+      "source_package": "binutils",
+      "source_version": "2.44-3",
+      "stanza_sha256": "6bbc7ec7192929cfad6f4798ee1b1bfc83d66cbf9b024504c4a9100ec3de9e72",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/b/binutils/libctf0_2.44-3_amd64.deb",
+      "version": "2.44-3"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libeac3/copyright",
+      "filename": "pool/main/o/openpace/libeac3_1.1.2+ds+git20220117+453c3d6b03a0-1.1+b3_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libeac3",
+      "path": "binaries/089366fb2b71cadca53fb844cfabb0d0798623463247f5b8fa6ad1cc3ab382f2.deb",
+      "relations": {
+        "Depends": "libc6 (>= 2.14), libssl3t64 (>= 3.0.0)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "089366fb2b71cadca53fb844cfabb0d0798623463247f5b8fa6ad1cc3ab382f2",
+      "size": 51120,
+      "source_package": "openpace",
+      "source_version": "1.1.2+ds+git20220117+453c3d6b03a0-1.1",
+      "stanza_sha256": "832dbb5a2198d44199dff68925b9354b5d27b4e028de88b0c44c6483fd4ebc0f",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/o/openpace/libeac3_1.1.2+ds+git20220117+453c3d6b03a0-1.1+b3_amd64.deb",
+      "version": "1.1.2+ds+git20220117+453c3d6b03a0-1.1+b3"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libffi8/copyright",
+      "filename": "pool/main/libf/libffi/libffi8_3.4.8-2_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libffi8",
+      "path": "binaries/0ebdc340de33333639c3c63874cd4b15ac2e83dfa1ef3053b7eefaf4919f4f68.deb",
+      "relations": {
+        "Breaks": "libffi8ubuntu1 (<< 3.4.2-1)",
+        "Depends": "libc6 (>= 2.34)",
+        "Multi-Arch": "same",
+        "Provides": "libffi8ubuntu1 (= 3.4.8-2)",
+        "Replaces": "libffi8ubuntu1 (<< 3.4.2-1)"
+      },
+      "sha256": "0ebdc340de33333639c3c63874cd4b15ac2e83dfa1ef3053b7eefaf4919f4f68",
+      "size": 24144,
+      "source_package": "libffi",
+      "source_version": "3.4.8-2",
+      "stanza_sha256": "d7fa2ea7e0d282896afee9c995b02667cf1d0b23231e72b9244964eafa9a01bf",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/libf/libffi/libffi8_3.4.8-2_amd64.deb",
+      "version": "3.4.8-2"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libgcc-14-dev/copyright",
+      "filename": "pool/main/g/gcc-14/libgcc-14-dev_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libgcc-14-dev",
+      "path": "binaries/ca6f2d36d96b19b3eb71405b0b80134d8c89380b02204a2512e5c58ceb090628.deb",
+      "relations": {
+        "Breaks": "libtsan2 (<< 12-20211113-2~)",
+        "Depends": "gcc-14-base (= 14.2.0-19), libgcc-s1 (>= 14.2.0-19), libgomp1 (>= 14.2.0-19), libitm1 (>= 14.2.0-19), libatomic1 (>= 14.2.0-19), libasan8 (>= 14.2.0-19), liblsan0 (>= 14.2.0-19), libtsan2 (>= 14.2.0-19), libubsan1 (>= 14.2.0-19), libhwasan0 (>= 14.2.0-19), libquadmath0 (>= 14.2.0-19)",
+        "Multi-Arch": "same",
+        "Recommends": "libc6-dev (>= 2.23-1~)",
+        "Replaces": "libtsan2 (<< 12-20211113-2~)"
+      },
+      "sha256": "ca6f2d36d96b19b3eb71405b0b80134d8c89380b02204a2512e5c58ceb090628",
+      "size": 2672328,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "000a1767d83935e8f6e54bb611fc3b5c2fb0f3acd8b03106d355040e8f2b293e",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/libgcc-14-dev_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libglib2.0-0t64/copyright",
+      "filename": "pool/main/g/glib2.0/libglib2.0-0t64_2.84.4-3~deb13u5_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libglib2.0-0t64",
+      "path": "binaries/e2baf92c57d1db1753e5781a61450d9a01e7833c7bd2dfe87776a6811c11ecc2.deb",
+      "relations": {
+        "Breaks": "glib-networking-tests (<< 2.70.0~), gnome-keyring (<< 40.0-3~), gnome-shell (<< 44.9-2~), libedataserver-1.2-26 (<< 3.44.3-2~), libgladeui-2-6 (<< 3.22.2), libglib2.0-0 (<< 2.80.0-7~), libsoup2.4-tests (<< 2.72.0-3~)",
+        "Depends": "libatomic1 (>= 4.8), libc6 (>= 2.38), libffi8 (>= 3.4), libmount1 (>= 2.40~rc2), libpcre2-8-0 (>= 10.22), libselinux1 (>= 3.1~), zlib1g (>= 1:1.2.2)",
+        "Multi-Arch": "same",
+        "Provides": "libgio-2.0-0 (= 2.84.4-3~deb13u5), libglib-2.0-0 (= 2.84.4-3~deb13u5), libglib2.0-0 (= 2.84.4-3~deb13u5), libgmodule-2.0-0 (= 2.84.4-3~deb13u5), libgobject-2.0-0 (= 2.84.4-3~deb13u5), libgthread-2.0-0 (= 2.84.4-3~deb13u5)",
+        "Recommends": "libglib2.0-data, shared-mime-info, xdg-user-dirs",
+        "Replaces": "libglib2.0-0 (<< 2.80.0-7~)",
+        "Suggests": "low-memory-monitor"
+      },
+      "sha256": "e2baf92c57d1db1753e5781a61450d9a01e7833c7bd2dfe87776a6811c11ecc2",
+      "size": 1521120,
+      "source_package": "glib2.0",
+      "source_version": "2.84.4-3~deb13u5",
+      "stanza_sha256": "ea11544b20147d9105f482484f45920efb65fb7fde50dbec9c648b57e017cc22",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/glib2.0/libglib2.0-0t64_2.84.4-3~deb13u5_amd64.deb",
+      "version": "2.84.4-3~deb13u5"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libgomp1/copyright",
+      "filename": "pool/main/g/gcc-14/libgomp1_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libgomp1",
+      "path": "binaries/72b7a1a33c48f3195efeb044111b34ae684b1e640bb6495c832443b798601cd5.deb",
+      "relations": {
+        "Breaks": "gcc-4.3 (<< 4.3.6-1), gcc-4.4 (<< 4.4.6-4), gcc-4.5 (<< 4.5.3-2)",
+        "Depends": "gcc-14-base (= 14.2.0-19), libc6 (>= 2.38)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "72b7a1a33c48f3195efeb044111b34ae684b1e640bb6495c832443b798601cd5",
+      "size": 137148,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "777c3c1d5a0d79f55b5b768e71ed16d1ac0cba9f82aa01021bf10c8c43268869",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/libgomp1_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libgprofng0/copyright",
+      "filename": "pool/main/b/binutils/libgprofng0_2.44-3_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libgprofng0",
+      "path": "binaries/0d36d0bde85c467ac6735dded08e19dd30ae1369e3908b9eb48ccc0d6ff66648.deb",
+      "relations": {
+        "Depends": "libbinutils (= 2.44-3), libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libstdc++6 (>= 14), zlib1g (>= 1:1.1.4)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "0d36d0bde85c467ac6735dded08e19dd30ae1369e3908b9eb48ccc0d6ff66648",
+      "size": 807764,
+      "source_package": "binutils",
+      "source_version": "2.44-3",
+      "stanza_sha256": "e24b6c9d546addd510dbc51bd608c57413d089df179915beac6fa068d44bdf7e",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/b/binutils/libgprofng0_2.44-3_amd64.deb",
+      "version": "2.44-3"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libhwasan0/copyright",
+      "filename": "pool/main/g/gcc-14/libhwasan0_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libhwasan0",
+      "path": "binaries/2cdaf797cad8ac30a964ab081370682dd065ae1b0305a0be9d8e0e14cd0657d7.deb",
+      "relations": {
+        "Depends": "gcc-14-base (= 14.2.0-19), libc6 (>= 2.34), libgcc-s1 (>= 3.3)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "2cdaf797cad8ac30a964ab081370682dd065ae1b0305a0be9d8e0e14cd0657d7",
+      "size": 1487768,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "0de0dd8aa310e1d0d289526fd8719a4bb55372985eb842f7638039c7c2a99fcf",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/libhwasan0_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libisl23/copyright",
+      "filename": "pool/main/i/isl/libisl23_0.27-1_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libisl23",
+      "path": "binaries/ac8518042e81c00de1effb72bba7e88ac4ecd488f7ea8b9e3ebc63159cb53b35.deb",
+      "relations": {
+        "Breaks": "libisl-dbg (<< 0.19)",
+        "Depends": "libc6 (>= 2.14), libgmp10 (>= 2:6.3.0+dfsg)",
+        "Multi-Arch": "same",
+        "Replaces": "libisl-dbg (<< 0.19)"
+      },
+      "sha256": "ac8518042e81c00de1effb72bba7e88ac4ecd488f7ea8b9e3ebc63159cb53b35",
+      "size": 659152,
+      "source_package": "isl",
+      "source_version": "0.27-1",
+      "stanza_sha256": "be9aab3c1e0fed2370e802a9af6a1f05240e6e9b6ebc586f87196f42d2b79d60",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/i/isl/libisl23_0.27-1_amd64.deb",
+      "version": "0.27-1"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libitm1/copyright",
+      "filename": "pool/main/g/gcc-14/libitm1_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libitm1",
+      "path": "binaries/febdb3c528cde1a3abe952e17a1d3cfa7ccaca5b6f506d983d34385dad199490.deb",
+      "relations": {
+        "Depends": "gcc-14-base (= 14.2.0-19), libc6 (>= 2.34)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "febdb3c528cde1a3abe952e17a1d3cfa7ccaca5b6f506d983d34385dad199490",
+      "size": 25956,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "3cb4179ad376b89e5129551e9e06e8d4c106e77a43186af4a6c76e32dfe10c0b",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/libitm1_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libjansson4/copyright",
+      "filename": "pool/main/j/jansson/libjansson4_2.14-2+b3_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libjansson4",
+      "path": "binaries/60707a62fe6c1228c3389b12a13ca4efd76defc5532473e547a29e99cf7d2a6e.deb",
+      "relations": {
+        "Depends": "libc6 (>= 2.38)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "60707a62fe6c1228c3389b12a13ca4efd76defc5532473e547a29e99cf7d2a6e",
+      "size": 39792,
+      "source_package": "jansson",
+      "source_version": "2.14-2",
+      "stanza_sha256": "61c30ef0f5724b2814e964237eef0973a01abaff3b3530d8c34773713c2af087",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/j/jansson/libjansson4_2.14-2+b3_amd64.deb",
+      "version": "2.14-2+b3"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/liblsan0/copyright",
+      "filename": "pool/main/g/gcc-14/liblsan0_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "liblsan0",
+      "path": "binaries/a0df07da76287a45e665d584363dc2a6a1c4e240aee41b8bbc0f67cdff97cd68.deb",
+      "relations": {
+        "Depends": "gcc-14-base (= 14.2.0-19), libc6 (>= 2.34), libgcc-s1 (>= 3.3)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "a0df07da76287a45e665d584363dc2a6a1c4e240aee41b8bbc0f67cdff97cd68",
+      "size": 1204164,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "5957e79b30ea15fedb05932e84e3eda0e7b6cf118d88854b13b3e7808727088f",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/liblsan0_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libmpc3/copyright",
+      "filename": "pool/main/m/mpclib3/libmpc3_1.3.1-1+b3_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libmpc3",
+      "path": "binaries/2af0a5c128e03694a41c0b011bd8a958b7297436cdb3a15ddad7866dae8c300b.deb",
+      "relations": {
+        "Depends": "libc6 (>= 2.4), libgmp10 (>= 2:6.3.0+dfsg), libmpfr6 (>= 4.0.0)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "2af0a5c128e03694a41c0b011bd8a958b7297436cdb3a15ddad7866dae8c300b",
+      "size": 52244,
+      "source_package": "mpclib3",
+      "source_version": "1.3.1-1",
+      "stanza_sha256": "3bb0f1166c67ebff48c7aacfb23ea56fadab19aba38b57d6f0f92aaca15d4c27",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/m/mpclib3/libmpc3_1.3.1-1+b3_amd64.deb",
+      "version": "1.3.1-1+b3"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libmpfr6/copyright",
+      "filename": "pool/main/m/mpfr4/libmpfr6_4.2.2-1_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libmpfr6",
+      "path": "binaries/75dddce11dabc7fc543712c33dc27b7f2ee66a111763eb5eac654d010b42cd92.deb",
+      "relations": {
+        "Breaks": "libcgal13 (<< 4.11-2+b1), libflint-2.5.2 (<< 2.5.2-17+b2), libgiac0 (<< 1.2.3.57+dfsg1-2+b4), libgmp3 (<< 4.1.4-3), libmpc3 (<< 1.1.0-1~), libnormaliz3 (<< 3.5.1+ds-4), sagemath (<< 8.1-2+b2)",
+        "Depends": "libc6 (>= 2.14), libgmp10 (>= 2:6.3.0+dfsg)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "75dddce11dabc7fc543712c33dc27b7f2ee66a111763eb5eac654d010b42cd92",
+      "size": 729320,
+      "source_package": "mpfr4",
+      "source_version": "4.2.2-1",
+      "stanza_sha256": "1aba7b121c979191851ce36cb3cd64baef76fe6239ab51bfafbf91f28c5c7d2b",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/m/mpfr4/libmpfr6_4.2.2-1_amd64.deb",
+      "version": "4.2.2-1"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libquadmath0/copyright",
+      "filename": "pool/main/g/gcc-14/libquadmath0_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libquadmath0",
+      "path": "binaries/f5b51cf0ece3ec3bb7494d0cdbff3ce715ae00cfb2b6ed787f7db91319d64a7b.deb",
+      "relations": {
+        "Depends": "gcc-14-base (= 14.2.0-19), libc6 (>= 2.38)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "f5b51cf0ece3ec3bb7494d0cdbff3ce715ae00cfb2b6ed787f7db91319d64a7b",
+      "size": 145068,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "016d2b24548244c742e3c564586f7dadd7659c080a368b1a9f42d89c5fc783a9",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/libquadmath0_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libreadline8t64/copyright",
+      "filename": "pool/main/r/readline/libreadline8t64_8.2-6_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libreadline8t64",
+      "path": "binaries/eeadf2b5e755c9f183883feea2d9b5b28560284275d5f54d3e55d0923b1d0967.deb",
+      "relations": {
+        "Breaks": "libreadline8 (<< 8.2-6)",
+        "Depends": "readline-common, libc6 (>= 2.38), libtinfo6 (>= 6)",
+        "Multi-Arch": "same",
+        "Provides": "libreadline8 (= 8.2-6)",
+        "Replaces": "libreadline8"
+      },
+      "sha256": "eeadf2b5e755c9f183883feea2d9b5b28560284275d5f54d3e55d0923b1d0967",
+      "size": 168832,
+      "source_package": "readline",
+      "source_version": "8.2-6",
+      "stanza_sha256": "19f08c9e49504e3a890b8eadc3528447677ab4326f909ad430327a9919b5a57b",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/r/readline/libreadline8t64_8.2-6_amd64.deb",
+      "version": "8.2-6"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libsframe1/copyright",
+      "filename": "pool/main/b/binutils/libsframe1_2.44-3_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libsframe1",
+      "path": "binaries/38f625dfdc582717029ac3a3e97c51d994ec2e7a0e9b230c6b44e40d1276311f.deb",
+      "relations": {
+        "Depends": "libc6 (>= 2.14)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "38f625dfdc582717029ac3a3e97c51d994ec2e7a0e9b230c6b44e40d1276311f",
+      "size": 78360,
+      "source_package": "binutils",
+      "source_version": "2.44-3",
+      "stanza_sha256": "d1c5ed676bde784933888ec902112d4d4596d5edce448b5668e566aba68638f2",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/b/binutils/libsframe1_2.44-3_amd64.deb",
+      "version": "2.44-3"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libtsan2/copyright",
+      "filename": "pool/main/g/gcc-14/libtsan2_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libtsan2",
+      "path": "binaries/529d7f68227d16975076c5f842e8b687faea1b5df8e0dcf62e436d5402844ca5.deb",
+      "relations": {
+        "Depends": "gcc-14-base (= 14.2.0-19), libc6 (>= 2.34), libgcc-s1 (>= 3.4)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "529d7f68227d16975076c5f842e8b687faea1b5df8e0dcf62e436d5402844ca5",
+      "size": 2460216,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "de742b240347cb2fce0d2948c27bdf93e2622828c032ceb4db4395237fa7ee7c",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/libtsan2_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/libubsan1/copyright",
+      "filename": "pool/main/g/gcc-14/libubsan1_14.2.0-19_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "libubsan1",
+      "path": "binaries/9205a1bef7d6a52ffc06548e0cde169ff303e688c12d9be3a98f734449077e22.deb",
+      "relations": {
+        "Depends": "gcc-14-base (= 14.2.0-19), libc6 (>= 2.34), libgcc-s1 (>= 3.3), libstdc++6 (>= 4.1.1)",
+        "Multi-Arch": "same"
+      },
+      "sha256": "9205a1bef7d6a52ffc06548e0cde169ff303e688c12d9be3a98f734449077e22",
+      "size": 1074340,
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "stanza_sha256": "21c57bd8c8df7682ec7a8b60adde0b096459ae93305b1471fd9a830e4cc52da7",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/libubsan1_14.2.0-19_amd64.deb",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "all",
+      "copyright_path": "/usr/share/doc/linux-libc-dev/copyright",
+      "filename": "pool/main/l/linux/linux-libc-dev_6.12.107-1_all.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "linux-libc-dev",
+      "path": "binaries/dc68dd53c7356598d005866da0d19d7bd33af2a62971aced624cdf04492902b4.deb",
+      "relations": {
+        "Multi-Arch": "foreign"
+      },
+      "sha256": "dc68dd53c7356598d005866da0d19d7bd33af2a62971aced624cdf04492902b4",
+      "size": 2919204,
+      "source_package": "linux",
+      "source_version": "6.12.107-1",
+      "stanza_sha256": "c2f114fb447da7c1952987ab9fcc7395c9f649d2928e1079d91a2fa416413e54",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/l/linux/linux-libc-dev_6.12.107-1_all.deb",
+      "version": "6.12.107-1"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/opensc/copyright",
+      "filename": "pool/main/o/opensc/opensc_0.26.1-2_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "opensc",
+      "path": "binaries/2797d3f18b026f325a8901b91692618f105c3d50d60a5f0263054725a13ea9e5.deb",
+      "relations": {
+        "Conflicts": "mozilla-opensc",
+        "Depends": "opensc-pkcs11 (= 0.26.1-2), libc6 (>= 2.34), libeac3 (>= 1.1.2+ds+git20220117+453c3d6b03a0), libreadline8t64 (>= 6.0), libssl3t64 (>= 3.2.0), zlib1g (>= 1:1.1.4)",
+        "Multi-Arch": "foreign",
+        "Recommends": "pcscd"
+      },
+      "sha256": "2797d3f18b026f325a8901b91692618f105c3d50d60a5f0263054725a13ea9e5",
+      "size": 411144,
+      "source_package": "opensc",
+      "source_version": "0.26.1-2",
+      "stanza_sha256": "bd5ebd24c78efbb68c28f16730d137e798565ba56676e9f69507005595e0f11e",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/o/opensc/opensc_0.26.1-2_amd64.deb",
+      "version": "0.26.1-2"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/opensc-pkcs11/copyright",
+      "filename": "pool/main/o/opensc/opensc-pkcs11_0.26.1-2_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "opensc-pkcs11",
+      "path": "binaries/6f278a3a506530d0675c112bc23ffe37a5716300d3eb26304c75b67544de5506.deb",
+      "relations": {
+        "Breaks": "libopensc2 (<< 0.12.0)",
+        "Depends": "libc6 (>= 2.38), libeac3 (>= 1.1.2+ds+git20220117+453c3d6b03a0), libglib2.0-0t64 (>= 2.40.0), libssl3t64 (>= 3.4.0), zlib1g (>= 1:1.1.4)",
+        "Multi-Arch": "same",
+        "Replaces": "libopensc2 (<< 0.12.0)"
+      },
+      "sha256": "6f278a3a506530d0675c112bc23ffe37a5716300d3eb26304c75b67544de5506",
+      "size": 924200,
+      "source_package": "opensc",
+      "source_version": "0.26.1-2",
+      "stanza_sha256": "75d4d1ccb21e5fff28d3128a58479dd4ff930a9d4f74e474a1caa292762b5e14",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/o/opensc/opensc-pkcs11_0.26.1-2_amd64.deb",
+      "version": "0.26.1-2"
+    },
+    {
+      "architecture": "all",
+      "copyright_path": "/usr/share/doc/readline-common/copyright",
+      "filename": "pool/main/r/readline/readline-common_8.2-6_all.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "readline-common",
+      "path": "binaries/f77e8aa0bf0de618f11cb0b21658a4ed60f177d63b3cf26d7fc3706b6d0eaaa9.deb",
+      "relations": {
+        "Conflicts": "libreadline-common, libreadline5 (<< 5.0-11)",
+        "Multi-Arch": "foreign",
+        "Replaces": "libreadline-common, libreadline4 (<< 4.3-16), libreadline5 (<< 5.0-11)",
+        "Suggests": "readline-doc"
+      },
+      "sha256": "f77e8aa0bf0de618f11cb0b21658a4ed60f177d63b3cf26d7fc3706b6d0eaaa9",
+      "size": 69360,
+      "source_package": "readline",
+      "source_version": "8.2-6",
+      "stanza_sha256": "b3b6b58ad6c2aa542dd5e098c92def2204ec99844cc527b4832a9ad4cd0feba8",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/r/readline/readline-common_8.2-6_all.deb",
+      "version": "8.2-6"
+    },
+    {
+      "architecture": "amd64",
+      "copyright_path": "/usr/share/doc/rpcsvc-proto/copyright",
+      "filename": "pool/main/r/rpcsvc-proto/rpcsvc-proto_1.4.3-1_amd64.deb",
+      "index": "trixie.Packages",
+      "license_status": "unreviewed",
+      "name": "rpcsvc-proto",
+      "path": "binaries/32ac0692694f8a34cc90c895f4fc739680fb2ef0e2d4870a68833682bf1c81a3.deb",
+      "relations": {
+        "Breaks": "libc-dev-bin (<< 2.31-14), libc6-dev (<< 2.31-14)",
+        "Depends": "libc6 (>= 2.34)",
+        "Multi-Arch": "foreign",
+        "Replaces": "libc-dev-bin (<< 2.31-14), libc6-dev (<< 2.31-14)"
+      },
+      "sha256": "32ac0692694f8a34cc90c895f4fc739680fb2ef0e2d4870a68833682bf1c81a3",
+      "size": 63268,
+      "source_package": "rpcsvc-proto",
+      "source_version": "1.4.3-1",
+      "stanza_sha256": "f9bbfbe8e13d0aaf0807d659aed402dbdc20988e934a7664445a4f53cbea8483",
+      "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/r/rpcsvc-proto/rpcsvc-proto_1.4.3-1_amd64.deb",
+      "version": "1.4.3-1"
+    }
+  ],
+  "parent_packages": [
+    {
+      "architecture": "amd64",
+      "name": "apt",
+      "source_package": "apt",
+      "source_version": "3.0.3",
+      "version": "3.0.3"
+    },
+    {
+      "architecture": "amd64",
+      "name": "base-files",
+      "source_package": "base-files",
+      "source_version": "13.8+deb13u7",
+      "version": "13.8+deb13u7"
+    },
+    {
+      "architecture": "amd64",
+      "name": "base-passwd",
+      "source_package": "base-passwd",
+      "source_version": "3.6.7",
+      "version": "3.6.7"
+    },
+    {
+      "architecture": "amd64",
+      "name": "bash",
+      "source_package": "bash",
+      "source_version": "5.2.37-2",
+      "version": "5.2.37-2+b10"
+    },
+    {
+      "architecture": "amd64",
+      "name": "bsdutils",
+      "source_package": "util-linux",
+      "source_version": "2.41.5-0+deb13u1",
+      "version": "1:2.41.5-0+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "coreutils",
+      "source_package": "coreutils",
+      "source_version": "9.7-3",
+      "version": "9.7-3"
+    },
+    {
+      "architecture": "amd64",
+      "name": "dash",
+      "source_package": "dash",
+      "source_version": "0.5.12-12",
+      "version": "0.5.12-12"
+    },
+    {
+      "architecture": "all",
+      "name": "debconf",
+      "source_package": "debconf",
+      "source_version": "1.5.91",
+      "version": "1.5.91"
+    },
+    {
+      "architecture": "all",
+      "name": "debian-archive-keyring",
+      "source_package": "debian-archive-keyring",
+      "source_version": "2025.1",
+      "version": "2025.1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "debianutils",
+      "source_package": "debianutils",
+      "source_version": "5.23.2",
+      "version": "5.23.2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "diffutils",
+      "source_package": "diffutils",
+      "source_version": "1:3.10-4",
+      "version": "1:3.10-4"
+    },
+    {
+      "architecture": "amd64",
+      "name": "dpkg",
+      "source_package": "dpkg",
+      "source_version": "1.22.22",
+      "version": "1.22.22"
+    },
+    {
+      "architecture": "amd64",
+      "name": "findutils",
+      "source_package": "findutils",
+      "source_version": "4.10.0-3",
+      "version": "4.10.0-3"
+    },
+    {
+      "architecture": "amd64",
+      "name": "gcc-14-base",
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "name": "grep",
+      "source_package": "grep",
+      "source_version": "3.11-4",
+      "version": "3.11-4"
+    },
+    {
+      "architecture": "amd64",
+      "name": "gzip",
+      "source_package": "gzip",
+      "source_version": "1.13-1+deb13u1",
+      "version": "1.13-1+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "hostname",
+      "source_package": "hostname",
+      "source_version": "3.25",
+      "version": "3.25"
+    },
+    {
+      "architecture": "all",
+      "name": "init-system-helpers",
+      "source_package": "init-system-helpers",
+      "source_version": "1.69~deb13u1",
+      "version": "1.69~deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libacl1",
+      "source_package": "acl",
+      "source_version": "2.3.2-2",
+      "version": "2.3.2-2+b1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libapt-pkg7.0",
+      "source_package": "apt",
+      "source_version": "3.0.3",
+      "version": "3.0.3"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libattr1",
+      "source_package": "attr",
+      "source_version": "1:2.5.2-3",
+      "version": "1:2.5.2-3"
+    },
+    {
+      "architecture": "all",
+      "name": "libaudit-common",
+      "source_package": "audit",
+      "source_version": "1:4.0.2-2+deb13u1",
+      "version": "1:4.0.2-2+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libaudit1",
+      "source_package": "audit",
+      "source_version": "1:4.0.2-2+deb13u1",
+      "version": "1:4.0.2-2+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libblkid1",
+      "source_package": "util-linux",
+      "source_version": "2.41.5-0+deb13u1",
+      "version": "2.41.5-0+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libbsd0",
+      "source_package": "libbsd",
+      "source_version": "0.12.2-2",
+      "version": "0.12.2-2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libbz2-1.0",
+      "source_package": "bzip2",
+      "source_version": "1.0.8-6",
+      "version": "1.0.8-6"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libc-bin",
+      "source_package": "glibc",
+      "source_version": "2.41-12+deb13u4",
+      "version": "2.41-12+deb13u4"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libc6",
+      "source_package": "glibc",
+      "source_version": "2.41-12+deb13u4",
+      "version": "2.41-12+deb13u4"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libcap-ng0",
+      "source_package": "libcap-ng",
+      "source_version": "0.8.5-4",
+      "version": "0.8.5-4+b1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libcap2",
+      "source_package": "libcap2",
+      "source_version": "1:2.75-10+deb13u1",
+      "version": "1:2.75-10+deb13u1+b3"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libcrypt1",
+      "source_package": "libxcrypt",
+      "source_version": "1:4.4.38-1",
+      "version": "1:4.4.38-1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libdb5.3t64",
+      "source_package": "db5.3",
+      "source_version": "5.3.28+dfsg2-9",
+      "version": "5.3.28+dfsg2-9"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libdebconfclient0",
+      "source_package": "cdebconf",
+      "source_version": "0.280",
+      "version": "0.280"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libgcc-s1",
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libgmp10",
+      "source_package": "gmp",
+      "source_version": "2:6.3.0+dfsg-3",
+      "version": "2:6.3.0+dfsg-3"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libhogweed6t64",
+      "source_package": "nettle",
+      "source_version": "3.10.1-1",
+      "version": "3.10.1-1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "liblastlog2-2",
+      "source_package": "util-linux",
+      "source_version": "2.41.5-0+deb13u1",
+      "version": "2.41.5-0+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "liblz4-1",
+      "source_package": "lz4",
+      "source_version": "1.10.0-4",
+      "version": "1.10.0-4"
+    },
+    {
+      "architecture": "amd64",
+      "name": "liblzma5",
+      "source_package": "xz-utils",
+      "source_version": "5.8.1-1+deb13u1",
+      "version": "5.8.1-1+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libmd0",
+      "source_package": "libmd",
+      "source_version": "1.1.0-2",
+      "version": "1.1.0-2+b1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libmount1",
+      "source_package": "util-linux",
+      "source_version": "2.41.5-0+deb13u1",
+      "version": "2.41.5-0+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libnettle8t64",
+      "source_package": "nettle",
+      "source_version": "3.10.1-1",
+      "version": "3.10.1-1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libpam-modules",
+      "source_package": "pam",
+      "source_version": "1.7.0-5",
+      "version": "1.7.0-5"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libpam-modules-bin",
+      "source_package": "pam",
+      "source_version": "1.7.0-5",
+      "version": "1.7.0-5"
+    },
+    {
+      "architecture": "all",
+      "name": "libpam-runtime",
+      "source_package": "pam",
+      "source_version": "1.7.0-5",
+      "version": "1.7.0-5"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libpam0g",
+      "source_package": "pam",
+      "source_version": "1.7.0-5",
+      "version": "1.7.0-5"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libpcre2-8-0",
+      "source_package": "pcre2",
+      "source_version": "10.46-1~deb13u2",
+      "version": "10.46-1~deb13u2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libseccomp2",
+      "source_package": "libseccomp",
+      "source_version": "2.6.0-2",
+      "version": "2.6.0-2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libselinux1",
+      "source_package": "libselinux",
+      "source_version": "3.8.1-1",
+      "version": "3.8.1-1"
+    },
+    {
+      "architecture": "all",
+      "name": "libsemanage-common",
+      "source_package": "libsemanage",
+      "source_version": "3.8.1-1",
+      "version": "3.8.1-1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libsemanage2",
+      "source_package": "libsemanage",
+      "source_version": "3.8.1-1",
+      "version": "3.8.1-1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libsepol2",
+      "source_package": "libsepol",
+      "source_version": "3.8.1-1",
+      "version": "3.8.1-1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libsmartcols1",
+      "source_package": "util-linux",
+      "source_version": "2.41.5-0+deb13u1",
+      "version": "2.41.5-0+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libsqlite3-0",
+      "source_package": "sqlite3",
+      "source_version": "3.46.1-7+deb13u2",
+      "version": "3.46.1-7+deb13u2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libssl3t64",
+      "source_package": "openssl",
+      "source_version": "3.5.7-1~deb13u2",
+      "version": "3.5.7-1~deb13u2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libstdc++6",
+      "source_package": "gcc-14",
+      "source_version": "14.2.0-19",
+      "version": "14.2.0-19"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libsystemd0",
+      "source_package": "systemd",
+      "source_version": "257.13-1~deb13u1",
+      "version": "257.13-1~deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libtinfo6",
+      "source_package": "ncurses",
+      "source_version": "6.5+20250216-2",
+      "version": "6.5+20250216-2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libudev1",
+      "source_package": "systemd",
+      "source_version": "257.13-1~deb13u1",
+      "version": "257.13-1~deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libuuid1",
+      "source_package": "util-linux",
+      "source_version": "2.41.5-0+deb13u1",
+      "version": "2.41.5-0+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libxxhash0",
+      "source_package": "xxhash",
+      "source_version": "0.8.3-2",
+      "version": "0.8.3-2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "libzstd1",
+      "source_package": "libzstd",
+      "source_version": "1.5.7+dfsg-1",
+      "version": "1.5.7+dfsg-1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "login",
+      "source_package": "util-linux",
+      "source_version": "2.41.5-0+deb13u1",
+      "version": "1:4.16.0-2+really2.41.5-0+deb13u1"
+    },
+    {
+      "architecture": "all",
+      "name": "login.defs",
+      "source_package": "shadow",
+      "source_version": "1:4.17.4-2",
+      "version": "1:4.17.4-2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "mawk",
+      "source_package": "mawk",
+      "source_version": "1.3.4.20250131-1",
+      "version": "1.3.4.20250131-1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "mount",
+      "source_package": "util-linux",
+      "source_version": "2.41.5-0+deb13u1",
+      "version": "2.41.5-0+deb13u1"
+    },
+    {
+      "architecture": "all",
+      "name": "ncurses-base",
+      "source_package": "ncurses",
+      "source_version": "6.5+20250216-2",
+      "version": "6.5+20250216-2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "ncurses-bin",
+      "source_package": "ncurses",
+      "source_version": "6.5+20250216-2",
+      "version": "6.5+20250216-2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "openssl-provider-legacy",
+      "source_package": "openssl",
+      "source_version": "3.5.7-1~deb13u2",
+      "version": "3.5.7-1~deb13u2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "passwd",
+      "source_package": "shadow",
+      "source_version": "1:4.17.4-2",
+      "version": "1:4.17.4-2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "perl-base",
+      "source_package": "perl",
+      "source_version": "5.40.1-6+deb13u1",
+      "version": "5.40.1-6+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "sed",
+      "source_package": "sed",
+      "source_version": "4.9-2+deb13u1",
+      "version": "4.9-2+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "sqv",
+      "source_package": "rust-sequoia-sqv",
+      "source_version": "1.3.0-3",
+      "version": "1.3.0-3+b2"
+    },
+    {
+      "architecture": "amd64",
+      "name": "sysvinit-utils",
+      "source_package": "sysvinit",
+      "source_version": "3.14-4",
+      "version": "3.14-4"
+    },
+    {
+      "architecture": "amd64",
+      "name": "tar",
+      "source_package": "tar",
+      "source_version": "1.35+dfsg-3.1",
+      "version": "1.35+dfsg-3.1"
+    },
+    {
+      "architecture": "all",
+      "name": "tzdata",
+      "source_package": "tzdata",
+      "source_version": "2026c-0+deb13u1",
+      "version": "2026c-0+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "util-linux",
+      "source_package": "util-linux",
+      "source_version": "2.41.5-0+deb13u1",
+      "version": "2.41.5-0+deb13u1"
+    },
+    {
+      "architecture": "amd64",
+      "name": "zlib1g",
+      "source_package": "zlib",
+      "source_version": "1:1.3.dfsg+really1.3.1-1",
+      "version": "1:1.3.dfsg+really1.3.1-1+b1"
+    }
+  ],
+  "platform": "linux/amd64",
+  "provenance": {
+    "path": "tool-inputs/consumer.debian13-amd64.provenance.json",
+    "sha256": "811b0af4c1d830d81288f34a49e2df5aa181fc3697740bcf029dbd3bfaeb5ad7"
+  },
+  "resources": [
+    {
+      "asset": "consumer/smoke.c",
+      "path": "resources/consumer/smoke.c",
+      "sha256": "4f1fdf1af5b877f76aec2b9b903cd27339f86f3950e59b12ce26d568e053d384",
+      "size": 20925
+    },
+    {
+      "asset": "consumer/p256.c",
+      "path": "resources/consumer/p256.c",
+      "sha256": "f61202b198f87c9955040de0c5eb889578b91a16a71f1e9c345e89729c1b5ca9",
+      "size": 3474
+    },
+    {
+      "asset": "consumer/p256.h",
+      "path": "resources/consumer/p256.h",
+      "sha256": "7cca8abc1e84934a11f096da6fd859629f35ec855de551b0d3c207269073e370",
+      "size": 544
+    },
+    {
+      "asset": "consumer/vendor/pkcs11.h",
+      "path": "resources/consumer/vendor/pkcs11.h",
+      "sha256": "9b396c5b61c52d108740357fb944445a22d8ca370d8b636368b6dfa7cee66bc4",
+      "size": 141794
+    },
+    {
+      "asset": "consumer/LICENSE",
+      "path": "resources/consumer/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "size": 11358
+    },
+    {
+      "asset": "consumer/PROVENANCE.md",
+      "path": "resources/consumer/PROVENANCE.md",
+      "sha256": "ba2147d241517d2964488e02aeefb17fe65b13e439da4b5614ef4b3f86607b49",
+      "size": 2021
+    },
+    {
+      "asset": "consumer/README.md",
+      "path": "resources/consumer/README.md",
+      "sha256": "63217f67e01e96e25858c99ca1bb97dd1fc301bb237c98d1bd1b3155f6cb142b",
+      "size": 8070
+    },
+    {
+      "asset": "consumer/verify.py",
+      "path": "resources/consumer/verify.py",
+      "sha256": "deacbb2cbd24e849b66889da564f9b96f8d0a8b11a14d2fbb37b95bae212af70",
+      "size": 2444
+    }
+  ],
+  "schema_version": 1,
+  "sources": [
+    {
+      "files": [
+        {
+          "filename": "binutils_2.44-3.dsc",
+          "path": "sources/5abd1ae1adb61fd8ecbadfdc16668738668e81c745884aefa0ce97791b2a74b8/binutils_2.44-3.dsc",
+          "sha256": "5abd1ae1adb61fd8ecbadfdc16668738668e81c745884aefa0ce97791b2a74b8",
+          "size": 11429,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/b/binutils/binutils_2.44-3.dsc"
+        },
+        {
+          "filename": "binutils_2.44.orig.tar.xz",
+          "path": "sources/c41a0272424f41bb01bf828e7ffef1b2d59d1788064fd6b5f1d971717e9320b8/binutils_2.44.orig.tar.xz",
+          "sha256": "c41a0272424f41bb01bf828e7ffef1b2d59d1788064fd6b5f1d971717e9320b8",
+          "size": 27504768,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/b/binutils/binutils_2.44.orig.tar.xz"
+        },
+        {
+          "filename": "binutils_2.44-3.debian.tar.xz",
+          "path": "sources/555c856d6fb5a797c2692c24c3083e7b1a76811a470eaab01d90c969c2f92784/binutils_2.44-3.debian.tar.xz",
+          "sha256": "555c856d6fb5a797c2692c24c3083e7b1a76811a470eaab01d90c969c2f92784",
+          "size": 131700,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/b/binutils/binutils_2.44-3.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "binutils",
+      "stanza_sha256": "03616e7cc4e80ac6c62f934ae749943d66d1cfd8fb2c8cf27ab36e9244efcca2",
+      "version": "2.44-3"
+    },
+    {
+      "files": [
+        {
+          "filename": "gcc-14_14.2.0-19.dsc",
+          "path": "sources/7db1e202cce66617e9134a662c877a3a773de5b612fd52179815877e0ecfb847/gcc-14_14.2.0-19.dsc",
+          "sha256": "7db1e202cce66617e9134a662c877a3a773de5b612fd52179815877e0ecfb847",
+          "size": 47347,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/gcc-14_14.2.0-19.dsc"
+        },
+        {
+          "filename": "gcc-14_14.2.0.orig.tar.gz",
+          "path": "sources/e162a5ef3f0077ecae598c6556908d2ab80841532df3398072a96a6df6e6aa29/gcc-14_14.2.0.orig.tar.gz",
+          "sha256": "e162a5ef3f0077ecae598c6556908d2ab80841532df3398072a96a6df6e6aa29",
+          "size": 94299633,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/gcc-14_14.2.0.orig.tar.gz"
+        },
+        {
+          "filename": "gcc-14_14.2.0-19.debian.tar.xz",
+          "path": "sources/31cbab4bafa48aa1c540497bd8098cbcf98e673778f927651ed944709f687781/gcc-14_14.2.0-19.debian.tar.xz",
+          "sha256": "31cbab4bafa48aa1c540497bd8098cbcf98e673778f927651ed944709f687781",
+          "size": 2577016,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-14/gcc-14_14.2.0-19.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "gcc-14",
+      "stanza_sha256": "544ffde4bf46b60150828193644ef4699710989e2c3e09a5f4385e814e77e78d",
+      "version": "14.2.0-19"
+    },
+    {
+      "files": [
+        {
+          "filename": "gcc-defaults_1.220.dsc",
+          "path": "sources/abfa2d362033435385e733f97d0cace1fbc917fd4160c81cc89abac38d3cdc37/gcc-defaults_1.220.dsc",
+          "sha256": "abfa2d362033435385e733f97d0cace1fbc917fd4160c81cc89abac38d3cdc37",
+          "size": 36895,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-defaults/gcc-defaults_1.220.dsc"
+        },
+        {
+          "filename": "gcc-defaults_1.220.tar.xz",
+          "path": "sources/d40fbdb57f351a58e050c3e1037201853e88e3f673242b62357dc20030ad4805/gcc-defaults_1.220.tar.xz",
+          "sha256": "d40fbdb57f351a58e050c3e1037201853e88e3f673242b62357dc20030ad4805",
+          "size": 54044,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/gcc-defaults/gcc-defaults_1.220.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "gcc-defaults",
+      "stanza_sha256": "a26ed5e210052d258a44bb299999a8655674a1b5f497b4f3263c4cd7f42ef3d6",
+      "version": "1.220"
+    },
+    {
+      "files": [
+        {
+          "filename": "glib2.0_2.84.4-3~deb13u5.dsc",
+          "path": "sources/2587beb2f5b90511d0c88a7595c1d3b3ea7a5b7e6582713ecae3713864012858/glib2.0_2.84.4-3~deb13u5.dsc",
+          "sha256": "2587beb2f5b90511d0c88a7595c1d3b3ea7a5b7e6582713ecae3713864012858",
+          "size": 5294,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/glib2.0/glib2.0_2.84.4-3~deb13u5.dsc"
+        },
+        {
+          "filename": "glib2.0_2.84.4.orig-unicode-data.tar.xz",
+          "path": "sources/c1742461e8c0e9673a3453a3127671169de9cb0138493e5c916f1b989530efcd/glib2.0_2.84.4.orig-unicode-data.tar.xz",
+          "sha256": "c1742461e8c0e9673a3453a3127671169de9cb0138493e5c916f1b989530efcd",
+          "size": 660708,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/glib2.0/glib2.0_2.84.4.orig-unicode-data.tar.xz"
+        },
+        {
+          "filename": "glib2.0_2.84.4.orig.tar.xz",
+          "path": "sources/8a9ea10943c36fc117e253f80c91e477b673525ae45762942858aef57631bb90/glib2.0_2.84.4.orig.tar.xz",
+          "sha256": "8a9ea10943c36fc117e253f80c91e477b673525ae45762942858aef57631bb90",
+          "size": 5618200,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/glib2.0/glib2.0_2.84.4.orig.tar.xz"
+        },
+        {
+          "filename": "glib2.0_2.84.4-3~deb13u5.debian.tar.xz",
+          "path": "sources/d8e3603c3780d2cc883d762cf81db9199d8c4c492a82a1a791c117a6d402dbeb/glib2.0_2.84.4-3~deb13u5.debian.tar.xz",
+          "sha256": "d8e3603c3780d2cc883d762cf81db9199d8c4c492a82a1a791c117a6d402dbeb",
+          "size": 172260,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/glib2.0/glib2.0_2.84.4-3~deb13u5.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "glib2.0",
+      "stanza_sha256": "3f973490f39336039b915bbdbff282c0814a2d59e1bbd5cd8aabb9113e4dd7c3",
+      "version": "2.84.4-3~deb13u5"
+    },
+    {
+      "files": [
+        {
+          "filename": "glibc_2.41-12+deb13u4.dsc",
+          "path": "sources/0915324aa646bb99abfaa9aa6ecb734b30babd28454a3e51f3152912370fbd3e/glibc_2.41-12+deb13u4.dsc",
+          "sha256": "0915324aa646bb99abfaa9aa6ecb734b30babd28454a3e51f3152912370fbd3e",
+          "size": 7576,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/glibc/glibc_2.41-12+deb13u4.dsc"
+        },
+        {
+          "filename": "glibc_2.41.orig.tar.xz",
+          "path": "sources/f24aa441021121a79266f0d75242706cab8843a47901fefe74527491807f1998/glibc_2.41.orig.tar.xz",
+          "sha256": "f24aa441021121a79266f0d75242706cab8843a47901fefe74527491807f1998",
+          "size": 20323540,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/glibc/glibc_2.41.orig.tar.xz"
+        },
+        {
+          "filename": "glibc_2.41-12+deb13u4.debian.tar.xz",
+          "path": "sources/dda4153511bfd543502d18e5bc9323110996fe9c531f14ae3fad6eb17f027c7d/glibc_2.41-12+deb13u4.debian.tar.xz",
+          "sha256": "dda4153511bfd543502d18e5bc9323110996fe9c531f14ae3fad6eb17f027c7d",
+          "size": 499524,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/g/glibc/glibc_2.41-12+deb13u4.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "glibc",
+      "stanza_sha256": "23a2c048b4cc73b237a6650ac5000b0e8c82f968d7e89abba83711395d5e6fc2",
+      "version": "2.41-12+deb13u4"
+    },
+    {
+      "files": [
+        {
+          "filename": "isl_0.27-1.dsc",
+          "path": "sources/35ceb67dbb1b4098431b184e342143c2bd94c4a41ebfb3a983e3be31440b0453/isl_0.27-1.dsc",
+          "sha256": "35ceb67dbb1b4098431b184e342143c2bd94c4a41ebfb3a983e3be31440b0453",
+          "size": 1829,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/i/isl/isl_0.27-1.dsc"
+        },
+        {
+          "filename": "isl_0.27.orig.tar.xz",
+          "path": "sources/6d8babb59e7b672e8cb7870e874f3f7b813b6e00e6af3f8b04f7579965643d5c/isl_0.27.orig.tar.xz",
+          "sha256": "6d8babb59e7b672e8cb7870e874f3f7b813b6e00e6af3f8b04f7579965643d5c",
+          "size": 2056436,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/i/isl/isl_0.27.orig.tar.xz"
+        },
+        {
+          "filename": "isl_0.27-1.debian.tar.xz",
+          "path": "sources/1ac2e33075903489d4284ff4e86645405e68a282a80432ee4ee0c43397f59224/isl_0.27-1.debian.tar.xz",
+          "sha256": "1ac2e33075903489d4284ff4e86645405e68a282a80432ee4ee0c43397f59224",
+          "size": 24868,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/i/isl/isl_0.27-1.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "isl",
+      "stanza_sha256": "3fc720c632e1bac653e87ca334e9fd049ea658fda9285c1983d6d0a411aaf250",
+      "version": "0.27-1"
+    },
+    {
+      "files": [
+        {
+          "filename": "jansson_2.14-2.dsc",
+          "path": "sources/6296ddd9c0a022bd1b70074aefb171cfcdf5694a04ffd32b35fd66097621af87/jansson_2.14-2.dsc",
+          "sha256": "6296ddd9c0a022bd1b70074aefb171cfcdf5694a04ffd32b35fd66097621af87",
+          "size": 1980,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/j/jansson/jansson_2.14-2.dsc"
+        },
+        {
+          "filename": "jansson_2.14.orig.tar.gz",
+          "path": "sources/c739578bf6b764aa0752db9a2fdadcfe921c78f1228c7ec0bb47fa804c55d17b/jansson_2.14.orig.tar.gz",
+          "sha256": "c739578bf6b764aa0752db9a2fdadcfe921c78f1228c7ec0bb47fa804c55d17b",
+          "size": 141500,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/j/jansson/jansson_2.14.orig.tar.gz"
+        },
+        {
+          "filename": "jansson_2.14-2.debian.tar.xz",
+          "path": "sources/e89fe4fd8221f6934ddb50f2e7f8404311928d0e23e49a5599f3d3d14ee8cb88/jansson_2.14-2.debian.tar.xz",
+          "sha256": "e89fe4fd8221f6934ddb50f2e7f8404311928d0e23e49a5599f3d3d14ee8cb88",
+          "size": 5428,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/j/jansson/jansson_2.14-2.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "jansson",
+      "stanza_sha256": "2bed246b1997ec261893663f0fc3d6f07c7cd56556a5269dd7d78843828cd5b7",
+      "version": "2.14-2"
+    },
+    {
+      "files": [
+        {
+          "filename": "libffi_3.4.8-2.dsc",
+          "path": "sources/4424defe3f37c0084f062e03330b2ba3d3f927367c33be455cfacf7f85a78161/libffi_3.4.8-2.dsc",
+          "sha256": "4424defe3f37c0084f062e03330b2ba3d3f927367c33be455cfacf7f85a78161",
+          "size": 1948,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/libf/libffi/libffi_3.4.8-2.dsc"
+        },
+        {
+          "filename": "libffi_3.4.8.orig.tar.gz",
+          "path": "sources/cbb7f0b3b095dc506387ec1e35b891bfb4891d05b90a495bc69a10f2293f80ff/libffi_3.4.8.orig.tar.gz",
+          "sha256": "cbb7f0b3b095dc506387ec1e35b891bfb4891d05b90a495bc69a10f2293f80ff",
+          "size": 595051,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/libf/libffi/libffi_3.4.8.orig.tar.gz"
+        },
+        {
+          "filename": "libffi_3.4.8-2.debian.tar.xz",
+          "path": "sources/f23ac79a19895ebb6bbb539263d0d945ebc2d3e91217a597f5819777f08b401c/libffi_3.4.8-2.debian.tar.xz",
+          "sha256": "f23ac79a19895ebb6bbb539263d0d945ebc2d3e91217a597f5819777f08b401c",
+          "size": 11220,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/libf/libffi/libffi_3.4.8-2.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "libffi",
+      "stanza_sha256": "bbabe75725e6636ac3cdd5a81d5f1b0cbd0dfb1d7c8e86ce5ce8c85435cbf6ba",
+      "version": "3.4.8-2"
+    },
+    {
+      "files": [
+        {
+          "filename": "libxcrypt_4.4.38-1.dsc",
+          "path": "sources/feba1874a84616791c1c17f9a290c9e97562b2904b3b0200edc82a2db54f3f07/libxcrypt_4.4.38-1.dsc",
+          "sha256": "feba1874a84616791c1c17f9a290c9e97562b2904b3b0200edc82a2db54f3f07",
+          "size": 1573,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/libx/libxcrypt/libxcrypt_4.4.38-1.dsc"
+        },
+        {
+          "filename": "libxcrypt_4.4.38.orig.tar.xz",
+          "path": "sources/6a275a356622c64ba9f693892215dbb399c003a7a4afeed9c4c74070eaab20f4/libxcrypt_4.4.38.orig.tar.xz",
+          "sha256": "6a275a356622c64ba9f693892215dbb399c003a7a4afeed9c4c74070eaab20f4",
+          "size": 394216,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/libx/libxcrypt/libxcrypt_4.4.38.orig.tar.xz"
+        },
+        {
+          "filename": "libxcrypt_4.4.38-1.debian.tar.xz",
+          "path": "sources/6b87bcb5325e417ab3f4c01c364233444b4c9008a69ec1d6fababb3f6e693a5e/libxcrypt_4.4.38-1.debian.tar.xz",
+          "sha256": "6b87bcb5325e417ab3f4c01c364233444b4c9008a69ec1d6fababb3f6e693a5e",
+          "size": 8512,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/libx/libxcrypt/libxcrypt_4.4.38-1.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "libxcrypt",
+      "stanza_sha256": "93e98d720ac8e93aac69c1b98a25eb206268fc871c46492d304c80f081b4c61f",
+      "version": "1:4.4.38-1"
+    },
+    {
+      "files": [
+        {
+          "filename": "linux_6.12.107-1.dsc",
+          "path": "sources/00f5874a383295a3237321cf59a0f172495084f16cb3dac24ee5aae6649d809a/linux_6.12.107-1.dsc",
+          "sha256": "00f5874a383295a3237321cf59a0f172495084f16cb3dac24ee5aae6649d809a",
+          "size": 290418,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/l/linux/linux_6.12.107-1.dsc"
+        },
+        {
+          "filename": "linux_6.12.107.orig.tar.xz",
+          "path": "sources/efc76d3c78a5d65f42724118c437d11db1c9f6309a5f024ee9a8b1978fdc6919/linux_6.12.107.orig.tar.xz",
+          "sha256": "efc76d3c78a5d65f42724118c437d11db1c9f6309a5f024ee9a8b1978fdc6919",
+          "size": 151398592,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/l/linux/linux_6.12.107.orig.tar.xz"
+        },
+        {
+          "filename": "linux_6.12.107-1.debian.tar.xz",
+          "path": "sources/d8c003ecac7c54f59c69dc61258f93d937dce90e70f53bb5a34dd58db13028ed/linux_6.12.107-1.debian.tar.xz",
+          "sha256": "d8c003ecac7c54f59c69dc61258f93d937dce90e70f53bb5a34dd58db13028ed",
+          "size": 1886412,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/l/linux/linux_6.12.107-1.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "linux",
+      "stanza_sha256": "e6b3f7f8c2879ec8f9ca6d287e26e26660b80bbcc7e37433895e6e3fb7d13f09",
+      "version": "6.12.107-1"
+    },
+    {
+      "files": [
+        {
+          "filename": "mpclib3_1.3.1-1.dsc",
+          "path": "sources/b2252a499fd0f8e92ce2cf7d8e68477ffc9dd06127803a91f0a1115822efec75/mpclib3_1.3.1-1.dsc",
+          "sha256": "b2252a499fd0f8e92ce2cf7d8e68477ffc9dd06127803a91f0a1115822efec75",
+          "size": 1877,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/m/mpclib3/mpclib3_1.3.1-1.dsc"
+        },
+        {
+          "filename": "mpclib3_1.3.1.orig.tar.gz",
+          "path": "sources/ab642492f5cf882b74aa0cb730cd410a81edcdbec895183ce930e706c1c759b8/mpclib3_1.3.1.orig.tar.gz",
+          "sha256": "ab642492f5cf882b74aa0cb730cd410a81edcdbec895183ce930e706c1c759b8",
+          "size": 773573,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/m/mpclib3/mpclib3_1.3.1.orig.tar.gz"
+        },
+        {
+          "filename": "mpclib3_1.3.1-1.debian.tar.xz",
+          "path": "sources/25adb496258adacad69c022d712f96fbc465bcef9fd4751829dc351d9ce6a45d/mpclib3_1.3.1-1.debian.tar.xz",
+          "sha256": "25adb496258adacad69c022d712f96fbc465bcef9fd4751829dc351d9ce6a45d",
+          "size": 4656,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/m/mpclib3/mpclib3_1.3.1-1.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "mpclib3",
+      "stanza_sha256": "1362a1eba49fc662269629730acb37b94d9f0ef038b99c91b3e8cff3f8cadc4a",
+      "version": "1.3.1-1"
+    },
+    {
+      "files": [
+        {
+          "filename": "mpfr4_4.2.2-1.dsc",
+          "path": "sources/08ee7b45f8a9980570508770a9d48f70d4c1962fd7c98af4a78cbc3747002ecd/mpfr4_4.2.2-1.dsc",
+          "sha256": "08ee7b45f8a9980570508770a9d48f70d4c1962fd7c98af4a78cbc3747002ecd",
+          "size": 1960,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/m/mpfr4/mpfr4_4.2.2-1.dsc"
+        },
+        {
+          "filename": "mpfr4_4.2.2.orig.tar.xz",
+          "path": "sources/b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01/mpfr4_4.2.2.orig.tar.xz",
+          "sha256": "b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01",
+          "size": 1505596,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/m/mpfr4/mpfr4_4.2.2.orig.tar.xz"
+        },
+        {
+          "filename": "mpfr4_4.2.2-1.debian.tar.xz",
+          "path": "sources/3e203524cdc516a99ec8a676dd9d21435b5f020e624149d39f4c530393d5a563/mpfr4_4.2.2-1.debian.tar.xz",
+          "sha256": "3e203524cdc516a99ec8a676dd9d21435b5f020e624149d39f4c530393d5a563",
+          "size": 12564,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/m/mpfr4/mpfr4_4.2.2-1.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "mpfr4",
+      "stanza_sha256": "59de82908d8c7d8669fccec3019028876ae68c82f7f09c4e2b0203e09afc6493",
+      "version": "4.2.2-1"
+    },
+    {
+      "files": [
+        {
+          "filename": "openpace_1.1.2+ds+git20220117+453c3d6b03a0-1.1.dsc",
+          "path": "sources/462ce362ded445d12dc1a57c4308e272ae0d3d64b527b419ce34b151bf487037/openpace_1.1.2+ds+git20220117+453c3d6b03a0-1.1.dsc",
+          "sha256": "462ce362ded445d12dc1a57c4308e272ae0d3d64b527b419ce34b151bf487037",
+          "size": 2213,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/o/openpace/openpace_1.1.2+ds+git20220117+453c3d6b03a0-1.1.dsc"
+        },
+        {
+          "filename": "openpace_1.1.2+ds+git20220117+453c3d6b03a0.orig.tar.xz",
+          "path": "sources/39df269232047e7aec7a9e49a0d8d4ff3db74fb5011d3a5443ad2aa0c12b1eb7/openpace_1.1.2+ds+git20220117+453c3d6b03a0.orig.tar.xz",
+          "sha256": "39df269232047e7aec7a9e49a0d8d4ff3db74fb5011d3a5443ad2aa0c12b1eb7",
+          "size": 632520,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/o/openpace/openpace_1.1.2+ds+git20220117+453c3d6b03a0.orig.tar.xz"
+        },
+        {
+          "filename": "openpace_1.1.2+ds+git20220117+453c3d6b03a0-1.1.debian.tar.xz",
+          "path": "sources/8cd684f2a84c957351f19b7392fa7f5b245dc26d2598b71e2d8736a93b2a8880/openpace_1.1.2+ds+git20220117+453c3d6b03a0-1.1.debian.tar.xz",
+          "sha256": "8cd684f2a84c957351f19b7392fa7f5b245dc26d2598b71e2d8736a93b2a8880",
+          "size": 4532,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/o/openpace/openpace_1.1.2+ds+git20220117+453c3d6b03a0-1.1.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "openpace",
+      "stanza_sha256": "ba98c6b7c0d9c60bf355d4aeae4181afdfa0ee779ec0ff7e6b55ed598bbdf972",
+      "version": "1.1.2+ds+git20220117+453c3d6b03a0-1.1"
+    },
+    {
+      "files": [
+        {
+          "filename": "opensc_0.26.1-2.dsc",
+          "path": "sources/9ae7ae95d49c45779d91e39214ad12f1b848baeb7a449cc55d67a576c564eb13/opensc_0.26.1-2.dsc",
+          "sha256": "9ae7ae95d49c45779d91e39214ad12f1b848baeb7a449cc55d67a576c564eb13",
+          "size": 2012,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/o/opensc/opensc_0.26.1-2.dsc"
+        },
+        {
+          "filename": "opensc_0.26.1.orig.tar.gz",
+          "path": "sources/5c4928bac2786dcaff9b2dfa43cd3de301bd137193a57adfb1a7a555656691ce/opensc_0.26.1.orig.tar.gz",
+          "sha256": "5c4928bac2786dcaff9b2dfa43cd3de301bd137193a57adfb1a7a555656691ce",
+          "size": 2025975,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/o/opensc/opensc_0.26.1.orig.tar.gz"
+        },
+        {
+          "filename": "opensc_0.26.1-2.debian.tar.xz",
+          "path": "sources/c5573306a17a76b9c82055043a1b35a84b73881cacbe80c3153df05f34e97617/opensc_0.26.1-2.debian.tar.xz",
+          "sha256": "c5573306a17a76b9c82055043a1b35a84b73881cacbe80c3153df05f34e97617",
+          "size": 18124,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/o/opensc/opensc_0.26.1-2.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "opensc",
+      "stanza_sha256": "17404df34dc55e2be37f83da535d3d753c9e5a783ae558e02758e0a479ea49ff",
+      "version": "0.26.1-2"
+    },
+    {
+      "files": [
+        {
+          "filename": "readline_8.2-6.dsc",
+          "path": "sources/6f94c7144d6b6b1ff88aaebd81480e87f8773b7638031782aac12ef93ffd2e71/readline_8.2-6.dsc",
+          "sha256": "6f94c7144d6b6b1ff88aaebd81480e87f8773b7638031782aac12ef93ffd2e71",
+          "size": 2810,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/r/readline/readline_8.2-6.dsc"
+        },
+        {
+          "filename": "readline_8.2.orig.tar.gz",
+          "path": "sources/3feb7171f16a84ee82ca18a36d7b9be109a52c04f492a053331d7d1095007c35/readline_8.2.orig.tar.gz",
+          "sha256": "3feb7171f16a84ee82ca18a36d7b9be109a52c04f492a053331d7d1095007c35",
+          "size": 3043952,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/r/readline/readline_8.2.orig.tar.gz"
+        },
+        {
+          "filename": "readline_8.2-6.debian.tar.xz",
+          "path": "sources/d1cf806644dbce298cf929f1cc9b3af5a50cd7db97b6f69db280c1eb2f544376/readline_8.2-6.debian.tar.xz",
+          "sha256": "d1cf806644dbce298cf929f1cc9b3af5a50cd7db97b6f69db280c1eb2f544376",
+          "size": 38396,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/r/readline/readline_8.2-6.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "readline",
+      "stanza_sha256": "d4de1f6bdddecb86d068ee0168a82d31e495ed0f395f7958ae3f26fe48d4ed89",
+      "version": "8.2-6"
+    },
+    {
+      "files": [
+        {
+          "filename": "rpcsvc-proto_1.4.3-1.dsc",
+          "path": "sources/7d8e122bd18b02fe0de6d467a0ecdafff74035b3e1ed0da1c0c792d9c015682f/rpcsvc-proto_1.4.3-1.dsc",
+          "sha256": "7d8e122bd18b02fe0de6d467a0ecdafff74035b3e1ed0da1c0c792d9c015682f",
+          "size": 1999,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/r/rpcsvc-proto/rpcsvc-proto_1.4.3-1.dsc"
+        },
+        {
+          "filename": "rpcsvc-proto_1.4.3.orig.tar.xz",
+          "path": "sources/69315e94430f4e79c74d43422f4a36e6259e97e67e2677b2c7d7060436bd99b1/rpcsvc-proto_1.4.3.orig.tar.xz",
+          "sha256": "69315e94430f4e79c74d43422f4a36e6259e97e67e2677b2c7d7060436bd99b1",
+          "size": 167964,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/r/rpcsvc-proto/rpcsvc-proto_1.4.3.orig.tar.xz"
+        },
+        {
+          "filename": "rpcsvc-proto_1.4.3-1.debian.tar.xz",
+          "path": "sources/02034b9dadcf3af5424f72eb65c3842c8d7117b6b78e7a3c798316ceb60843d1/rpcsvc-proto_1.4.3-1.debian.tar.xz",
+          "sha256": "02034b9dadcf3af5424f72eb65c3842c8d7117b6b78e7a3c798316ceb60843d1",
+          "size": 4228,
+          "url": "https://snapshot.debian.org/archive/debian/20260918T000000Z/pool/main/r/rpcsvc-proto/rpcsvc-proto_1.4.3-1.debian.tar.xz"
+        }
+      ],
+      "index": "trixie.Sources",
+      "license_status": "unreviewed",
+      "name": "rpcsvc-proto",
+      "stanza_sha256": "340a1d4f3cec073668e657495150385a5bc600c7de23e308b30ccca23ca0d14b",
+      "version": "1.4.3-1"
+    }
+  ],
+  "stages": {
+    "compiler": {
+      "packages": [
+        "apt",
+        "base-files",
+        "base-passwd",
+        "bash",
+        "binutils",
+        "binutils-common",
+        "binutils-x86-64-linux-gnu",
+        "bsdutils",
+        "coreutils",
+        "cpp",
+        "cpp-14",
+        "cpp-14-x86-64-linux-gnu",
+        "cpp-x86-64-linux-gnu",
+        "dash",
+        "debconf",
+        "debian-archive-keyring",
+        "debianutils",
+        "diffutils",
+        "dpkg",
+        "findutils",
+        "gcc",
+        "gcc-14",
+        "gcc-14-base",
+        "gcc-14-x86-64-linux-gnu",
+        "gcc-x86-64-linux-gnu",
+        "grep",
+        "gzip",
+        "hostname",
+        "init-system-helpers",
+        "libacl1",
+        "libapt-pkg7.0",
+        "libasan8",
+        "libatomic1",
+        "libattr1",
+        "libaudit-common",
+        "libaudit1",
+        "libbinutils",
+        "libblkid1",
+        "libbsd0",
+        "libbz2-1.0",
+        "libc-bin",
+        "libc-dev-bin",
+        "libc6",
+        "libc6-dev",
+        "libcap-ng0",
+        "libcap2",
+        "libcc1-0",
+        "libcrypt-dev",
+        "libcrypt1",
+        "libctf-nobfd0",
+        "libctf0",
+        "libdb5.3t64",
+        "libdebconfclient0",
+        "libgcc-14-dev",
+        "libgcc-s1",
+        "libgmp10",
+        "libgomp1",
+        "libgprofng0",
+        "libhogweed6t64",
+        "libhwasan0",
+        "libisl23",
+        "libitm1",
+        "libjansson4",
+        "liblastlog2-2",
+        "liblsan0",
+        "liblz4-1",
+        "liblzma5",
+        "libmd0",
+        "libmount1",
+        "libmpc3",
+        "libmpfr6",
+        "libnettle8t64",
+        "libpam-modules",
+        "libpam-modules-bin",
+        "libpam-runtime",
+        "libpam0g",
+        "libpcre2-8-0",
+        "libquadmath0",
+        "libseccomp2",
+        "libselinux1",
+        "libsemanage-common",
+        "libsemanage2",
+        "libsepol2",
+        "libsframe1",
+        "libsmartcols1",
+        "libsqlite3-0",
+        "libssl3t64",
+        "libstdc++6",
+        "libsystemd0",
+        "libtinfo6",
+        "libtsan2",
+        "libubsan1",
+        "libudev1",
+        "libuuid1",
+        "libxxhash0",
+        "libzstd1",
+        "linux-libc-dev",
+        "login",
+        "login.defs",
+        "mawk",
+        "mount",
+        "ncurses-base",
+        "ncurses-bin",
+        "openssl-provider-legacy",
+        "passwd",
+        "perl-base",
+        "rpcsvc-proto",
+        "sed",
+        "sqv",
+        "sysvinit-utils",
+        "tar",
+        "tzdata",
+        "util-linux",
+        "zlib1g"
+      ],
+      "roots": [
+        "gcc=4:14.2.0-1",
+        "libc6-dev=2.41-12+deb13u4"
+      ]
+    },
+    "consumer": {
+      "packages": [
+        "apt",
+        "base-files",
+        "base-passwd",
+        "bash",
+        "bsdutils",
+        "coreutils",
+        "dash",
+        "debconf",
+        "debian-archive-keyring",
+        "debianutils",
+        "diffutils",
+        "dpkg",
+        "findutils",
+        "gcc-14-base",
+        "grep",
+        "gzip",
+        "hostname",
+        "init-system-helpers",
+        "libacl1",
+        "libapt-pkg7.0",
+        "libatomic1",
+        "libattr1",
+        "libaudit-common",
+        "libaudit1",
+        "libblkid1",
+        "libbsd0",
+        "libbz2-1.0",
+        "libc-bin",
+        "libc6",
+        "libcap-ng0",
+        "libcap2",
+        "libcrypt1",
+        "libdb5.3t64",
+        "libdebconfclient0",
+        "libeac3",
+        "libffi8",
+        "libgcc-s1",
+        "libglib2.0-0t64",
+        "libgmp10",
+        "libhogweed6t64",
+        "liblastlog2-2",
+        "liblz4-1",
+        "liblzma5",
+        "libmd0",
+        "libmount1",
+        "libnettle8t64",
+        "libpam-modules",
+        "libpam-modules-bin",
+        "libpam-runtime",
+        "libpam0g",
+        "libpcre2-8-0",
+        "libreadline8t64",
+        "libseccomp2",
+        "libselinux1",
+        "libsemanage-common",
+        "libsemanage2",
+        "libsepol2",
+        "libsmartcols1",
+        "libsqlite3-0",
+        "libssl3t64",
+        "libstdc++6",
+        "libsystemd0",
+        "libtinfo6",
+        "libudev1",
+        "libuuid1",
+        "libxxhash0",
+        "libzstd1",
+        "login",
+        "login.defs",
+        "mawk",
+        "mount",
+        "ncurses-base",
+        "ncurses-bin",
+        "opensc",
+        "opensc-pkcs11",
+        "openssl-provider-legacy",
+        "passwd",
+        "perl-base",
+        "readline-common",
+        "sed",
+        "sqv",
+        "sysvinit-utils",
+        "tar",
+        "tzdata",
+        "util-linux",
+        "zlib1g"
+      ],
+      "roots": [
+        "opensc=0.26.1-2"
+      ]
+    }
+  },
+  "target": "debian13-amd64",
+  "toolset": "consumer"
+}
