@@ -23,6 +23,9 @@ contract, then the [native](docs/native.md), [proxy](docs/proxy.md),
 runnable consumers, including the optional p11-kit and p11scope
 demonstrations.
 
+See the [integration validation status](docs/integration-validation-status.md)
+for current evidence, open review proposals, runtime limits, and remaining work.
+
 ## License
 
 Unless stated otherwise, P11Lab-authored code, build recipes, configuration, and
