@@ -54,7 +54,7 @@ outputs:
     description: 'Application return code from the receipt, when recorded.'
     value: ${{ steps.collect.outputs['app-returncode'] }}
   receipt-path:
-    description: 'Path of the run receipt.'
+    description: 'Path of the validated regular run receipt, or empty when unavailable.'
     value: ${{ steps.collect.outputs['receipt-path'] }}
   handoff-sha256:
     description: 'SHA-256 of the fetched handoff bytes.'

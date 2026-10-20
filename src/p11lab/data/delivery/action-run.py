@@ -12,6 +12,8 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -79,6 +81,74 @@ def _run(argv, *, env, cwd):
     print("+ " + " ".join(_display(argv)), flush=True)
     result = subprocess.run(argv, env=env, cwd=cwd)
     return result.returncode
+
+
+def _receipt_outputs(receipt, *, values, provider, code):
+    """Export only a regular, complete receipt bound to this invocation.
+
+    These are the core schema-v1 fields written by run.py and the native
+    lifecycle writers, not authenticity verification of caller-controlled
+    host processes. Native receipts have an attempt ID but no run ID.
+    """
+    def require(condition):
+        if not condition:
+            raise ValueError("invalid run receipt")
+
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result)
+            result[key] = value
+        return result
+
+    def reject_constant(value):
+        raise ValueError("non-finite receipt value")
+
+    try:
+        for path, expected_type in ((receipt.parent, stat.S_ISDIR), (receipt, stat.S_ISREG)):
+            info = path.lstat()
+            require(expected_type(info.st_mode)
+                    and not getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+        record = json.loads(receipt.read_text(encoding="utf-8"),
+                            object_pairs_hook=unique_pairs, parse_constant=reject_constant)
+        require(isinstance(record, dict))
+        required = {"schema_version", "attempt_id", "environment", "channel", "mode",
+                    "execution_location", "artifacts", "execution", "state", "stages",
+                    "app_returncode", "app_completed", "timeout", "interrupted_signal",
+                    "lifecycle_errors", "cleanup_errors", "exit_code"}
+        require(required <= record.keys())
+        require(type(record["schema_version"]) is int and record["schema_version"] == 1)
+        require(all(record[key] == values[key] for key in ("environment", "channel", "mode")))
+        require(record["execution_location"] == ("provider" if values["mode"] == "direct" else "host"))
+        require(isinstance(record["attempt_id"], str) and re.fullmatch(r"[0-9a-f]{32}", record["attempt_id"]))
+        require(record["artifacts"] == {"provider": provider, "consumer": None, "client": None})
+        require(type(record["exit_code"]) is int and record["exit_code"] == code)
+        require(record["app_returncode"] is None or type(record["app_returncode"]) is int)
+        require(type(record["app_completed"]) is bool and type(record["timeout"]) is bool)
+        require(record["interrupted_signal"] is None or type(record["interrupted_signal"]) is int)
+        require(all(isinstance(record[key], dict) for key in ("execution", "state")))
+        require(type(record["execution"].get("argv_count")) is int
+                and record["execution"]["argv_count"] == len(values["command_argv"]))
+        require(isinstance(record["stages"], list) and all(isinstance(stage, dict) for stage in record["stages"]))
+        require(all(isinstance(record[key], list) and all(isinstance(error, str) for error in record[key])
+                    for key in ("lifecycle_errors", "cleanup_errors")))
+        if values["mode"] == "direct":
+            require(isinstance(record.get("run_id"), str) and re.fullmatch(r"[0-9a-f]{32}", record["run_id"]))
+            observation = record.get("image_observation")
+            require(isinstance(observation, dict) and observation.get("Id") == provider["reference"]
+                    and observation.get("platform") == provider["platform"])
+            require(isinstance(record.get("inputs"), dict))
+            require(all(isinstance(record.get(key), list) and all(isinstance(item, dict) for item in record[key])
+                        for key in ("owned_resources", "uncertain_resources")))
+        else:
+            require(all(isinstance(record.get(key), dict) for key in ("installation", "runtime")))
+    except FileNotFoundError:
+        return "", ""
+    except (OSError, ValueError, RecursionError):
+        print("action-run: receipt is unsafe, malformed, or does not match this invocation; not exporting it",
+              file=sys.stderr)
+        return "", ""
+    return str(receipt), "" if record["app_returncode"] is None else str(record["app_returncode"])
 
 
 def main(argv=None) -> int:
@@ -198,6 +268,8 @@ def main(argv=None) -> int:
             return 1
         print(f"action-run: binary {handoff['binary']['reference']} resolves to engine {engine_id}")
         command += ["--artifact", engine_id]
+        provider = {"kind": "docker-local", "reference": engine_id,
+                    "sha256": engine_id.removeprefix("sha256:"), "platform": "linux/amd64"}
         child_env = fetch_env
     else:
         bundle_dir = run_dir / "bundle"
@@ -223,6 +295,8 @@ def main(argv=None) -> int:
             print("action-run: native bundle installation failed", file=sys.stderr)
             return installed.returncode
         command += ["--installed-prefix", str(prefix), "--platform", handoff["binary"]["platform"]]
+        provider = {"kind": "bundle", "reference": str(archives[0].resolve()),
+                    "sha256": handoff["binary"]["file_sha256"], "platform": handoff["binary"]["platform"]}
     for entry in values["input_entries"]:
         command += ["--input", entry]
     if values["state-dir"]:
@@ -233,15 +307,9 @@ def main(argv=None) -> int:
     # argument count, never the arguments themselves.
     print(f"action-run: command: {values['command_argv'][0]} ({len(values['command_argv']) - 1} args)")
     code = _run(command, env=child_env, cwd=str(work))
-    app_returncode = ""
-    receipt = output_dir / "receipt.json"
-    if receipt.is_file():
-        try:
-            record = json.loads(receipt.read_text())
-            app_returncode = "" if record.get("app_returncode") is None else str(record["app_returncode"])
-        except ValueError:
-            pass
-    outputs = {"exit-code": str(code), "app-returncode": app_returncode, "receipt-path": str(receipt),
+    receipt, app_returncode = _receipt_outputs(
+        output_dir / "receipt.json", values=values, provider=provider, code=code)
+    outputs = {"exit-code": str(code), "app-returncode": app_returncode, "receipt-path": receipt,
                "handoff-sha256": hashlib.sha256(handoff_file.read_bytes()).hexdigest()}
     (run_dir / "action-outputs.env").write_text("".join(f"{k}={v}\n" for k, v in outputs.items()))
     output_file = os.environ.get("GITHUB_OUTPUT")
