@@ -111,7 +111,7 @@
   "assets": [
     {
       "path": "native.sh",
-      "sha256": "a491d07ebcaf9e265dced3455a4119ddd3832bfa7b32c4be3d008648761436e4"
+      "sha256": "84e8650dc4e997d24018744b23203749c0fe9585462d33e02f47b908b6bcb769"
     },
     {
       "path": "native.recipe.json",
