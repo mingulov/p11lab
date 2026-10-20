@@ -1,6 +1,7 @@
 """Failure-path checks against the actual packaged lifecycle scripts."""
 import os
 import shlex
+import shutil
 import subprocess
 
 import pytest
@@ -444,6 +445,71 @@ def test_haskoki_cleanup_failure_is_reported_without_hiding_native_status(
     assert (state / 'haskoki' / 'complete').exists() is (native_status == 0)
     assert (state / '.init-lock').exists() is (cleanup_tool == 'rmdir')
     assert bool(list(control.glob('marker.*'))) is (cleanup_tool == 'rm')
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('cleanup_tool', ['rm', 'rmdir'])
+@pytest.mark.parametrize('primary', [0, 37, 'HUP', 'INT', 'TERM'])
+@pytest.mark.parametrize('stop,status', [('HUP', 129), ('INT', 130), ('TERM', 143)])
+def test_haskoki_cleanup_signals_finish_cleanup_and_preserve_primary_status(
+        tmp_path, shell, cleanup_tool, primary, stop, status):
+    script, state, control = haskoki_script(tmp_path)
+    initial_status = primary
+    if isinstance(primary, str):
+        initial_status = {'HUP': 129, 'INT': 130, 'TERM': 143}[primary]
+        ctl = tmp_path / 'haskoki-ctl'
+        ctl.write_text(ctl.read_text().replace(
+            'exit "$CONFIG_STATUS"', f'kill -{primary} "$PPID"; exit 0'))
+    tools = tmp_path / 'tools'
+    tools.mkdir()
+    calls = tmp_path / 'cleanup-calls'
+    for name in ('rmdir', 'rm'):
+        executable = shutil.which(name)
+        assert executable, name
+        wrapper = tools / name
+        wrapper.write_text(
+            '#!/bin/sh\nset -eu\n'
+            f'printf "%s\\n" {name} >> {shlex.quote(str(calls))}\n'
+            f'{shlex.quote(executable)} "$@"\n'
+            + (f'kill -{stop} "$PPID"\n' if name == cleanup_tool else ''))
+        wrapper.chmod(0o755)
+    result = run_haskoki(
+        script, shell, 'init', CONFIG_STATUS=str(primary if isinstance(primary, int) else 0),
+        PATH=str(tools) + os.pathsep + os.environ['PATH'])
+    assert result.returncode == (initial_status or status), result.stdout + result.stderr
+    assert calls.read_text().splitlines() == ['rmdir', 'rm']
+    assert not (state / '.init-lock').exists()
+    assert not list(control.glob('marker.*'))
+    assert not list(control.glob('init.*'))
+    assert (state / 'haskoki' / 'complete').exists() is (primary == 0)
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('native_status', [0, 37])
+@pytest.mark.parametrize('first_failure,expected', [('HUP', 129), ('INT', 130), ('cleanup', 1)])
+def test_haskoki_cleanup_keeps_first_observed_failure(tmp_path, shell, native_status,
+                                                     first_failure, expected):
+    script, state, control = haskoki_script(tmp_path)
+    tools = tmp_path / 'tools'
+    tools.mkdir()
+    rmdir = tools / 'rmdir'
+    if first_failure == 'cleanup':
+        rmdir.write_text('#!/bin/sh\nexit 73\n')
+    else:
+        rmdir.write_text(
+            f'#!/bin/sh\n{shlex.quote(shutil.which("rmdir"))} "$@"\n'
+            f'kill -{first_failure} "$PPID"\n')
+    rmdir.chmod(0o755)
+    rm = tools / 'rm'
+    rm.write_text(
+        f'#!/bin/sh\n{shlex.quote(shutil.which("rm"))} "$@"\nkill -TERM "$PPID"\n')
+    rm.chmod(0o755)
+    result = run_haskoki(script, shell, 'init', CONFIG_STATUS=str(native_status),
+                         PATH=str(tools) + os.pathsep + os.environ['PATH'])
+    assert result.returncode == (native_status or expected), result.stdout + result.stderr
+    assert not list(control.glob('marker.*'))
+    assert not list(control.glob('init.*'))
+    assert (state / '.init-lock').exists() is (first_failure == 'cleanup')
 
 
 @pytest.mark.parametrize('data,accepted', [
