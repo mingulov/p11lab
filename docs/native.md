@@ -99,6 +99,14 @@ fail; they are never repaired or reset automatically. A token label identifies
 the token; SoftHSM assigns its native slot ID. A consumer's token-present slot
 **index** is a different value and must be translated by that consumer.
 
+The packaged `native-id` must be a readable, non-symlink regular file containing
+exactly 64 lowercase hexadecimal bytes followed by one LF. It identifies the
+build inputs, not the native archive hash. Completion markers bind that key and
+the exact label bytes, with fixed fields, order and a single final LF. Invalid
+identity files, changed marker bytes and metadata read failures reject before
+provider or application execution. A changed build key never migrates or
+rewrites existing state; use a separate explicitly initialized store.
+
 The adapter uses private permissions (`umask 077`). State is a local file store;
 ordinary process exit/finalization is shutdown. There is no background service.
 Before owned initialization cleanup, handled HUP, INT and TERM exit with status

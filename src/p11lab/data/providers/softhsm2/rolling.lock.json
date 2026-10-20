@@ -2626,7 +2626,7 @@
     {
       "role": "adapter",
       "path": "entrypoint.sh",
-      "sha256": "60455d39b3c6182daf345c90c2441fbd76350b761a0662c96656f9f36e2106dc"
+      "sha256": "b3b536f4c12cd1ad18f2c7fc474fd8860426361d0c3885644a1873126321b028"
     },
     {
       "role": "adapter-common",

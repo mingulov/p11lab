@@ -28,7 +28,7 @@ case "$*" in
         ;;
     *--show-slots*)
         printf 'show\n' >> "$FIXTURE/calls"
-        printf '%s\n' 'Slot 1' '        Initialized:      yes' '        User PIN init.:   yes' '        Serial number:    0000000000000001' '        Label:            P11Lab'
+        printf '%s\n' 'Slot 1' '        Initialized:      yes' '        User PIN init.:   yes' '        Serial number:    0000000000000001' "        Label:            ${P11LAB_LABEL-P11Lab}"
         exit "${SHOW_STATUS-0}"
         ;;
     *) exit 99 ;;
@@ -61,6 +61,7 @@ class Adapter:
         common = package_data('runtime/common.sh')
         if kind == 'container':
             identity = root / 'runtime-id'
+            self.identity = identity
             identity.write_bytes(b'a' * 64 + b'\n')
             text = package_data('providers/softhsm2/entrypoint.sh').read_bytes().decode()
             text = text.replace('. /usr/share/p11lab/common.sh', f'. {shlex.quote(str(common))}')
@@ -75,7 +76,8 @@ class Adapter:
             share.mkdir(parents=True)
             (prefix / 'payload/bin').mkdir()
             shutil.copyfile(common, share / 'common.sh')
-            (share / 'native-id').write_bytes(b'a' * 64 + b'\n')
+            self.identity = share / 'native-id'
+            self.identity.write_bytes(b'a' * 64 + b'\n')
             os_release, loader = root / 'os-release', root / 'loader'
             os_release.write_text('ID=debian\nVERSION_ID=13\n')
             executable(loader, '#!/bin/sh\nexit 0\n')
@@ -386,3 +388,205 @@ def test_cleanup_preserves_first_observed_failure_or_signal(adapter, primary, fi
     assert 'cleanup' in result.stderr
     assert adapter.lock.exists() == (first == 'failure')
     assert bool(list(adapter.control.glob('marker.*'))) == (first == 'signal')
+
+
+def operation_args(operation):
+    return ('init' if operation.endswith('init') else operation,
+            *(['--', '/bin/sh', '-c', 'printf APPLICATION-RAN'] if operation == 'exec' else []))
+
+
+def fail_metadata_read(adapter, path, *, after_output=False, record=False):
+    """Fail a real cat read, optionally after its complete output was produced."""
+    real_cat = shlex.quote(shutil.which('cat'))
+    adapter.install_wrapper('cat', f'''#!/bin/sh
+for arg do
+    if [ "$arg" = {shlex.quote(str(path))} ]; then
+        {'printf "read\\n" >> "$FIXTURE/metadata-reads"' if record else ':'}
+        {real_cat + ' "$@" || exit $?' if after_output else ':'}
+        exit 73
+    fi
+done
+exec {real_cat} "$@"
+''')
+
+
+def fail_metadata_count(adapter, *, marker=False, after_output=False):
+    """A failed wc result is not a trustworthy byte count, even with stdout."""
+    real_wc = shlex.quote(shutil.which('wc'))
+    adapter.install_wrapper('wc', f'''#!/bin/sh
+count=$({real_wc} "$@") || exit $?
+if [ "$count" = 65 ] && [ {'yes' if marker else 'no'} = yes ]; then
+    printf '%s\\n' "$count"
+    exit 0
+fi
+{'printf \'%s\\n\' "$count"' if after_output else ':'}
+exit 73
+''')
+
+
+def assert_metadata_rejected(adapter, before, calls, result):
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert 'APPLICATION-RAN' not in result.stdout
+    assert adapter.snapshot() == before
+    assert (adapter.calls.read_bytes() if adapter.calls.exists() else b'') == calls
+    assert not adapter.lock.exists()
+    assert not list(adapter.control.glob('marker.*'))
+    assert not list(adapter.control.glob('init.*'))
+    assert not list(adapter.control.glob('config.*'))
+    assert not list(adapter.owned.glob('.complete.*'))
+
+
+IDENTITY_DAMAGE = {
+    'empty': b'',
+    'short': b'a' * 63 + b'\n',
+    'long': b'a' * 65 + b'\n',
+    'uppercase': b'A' * 64 + b'\n',
+    'nonhex': b'g' + b'a' * 63 + b'\n',
+    'missing-lf': b'a' * 64,
+    'extra-lf': b'a' * 64 + b'\n\n',
+    'crlf': b'a' * 64 + b'\r\n',
+    'embedded-nul': b'a' * 32 + b'\0' + b'a' * 32 + b'\n',
+    'trailing-nul': b'a' * 64 + b'\n\0',
+    'multiline': b'a' * 32 + b'\n' + b'a' * 31 + b'\n',
+}
+
+
+@pytest.mark.parametrize('damage', [*IDENTITY_DAMAGE, 'missing', 'directory', 'fifo', 'symlink', 'unreadable'])
+@pytest.mark.parametrize('operation', ['fresh-init', 'repeat-init', 'health', 'exec'])
+def test_invalid_identity_fails_before_provider_or_application(adapter, damage, operation):
+    if operation != 'fresh-init':
+        initialize(adapter)
+    if damage in IDENTITY_DAMAGE:
+        adapter.identity.write_bytes(IDENTITY_DAMAGE[damage])
+    elif damage == 'unreadable':
+        if os.geteuid() == 0:
+            pytest.skip('mode-000 read denial requires a non-root caller')
+        adapter.identity.chmod(0)
+    else:
+        adapter.identity.unlink()
+        if damage == 'directory':
+            adapter.identity.mkdir()
+        elif damage == 'fifo':
+            os.mkfifo(adapter.identity)
+            # A mistaken read must fail promptly instead of leaving a blocked
+            # cat child in the pre-fix regression run. It is still observable.
+            fail_metadata_read(adapter, adapter.identity, record=True)
+        elif damage == 'symlink':
+            target = adapter.root / 'other-identity'
+            target.write_bytes(b'a' * 64 + b'\n')
+            adapter.identity.symlink_to(target)
+    before = adapter.snapshot()
+    calls = adapter.calls.read_bytes() if adapter.calls.exists() else b''
+    result = adapter.run(*operation_args(operation))
+    assert_metadata_rejected(adapter, before, calls, result)
+    assert not (adapter.root / 'metadata-reads').exists()
+
+
+@pytest.mark.parametrize('failure', ['read', 'read-after-output', 'count', 'count-after-output'])
+@pytest.mark.parametrize('operation', ['fresh-init', 'repeat-init', 'health', 'exec'])
+def test_identity_read_or_count_failure_is_not_success(adapter, failure, operation):
+    if operation != 'fresh-init':
+        initialize(adapter)
+    if failure.startswith('read'):
+        fail_metadata_read(adapter, adapter.identity, after_output=failure.endswith('after-output'))
+    else:
+        fail_metadata_count(adapter, after_output=failure.endswith('after-output'))
+    before = adapter.snapshot()
+    calls = adapter.calls.read_bytes() if adapter.calls.exists() else b''
+    result = adapter.run(*operation_args(operation))
+    assert_metadata_rejected(adapter, before, calls, result)
+
+
+@pytest.mark.parametrize('damage', ['extra-lf', 'missing-lf', 'embedded-nul', 'trailing-nul', 'truncated',
+                                  'artifact', 'label', 'extra-field', 'reordered-fields', 'crlf'])
+@pytest.mark.parametrize('operation', ['repeat-init', 'health', 'exec'])
+def test_completion_marker_requires_exact_bytes(adapter, damage, operation):
+    initialize(adapter)
+    canonical = adapter.marker.read_bytes()
+    modified = {
+        'extra-lf': canonical + b'\n',
+        'missing-lf': canonical[:-1],
+        'embedded-nul': canonical.replace(b'artifact=', b'artifact=\0'),
+        'trailing-nul': canonical + b'\0',
+        'truncated': canonical[:-10],
+        'artifact': canonical.replace(b'a' * 64, b'b' * 64),
+        'label': canonical.replace(b'label=P11Lab', b'label=Other'),
+        'extra-field': canonical + b'unknown=yes\n',
+        'reordered-fields': canonical.replace(b'schema=1\nprovider=softhsm2\n', b'provider=softhsm2\nschema=1\n'),
+        'crlf': canonical.replace(b'\n', b'\r\n'),
+    }[damage]
+    adapter.marker.write_bytes(modified)
+    before, calls = adapter.snapshot(), adapter.calls.read_bytes()
+    result = adapter.run(*operation_args(operation))
+    assert_metadata_rejected(adapter, before, calls, result)
+    assert adapter.marker.read_bytes() == modified
+
+
+@pytest.mark.parametrize('failure', ['read', 'read-after-output', 'count', 'count-after-output'])
+@pytest.mark.parametrize('operation', ['repeat-init', 'health', 'exec'])
+def test_marker_read_or_count_failure_is_not_success(adapter, failure, operation):
+    initialize(adapter)
+    if failure.startswith('read'):
+        fail_metadata_read(adapter, adapter.marker, after_output=failure.endswith('after-output'))
+    else:
+        fail_metadata_count(adapter, marker=True, after_output=failure.endswith('after-output'))
+    before, calls = adapter.snapshot(), adapter.calls.read_bytes()
+    result = adapter.run(*operation_args(operation))
+    assert_metadata_rejected(adapter, before, calls, result)
+
+
+@pytest.mark.parametrize('label', ['', 'x' * 33, 'bad\nlabel', 'bad\rlabel', 'slash/label'])
+@pytest.mark.parametrize('operation', ['repeat-init', 'health', 'exec'])
+def test_invalid_label_cannot_match_an_empty_marker(adapter, label, operation):
+    initialize(adapter)
+    adapter.marker.write_bytes(b'')
+    before, calls = adapter.snapshot(), adapter.calls.read_bytes()
+    result = adapter.run(*operation_args(operation), P11LAB_LABEL=label)
+    assert_metadata_rejected(adapter, before, calls, result)
+    assert 'label' in result.stderr
+
+
+@pytest.mark.parametrize('locale', ['C', 'C.utf8'])
+@pytest.mark.parametrize('label', ['P11Lab', ' a-Z_0. ', 'x' * 32, ' ' * 32])
+@pytest.mark.parametrize('credentials', ['absent', 'changed'])
+def test_canonical_identity_and_marker_preserve_configuration(adapter, locale, label, credentials):
+    adapter.identity.write_bytes(b'0123456789abcdef' * 4 + b'\n')
+    changes = dict(P11LAB_LABEL=label, LC_ALL=locale)
+    result = adapter.run(**changes)
+    assert result.returncode == 0, result.stderr
+    canonical = (b'schema=1\nprovider=softhsm2\nartifact=' + b'0123456789abcdef' * 4
+                 + b'\nlabel=' + label.encode() + b'\nbackend=file\n')
+    assert adapter.marker.read_bytes() == canonical
+    before = adapter.snapshot()
+    changes.update(P11LAB_PIN=None if credentials == 'absent' else 'changed',
+                   P11LAB_SO_PIN=None if credentials == 'absent' else 'changed')
+    for operation in ('repeat-init', 'health', 'exec'):
+        result = adapter.run(*operation_args(operation), **changes)
+        assert result.returncode == 0, result.stderr
+        assert ('APPLICATION-RAN' in result.stdout) == (operation == 'exec')
+        assert adapter.snapshot() == before
+        assert adapter.marker.read_bytes() == canonical
+        adapter.assert_clean()
+    assert adapter.calls.read_text() == 'init\nshow\nshow\nshow\n'
+
+
+@pytest.mark.parametrize('operation', ['repeat-init', 'health', 'exec'])
+def test_changed_build_identity_does_not_migrate_state(adapter, operation):
+    initialize(adapter)
+    adapter.identity.write_bytes(b'b' * 64 + b'\n')
+    before, calls = adapter.snapshot(), adapter.calls.read_bytes()
+    result = adapter.run(*operation_args(operation))
+    assert_metadata_rejected(adapter, before, calls, result)
+
+
+@pytest.mark.parametrize('operation', ['fresh-init', 'health', 'exec'])
+def test_invalid_identity_does_not_create_writable_directories(adapter, operation):
+    adapter.identity.unlink()
+    adapter.state.rmdir()
+    adapter.control.rmdir()
+    result = adapter.run(*operation_args(operation))
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert not adapter.state.exists()
+    assert not adapter.control.exists()
+    assert not adapter.calls.exists()
+    assert 'APPLICATION-RAN' not in result.stdout
