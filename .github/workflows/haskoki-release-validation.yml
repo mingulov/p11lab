@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: Apache-2.0
+# Scheduling only: unchanged frozen candidate evidence, never main qualification.
+name: haskoki-release-validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_controller_sha:
+        description: 'Exact reviewed current main SHA; submit once, never rerun'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: none
+
+concurrency:
+  group: haskoki-release-validation-frozen-opportunity
+  cancel-in-progress: false
+
+jobs:
+  runtime:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ github.workspace }}
+    env:
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      CONTROLLER_ROOT: ${{ github.workspace }}/controller
+      PAYLOAD_ROOT: ${{ github.workspace }}/payload
+      CONTROLLER_SHA: ${{ github.workflow_sha }}
+      CONTROLLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+      REVIEWED_CONTROLLER_SHA: ${{ inputs.reviewed_controller_sha }}
+    steps:
+      - name: Checkout exact controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: controller
+          persist-credentials: false
+      - name: Admit exact owner main run 3 attempt 1 before setup
+        run: python -I -B "$CONTROLLER_ROOT/.github/scripts/haskoki_launcher.py" admit
+      - name: Checkout immutable frozen payload separately
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: fca1b148f074bc0f3fd527bc02fe7920f33fa4cd
+          path: payload
+          persist-credentials: false
+      - name: Verify complete raw payload and isolated paths
+        run: python -I -B "$CONTROLLER_ROOT/.github/scripts/haskoki_launcher.py" verify
+      - name: Initialize genuine dispatch evidence
+        run: python -I -B "$PAYLOAD_ROOT/.github/scripts/haskoki_validation.py" init --root "$RUNNER_TEMP/haskoki-validation"
+      - name: Set up frozen Python version
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.14'
+      - name: Install frozen wheel outside both checkouts
+        run: |
+          set -euo pipefail
+          python -I -B -m venv "$RUNNER_TEMP/haskoki-venv"
+          "$RUNNER_TEMP/haskoki-venv/bin/python" -I -B -m pip install --disable-pip-version-check \
+            --no-deps --only-binary :all: -r "$PAYLOAD_ROOT/.github/requirements/haskoki-validation.txt"
+          "$RUNNER_TEMP/haskoki-venv/bin/python" -I -B -m pip wheel --no-build-isolation --no-deps \
+            --wheel-dir "$RUNNER_TEMP/haskoki-wheels" "$PAYLOAD_ROOT"
+          "$RUNNER_TEMP/haskoki-venv/bin/python" -I -B -m pip install --no-deps "$RUNNER_TEMP"/haskoki-wheels/*.whl
+          "$RUNNER_TEMP/haskoki-venv/bin/python" -I -B -m pip check
+      - name: Preflight frozen installed wheel helper and complete roster
+        run: |
+          "$RUNNER_TEMP/haskoki-venv/bin/python" -I -B "$PAYLOAD_ROOT/.github/scripts/haskoki_validation.py" preflight \
+            --root "$RUNNER_TEMP/haskoki-validation" --repository "$PAYLOAD_ROOT" \
+            --wheel-dir "$RUNNER_TEMP/haskoki-wheels"
+      - name: Reverify all payload inputs and renew admission immediately before build
+        run: '"$RUNNER_TEMP/haskoki-venv/bin/python" -I -B "$CONTROLLER_ROOT/.github/scripts/haskoki_launcher.py" prebuild'
+      - name: Build unchanged strict locked runtime once
+        timeout-minutes: 220
+        run: '"$RUNNER_TEMP/haskoki-venv/bin/python" -I -B "$PAYLOAD_ROOT/.github/scripts/haskoki_validation.py" build --root "$RUNNER_TEMP/haskoki-validation"'
+      - name: Run all frozen acceptance cases without fail-fast
+        timeout-minutes: 16
+        run: '"$RUNNER_TEMP/haskoki-venv/bin/python" -I -B "$PAYLOAD_ROOT/.github/scripts/haskoki_validation.py" tests --root "$RUNNER_TEMP/haskoki-validation"'
+      - name: Always retain safe controller and freshly verified frozen summary
+        if: always()
+        run: python -I -B "$CONTROLLER_ROOT/.github/scripts/haskoki_launcher.py" summary
