@@ -1,5 +1,6 @@
 """Failure-path checks against the actual packaged lifecycle scripts."""
 import os
+import shlex
 import subprocess
 
 import pytest
@@ -107,21 +108,34 @@ def haskoki_script(directory):
     state.mkdir()
     control.mkdir()
     runtime_id = directory / 'runtime-id'
-    runtime_id.write_text('test-artifact\n')
+    runtime_id.write_text('a' * 64 + '\n')
+    config, store = state / 'haskoki' / 'haskoki.toml', state / 'haskoki' / 'token.sqlite'
+    expected = directory / 'expected-config'
+    expected.write_text(
+        'schema_version = 1\nprofile = "real-crypto"\n\n'
+        f'[storage]\nkind = "sqlite"\npath = "{store}"\n\n'
+        '[engine]\nkind = "openssl"\n\n[trace]\nenabled = false\n')
     ctl = directory / 'haskoki-ctl'
     ctl.write_text(
         '#!/bin/sh\nset -eu\n'
         'printf "%s\\n" "$1 $2" >> "$CALLS"\n'
         'case "$1 $2" in\n'
-        '"config check") printf "native config stdout\\n"; '
+        '"config check") [ "$#" -eq 4 ] && [ "$3" = --config ] '
+        f'&& [ "$4" = {shlex.quote(str(config))} ] || exit 98\n'
+        f'cmp -s -- "$4" {shlex.quote(str(expected))} || exit 98\n'
+        'printf "native config stdout\\n"; '
         'printf "native config diagnostic\\n" >&2; exit "$CONFIG_STATUS" ;;\n'
-        '"store inspect") printf "tokens: 1\\n" ;;\n'
+        '"store inspect") [ "$#" -eq 4 ] && [ "$3" = --path ] '
+        f'&& [ "$4" = {shlex.quote(str(store))} ] || exit 98\n'
+        'printf "%s\\n" "${STORE_REPORT-tokens: 1}"; '
+        'printf "native store diagnostic\\n" >&2; exit "${STORE_STATUS-0}" ;;\n'
         '*) exit 99 ;;\n'
         'esac\n')
     ctl.chmod(0o755)
     provision = directory / 'haskoki-provision'
     provision.write_text(
         '#!/bin/sh\nset -eu\n'
+        '[ "$#" -eq 1 ] && [ "$1" = /usr/local/lib/p11lab/libhaskoki.so ] || exit 98\n'
         'printf "provision\\n" >> "$CALLS"\n'
         'printf token > "$(dirname "$HASKOKI_CONFIG")/token.sqlite"\n')
     provision.chmod(0o755)
@@ -136,6 +150,15 @@ def haskoki_script(directory):
     script = directory / 'provider'
     script.write_text(text)
     return script, state, control
+
+
+def run_haskoki(script, shell, operation, *argv, **env):
+    environment = os.environ | {
+        'P11LAB_PIN': '1234', 'P11LAB_SO_PIN': '5678',
+        'CALLS': str(script.parent / 'native-calls'), 'CONFIG_STATUS': '0'} | env
+    return subprocess.run([shell, str(script), operation, *argv], capture_output=True,
+                          text=True, timeout=30,
+                          env={key: value for key, value in environment.items() if value is not None})
 
 
 @pytest.mark.parametrize('shell', ['sh', 'bash'])
@@ -175,6 +198,252 @@ def test_haskoki_successful_initial_config_reaches_provisioning(tmp_path, shell)
     assert not (state / '.init-lock').exists()
     assert not list(control.glob('init.*'))
     assert not list(control.glob('marker.*'))
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('status', [2, 37, 126, 127])
+def test_haskoki_initial_inspection_preserves_native_failure(tmp_path, shell, status):
+    script, state, control = haskoki_script(tmp_path)
+    result = run_haskoki(script, shell, 'init', STORE_STATUS=str(status))
+    assert result.returncode == status, result.stdout + result.stderr
+    assert 'native store diagnostic' in result.stderr
+    assert (tmp_path / 'native-calls').read_text().splitlines() == [
+        'config check', 'provision', 'store inspect']
+    assert (state / 'haskoki' / 'token.sqlite').is_file()
+    assert not (state / 'haskoki' / 'complete').exists()
+    assert not (state / '.init-lock').exists()
+    assert not list(control.glob('init.*'))
+    assert not list(control.glob('marker.*'))
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('report', ['tokens: 0', 'tokens: 2', '', 'tokens: 1\ntokens: 2'])
+def test_haskoki_initial_inspection_requires_one_token(tmp_path, shell, report):
+    script, state, _ = haskoki_script(tmp_path)
+    result = run_haskoki(script, shell, 'init', STORE_REPORT=report)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert not (state / 'haskoki' / 'complete').exists()
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('native_stage', ['config', 'provision'])
+@pytest.mark.parametrize('signal,number', [('HUP', 1), ('INT', 2), ('TERM', 15)])
+def test_haskoki_interrupted_init_does_not_continue(tmp_path, shell, native_stage, signal, number):
+    script, state, control = haskoki_script(tmp_path)
+    native = tmp_path / ('haskoki-ctl' if native_stage == 'config' else 'haskoki-provision')
+    text = native.read_text()
+    anchor = 'exit "$CONFIG_STATUS"' if native_stage == 'config' else 'printf token >'
+    text = text.replace(anchor, f'kill -{signal} "$PPID"; ' + anchor)
+    native.write_text(text)
+    result = run_haskoki(script, shell, 'init')
+    assert result.returncode == 128 + number, result.stdout + result.stderr
+    assert (tmp_path / 'native-calls').read_text().splitlines() == (
+        ['config check'] if native_stage == 'config' else ['config check', 'provision'])
+    assert not (state / 'haskoki' / 'complete').exists()
+    assert not (state / '.init-lock').exists()
+    assert not list(control.glob('init.*'))
+    assert not list(control.glob('marker.*'))
+
+
+def haskoki_state_snapshot(state):
+    return {str(p.relative_to(state)): (p.lstat().st_mode,
+            p.readlink().as_posix() if p.is_symlink() else p.read_bytes() if p.is_file() else None)
+            for p in state.rglob('*')}
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('operation', ['init', 'health', 'exec'])
+@pytest.mark.parametrize('damage', [
+    'hidden-file', 'double-dot-file', 'dangling-link', 'hidden-dangling-link',
+    'lock-dangling-link', 'lock-directory', 'lock-fifo', 'extra-marker-lf',
+    'missing-config', 'malformed-config',
+])
+def test_haskoki_rejects_unsafe_state_before_native_tools(tmp_path, shell, operation, damage):
+    script, state, _ = haskoki_script(tmp_path)
+    assert run_haskoki(script, shell, 'init').returncode == 0
+    owned = state / 'haskoki'
+    if damage in ('hidden-file', 'double-dot-file'):
+        (owned / ('.foreign' if damage == 'hidden-file' else '..foreign')).write_text('foreign')
+    elif damage.endswith('dangling-link') or damage == 'dangling-link':
+        name = {'dangling-link': 'foreign', 'hidden-dangling-link': '.foreign',
+                'lock-dangling-link': 'token.sqlite.lock'}[damage]
+        (owned / name).symlink_to(tmp_path / 'missing')
+    elif damage == 'lock-directory':
+        (owned / 'token.sqlite.lock').mkdir()
+    elif damage == 'lock-fifo':
+        if not hasattr(os, 'mkfifo'):
+            pytest.skip('FIFO creation is unavailable on this platform')
+        os.mkfifo(owned / 'token.sqlite.lock')
+    elif damage == 'missing-config':
+        (owned / 'haskoki.toml').unlink()
+    elif damage == 'malformed-config':
+        (owned / 'haskoki.toml').write_text('not the pinned config\n')
+    else:
+        with (owned / 'complete').open('ab') as stream:
+            stream.write(b'\n')
+    calls = tmp_path / 'native-calls'
+    calls.write_text('')
+    before = haskoki_state_snapshot(state)
+    argv = ('--', 'sh', '-c', 'echo app >> "$CALLS"') if operation == 'exec' else ()
+    result = run_haskoki(script, shell, operation, *argv)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert calls.read_text() == ''
+    assert haskoki_state_snapshot(state) == before
+
+
+@pytest.mark.skipif(os.name != 'posix' or os.geteuid() == 0,
+                    reason='requires a non-root POSIX directory enumeration')
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('operation', ['init', 'health', 'exec'])
+def test_haskoki_unreadable_owned_roster_is_not_empty(tmp_path, shell, operation):
+    script, state, _ = haskoki_script(tmp_path)
+    assert run_haskoki(script, shell, 'init').returncode == 0
+    owned = state / 'haskoki'
+    (owned / 'foreign').write_text('foreign')
+    calls = tmp_path / 'native-calls'
+    calls.write_text('')
+    before = haskoki_state_snapshot(state)
+    owned.chmod(0o300)
+    try:
+        argv = ('--', 'sh', '-c', 'echo app >> "$CALLS"') if operation == 'exec' else ()
+        result = run_haskoki(script, shell, operation, *argv)
+        assert result.returncode != 0, result.stdout + result.stderr
+        assert 'cannot enumerate' in result.stderr
+        assert calls.read_text() == ''
+    finally:
+        owned.chmod(0o700)
+    assert haskoki_state_snapshot(state) == before
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('operation', ['init', 'health', 'exec'])
+def test_haskoki_symlinked_state_root_is_not_traversed(tmp_path, shell, operation):
+    script, state, _ = haskoki_script(tmp_path)
+    assert run_haskoki(script, shell, 'init').returncode == 0
+    outside = tmp_path / 'outside-state'
+    state.rename(outside)
+    state.symlink_to(outside, target_is_directory=True)
+    (outside / 'foreign').write_text('must not be modified')
+    calls = tmp_path / 'native-calls'
+    calls.write_text('')
+    before = haskoki_state_snapshot(outside)
+    argv = ('--', 'sh', '-c', 'echo app >> "$CALLS"') if operation == 'exec' else ()
+    result = run_haskoki(script, shell, operation, *argv)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert calls.read_text() == ''
+    assert state.is_symlink() and state.readlink() == outside
+    assert haskoki_state_snapshot(outside) == before
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('operation', ['init', 'health', 'exec'])
+@pytest.mark.parametrize('identity', [None, b'', b'not-an-identity\n', b'a' * 64 + b'\n\n',
+                                    b'a' * 64 + b'\0', b'A' * 64 + b'\n'])
+def test_haskoki_rejects_invalid_runtime_identity(tmp_path, shell, operation, identity):
+    script, state, _ = haskoki_script(tmp_path)
+    if operation != 'init':
+        assert run_haskoki(script, shell, 'init').returncode == 0
+    runtime_id = tmp_path / 'runtime-id'
+    if identity is None:
+        runtime_id.unlink()
+    else:
+        runtime_id.write_bytes(identity)
+    calls = tmp_path / 'native-calls'
+    calls.write_text('')
+    before = haskoki_state_snapshot(state)
+    argv = ('--', 'sh', '-c', 'echo app >> "$CALLS"') if operation == 'exec' else ()
+    result = run_haskoki(script, shell, operation, *argv)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert calls.read_text() == ''
+    assert haskoki_state_snapshot(state) == before
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('native_stage', ['config', 'provision'])
+def test_haskoki_native_status_survives_missing_diagnostic_log(tmp_path, shell, native_stage):
+    script, state, _ = haskoki_script(tmp_path)
+    native = tmp_path / ('haskoki-ctl' if native_stage == 'config' else 'haskoki-provision')
+    native.write_text('#!/bin/sh\nrm -f "$(dirname "$CALLS")/control/init.$PPID"\nexit 37\n')
+    result = run_haskoki(script, shell, 'init')
+    assert result.returncode == 37, result.stdout + result.stderr
+    assert not (state / 'haskoki' / 'complete').exists()
+
+
+@pytest.mark.skipif(not os.path.exists('/dev/full'), reason='/dev/full is required to simulate diagnostic write failure')
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('native_stage', ['config', 'provision', 'inspect'])
+def test_haskoki_native_status_survives_full_diagnostic_sink(tmp_path, shell, native_stage):
+    script, state, _ = haskoki_script(tmp_path)
+    if native_stage == 'provision':
+        (tmp_path / 'haskoki-provision').write_text('#!/bin/sh\nexit 37\n')
+    with open('/dev/full', 'wb') as sink:
+        result = subprocess.run([shell, str(script), 'init'], stdout=subprocess.PIPE,
+                                stderr=sink, text=True, timeout=30, env=os.environ | {
+                                    'P11LAB_PIN': '1234', 'P11LAB_SO_PIN': '5678',
+                                    'CALLS': str(tmp_path / 'native-calls'),
+                                    'CONFIG_STATUS': '37' if native_stage == 'config' else '0',
+                                    'STORE_STATUS': '37' if native_stage == 'inspect' else '0'})
+    assert result.returncode == 37
+    assert not (state / 'haskoki' / 'complete').exists()
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('missing,status', [(True, 127), (False, 126)])
+def test_haskoki_initial_missing_or_nonexecutable_validator(tmp_path, shell, missing, status):
+    script, state, _ = haskoki_script(tmp_path)
+    ctl = tmp_path / 'haskoki-ctl'
+    if missing:
+        ctl.unlink()
+    else:
+        ctl.chmod(0o644)
+    result = run_haskoki(script, shell, 'init')
+    assert result.returncode == status
+    assert not (tmp_path / 'native-calls').exists()
+    assert not (state / 'haskoki' / 'complete').exists()
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('name', ['P11LAB_PIN', 'P11LAB_SO_PIN'])
+@pytest.mark.parametrize('value', [None, '', 'wrong'])
+def test_haskoki_invalid_credentials_leave_no_init_temporary_files(tmp_path, shell, name, value):
+    script, state, control = haskoki_script(tmp_path)
+    result = run_haskoki(script, shell, 'init', **{name: value})
+    assert result.returncode != 0
+    assert not (tmp_path / 'native-calls').exists()
+    assert not list(state.iterdir())
+    assert not list(control.glob('init.*'))
+    assert not list(control.glob('marker.*'))
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+def test_haskoki_rejected_init_does_not_remove_another_initializers_lock(tmp_path, shell):
+    script, state, _ = haskoki_script(tmp_path)
+    lock = state / '.init-lock'
+    lock.mkdir()
+    result = run_haskoki(script, shell, 'init')
+    assert result.returncode != 0
+    assert not (tmp_path / 'native-calls').exists()
+    assert lock.is_dir()
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('cleanup_tool', ['rm', 'rmdir'])
+@pytest.mark.parametrize('native_status', [0, 37])
+def test_haskoki_cleanup_failure_is_reported_without_hiding_native_status(
+        tmp_path, shell, cleanup_tool, native_status):
+    script, state, control = haskoki_script(tmp_path)
+    tools = tmp_path / 'tools'
+    tools.mkdir()
+    tool = tools / cleanup_tool
+    tool.write_text('#!/bin/sh\nprintf "injected cleanup failure\\n" >&2\nexit 73\n')
+    tool.chmod(0o755)
+    result = run_haskoki(script, shell, 'init', CONFIG_STATUS=str(native_status),
+                         PATH=str(tools) + os.pathsep + os.environ['PATH'])
+    assert result.returncode == (native_status or 1), result.stdout + result.stderr
+    assert 'cleanup failed' in result.stderr
+    assert (state / 'haskoki' / 'complete').exists() is (native_status == 0)
+    assert (state / '.init-lock').exists() is (cleanup_tool == 'rmdir')
+    assert bool(list(control.glob('marker.*'))) is (cleanup_tool == 'rm')
 
 
 @pytest.mark.parametrize('data,accepted', [

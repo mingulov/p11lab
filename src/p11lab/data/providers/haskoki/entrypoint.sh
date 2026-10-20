@@ -17,6 +17,17 @@ provision=/usr/local/bin/haskoki-provision
 ctl=/usr/local/bin/haskoki-ctl
 control=/run/p11lab
 expected=$control/expected-haskoki.toml
+runtime_id=/usr/share/p11lab/runtime-id
+
+load_runtime_identity() {
+    [ -f "$runtime_id" ] && [ ! -L "$runtime_id" ] || p11lab_die "missing or unsafe runtime identity"
+    artifact_id=$(cat -- "$runtime_id") || p11lab_die "cannot read runtime identity"
+    case "$artifact_id" in ''|*[!0-9a-f]*) p11lab_die "invalid runtime identity" ;; esac
+    [ "${#artifact_id}" -eq 64 ] || p11lab_die "invalid runtime identity"
+    # Command substitution strips trailing newlines (and some shells strip
+    # NUL), so also compare exact bytes to the build's SHA-256-plus-LF file.
+    printf '%s\n' "$artifact_id" | cmp -s -- - "$runtime_id" || p11lab_die "invalid runtime identity"
+}
 
 expected_config() {
     printf '%s\n' 'schema_version = 1' 'profile = "real-crypto"' '' \
@@ -26,6 +37,7 @@ expected_config() {
 }
 
 configure() {
+    load_runtime_identity
     p11lab_writable_directory "$control"
     [ ! -L "$expected" ] || p11lab_die "configuration cannot be a symlink"
     expected_config > "$control/expected.$$"
@@ -33,34 +45,53 @@ configure() {
 }
 
 expected_marker() {
-    printf '%s\n' 'schema=1' 'provider=haskoki' "artifact=$(cat /usr/share/p11lab/runtime-id)" "token=$label" 'backend=sqlite' 'engine=openssl' 'profile=real-crypto'
+    printf '%s\n' 'schema=1' 'provider=haskoki' "artifact=$artifact_id" "token=$label" 'backend=sqlite' 'engine=openssl' 'profile=real-crypto'
 }
 
-allowed_owned() {
-    # Provisioned store plus its config and marker. The O_EXCL sidecar lock
-    # is tolerated: a clean close removes it, a crashed run may leave a
-    # stale one (the next open takes it over), and a live one never blocks
-    # lock-safe health inspection. Anything else is foreign or partial.
-    case "$1" in
-        complete|haskoki.toml|token.sqlite|token.sqlite.lock) return 0 ;;
-        *) return 1 ;;
-    esac
+single_token_report() {
+    if token_lines=$(printf '%s\n' "$1" | grep '^tokens:'); then
+        [ "$token_lines" = 'tokens: 1' ]
+    else
+        return 1
+    fi
+}
+
+cleanup_init() {
+    init_status=$?
+    trap - EXIT
+    cleanup_status=0
+    rmdir -- "$state/.init-lock" || {
+        printf '%s\n' 'p11lab: initialization lock cleanup failed' >&2 || :
+        cleanup_status=1
+    }
+    rm -f -- "$control/marker.$$" "$control/init.$$" || {
+        printf '%s\n' 'p11lab: initialization temporary-file cleanup failed' >&2 || :
+        cleanup_status=1
+    }
+    # The native failure remains primary. Cleanup failure still prevents a
+    # successful init from being reported when owned resources remain.
+    [ "$init_status" -ne 0 ] || init_status=$cleanup_status
+    exit "$init_status"
 }
 
 complete() {
     [ "$label" = haskoki-demo ] || p11lab_die "incompatible label: this provider serves only haskoki-demo on slot 0"
+    [ ! -L "$state" ] && [ -d "$state" ] || p11lab_die "partial or unsafe state"
     [ ! -L "$owned" ] && [ ! -L "$owned/complete" ] || p11lab_die "partial or unsafe state"
     [ -f "$owned/complete" ] || p11lab_die "partial state: missing completion marker"
-    [ "$(cat "$owned/complete")" = "$(expected_marker)" ] || p11lab_die "incompatible non-secret initialization configuration"
+    expected_marker | cmp -s -- - "$owned/complete" || p11lab_die "incompatible non-secret initialization configuration"
     for file in haskoki.toml token.sqlite; do
         [ ! -L "$owned/$file" ] || p11lab_die "partial or unsafe state"
         [ -f "$owned/$file" ] && [ -s "$owned/$file" ] || p11lab_die "partial state: missing provisioned file $file"
     done
     p11lab_check_find empty "partial state: unknown files" "$state" -mindepth 1 -maxdepth 1 ! -name haskoki -print -quit
-    for entry in "$owned"/*; do
-        [ -e "$entry" ] || continue
-        [ ! -L "$entry" ] || p11lab_die "partial or unsafe state"
-        allowed_owned "$(basename "$entry")" || p11lab_die "partial state: unknown owned files"
+    # A checked traversal must succeed before a glob can prove the roster:
+    # unreadable directories otherwise look like an empty glob. The native
+    # sidecar may remain after a crash or while a live owner holds the store.
+    p11lab_check_find empty "partial state: unknown owned files" "$owned" -mindepth 1 -maxdepth 1 ! -name complete ! -name haskoki.toml ! -name token.sqlite ! -name token.sqlite.lock -print -quit
+    for entry in "$owned"/* "$owned"/.[!.]* "$owned"/..?*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        [ ! -L "$entry" ] && [ -f "$entry" ] || p11lab_die "partial or unsafe state"
     done
     # The stored config is PIN-free and deterministic: any drift from the
     # expected bytes is an incompatible configuration, never silently kept.
@@ -74,15 +105,15 @@ complete() {
         config_report=$checked
     else
         status=$?
-        printf '%s\n' 'p11lab: native config validation failed' "$checked" >&2
+        printf '%s\n' 'p11lab: native config validation failed' "$checked" >&2 || :
         exit "$status"
     fi
     if inspected=$("$ctl" store inspect --path "$store" 2>&1); then
-        printf '%s\n' "$inspected" | grep -q '^tokens: 1$' || p11lab_die "partial state: expected exactly one seated token"
+        single_token_report "$inspected" || p11lab_die "partial state: expected exactly one seated token"
         store_report=$inspected
     else
         status=$?
-        printf '%s\n' 'p11lab: native store inspection failed' "$inspected" >&2
+        printf '%s\n' 'p11lab: native store inspection failed' "$inspected" >&2 || :
         exit "$status"
     fi
 }
@@ -101,7 +132,6 @@ case "${1-}" in
         if [ -e "$owned/complete" ]; then complete; exit 0; fi
         [ "$label" = haskoki-demo ] || p11lab_die "label policy: this provider serves only haskoki-demo on slot 0; refusing other labels"
         p11lab_check_find empty "partial state: refusing to initialize nonempty volume" "$state" -mindepth 1 -maxdepth 1 -print -quit
-        expected_marker > "$control/marker.$$"
         p11lab_secret P11LAB_PIN P11LAB_PIN_FILE
         user_credential=$credential
         p11lab_secret P11LAB_SO_PIN P11LAB_SO_PIN_FILE
@@ -114,7 +144,11 @@ case "${1-}" in
         [ "$user_credential" = '1234' ] || p11lab_die "caller PIN does not match the provider-provisioned PIN"
         [ "$so_credential" = '5678' ] || p11lab_die "caller SO PIN does not match the provider-provisioned SO PIN"
         mkdir "$state/.init-lock" || p11lab_die "state initialization is already in progress"
-        trap 'rmdir "$state/.init-lock" 2>/dev/null || :; rm -f "$control/marker.$$" "$control/init.$$"' EXIT HUP INT TERM
+        trap cleanup_init EXIT
+        trap 'exit 129' HUP
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+        expected_marker > "$control/marker.$$"
         mkdir -p -m 700 "$owned"
         cp -- "$expected" "$owned/.haskoki.toml.$$"
         mv -- "$owned/.haskoki.toml.$$" "$config"
@@ -122,26 +156,30 @@ case "${1-}" in
             :
         else
             status=$?
-            printf '%s\n' 'p11lab: native token initialization failed; partial state retained' >&2
-            cat -- "$control/init.$$" >&2
+            printf '%s\n' 'p11lab: native token initialization failed; partial state retained' >&2 || :
+            cat -- "$control/init.$$" >&2 || :
             exit "$status"
         fi
         # The single provisioning open runs only here, under the init lock,
         # against state this init created. It seats and commits the token,
         # asserts the slot 0 label policy, and preserves native errors.
         if "$provision" "$P11LAB_MODULE" > "$control/init.$$" 2>&1; then
-            if inspected=$("$ctl" store inspect --path "$store" 2>&1) \
-                && printf '%s\n' "$inspected" | grep -q '^tokens: 1$'; then
+            if inspected=$("$ctl" store inspect --path "$store" 2>&1); then
+                single_token_report "$inspected" || {
+                    printf '%s\n' 'p11lab: native token initialization failed; partial state retained' "$inspected" >&2
+                    exit 1
+                }
                 cp -- "$control/marker.$$" "$owned/.complete.$$"
                 mv -- "$owned/.complete.$$" "$owned/complete"
             else
-                printf '%s\n' 'p11lab: native token initialization failed; partial state retained' "$inspected" >&2
-                exit 1
+                status=$?
+                printf '%s\n' 'p11lab: native token initialization failed; partial state retained' "$inspected" >&2 || :
+                exit "$status"
             fi
         else
             status=$?
-            printf '%s\n' 'p11lab: native token initialization failed; partial state retained' >&2
-            cat -- "$control/init.$$" >&2
+            printf '%s\n' 'p11lab: native token initialization failed; partial state retained' >&2 || :
+            cat -- "$control/init.$$" >&2 || :
             exit "$status"
         fi
         ;;
