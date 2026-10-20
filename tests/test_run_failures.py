@@ -134,6 +134,65 @@ def test_atomic_receipt_replaces_whole_record(tmp_path):
     assert list(tmp_path.iterdir()) == [path]
 
 
+def test_atomic_receipt_cleanup_preserves_original_consumer_write_failure(tmp_path, monkeypatch):
+    import p11lab.receipts as receipts
+    def failed_dump(*args, **kwargs):
+        raise ValueError('primary JSON write failure')
+    def failed_cleanup(*args, **kwargs):
+        raise OSError('secondary temporary cleanup failure')
+    monkeypatch.setattr(receipts.json, 'dump', failed_dump)
+    monkeypatch.setattr(Path, 'unlink', failed_cleanup)
+    path = tmp_path / 'receipt.json'
+    with pytest.raises(ValueError, match='primary JSON') as caught:
+        write_receipt(path, {'complete': True})
+    assert any('secondary temporary' in note for note in caught.value.__notes__)
+    assert not path.exists()
+
+
+@pytest.mark.parametrize('primary', [True, False])
+def test_atomic_receipt_directory_close_cannot_mask_primary(tmp_path, monkeypatch, primary):
+    import p11lab.receipts as receipts
+    import stat
+    if sys.platform != 'linux': pytest.skip('directory fsync is Linux-only')
+    original_fsync, original_close = receipts.os.fsync, receipts.os.close
+    def fsync(fd):
+        if primary and stat.S_ISDIR(receipts.os.fstat(fd).st_mode):
+            raise OSError('PRIMARY directory fsync failure')
+        return original_fsync(fd)
+    def close(fd):
+        directory = stat.S_ISDIR(receipts.os.fstat(fd).st_mode)
+        original_close(fd)
+        if directory: raise OSError('SECONDARY directory close failure')
+    monkeypatch.setattr(receipts.os, 'fsync', fsync)
+    monkeypatch.setattr(receipts.os, 'close', close)
+    with pytest.raises(OSError, match='PRIMARY' if primary else 'SECONDARY') as caught:
+        write_receipt(tmp_path/'receipt.json', {'complete': True})
+    if primary:
+        assert any('SECONDARY' in note for note in caught.value.__notes__)
+
+
+@pytest.mark.parametrize('primary', [True, False])
+def test_atomic_receipt_stream_close_cannot_mask_primary(tmp_path, monkeypatch, primary):
+    import p11lab.receipts as receipts
+    original = receipts.tempfile.NamedTemporaryFile
+    class Stream:
+        def __init__(self, *args, **kwargs): self.stream = original(*args, **kwargs)
+        def __getattr__(self, name): return getattr(self.stream, name)
+        def __enter__(self): return self
+        def __exit__(self, *args): self.close()
+        def close(self):
+            self.stream.close()
+            raise OSError('SECONDARY stream close failure')
+    def failed_dump(*args, **kwargs): raise ValueError('PRIMARY JSON write failure')
+    monkeypatch.setattr(receipts.tempfile, 'NamedTemporaryFile', Stream)
+    if primary: monkeypatch.setattr(receipts.json, 'dump', failed_dump)
+    with pytest.raises((ValueError, OSError), match='PRIMARY' if primary else 'SECONDARY') as caught:
+        write_receipt(tmp_path/'receipt.json', {'complete': True})
+    if primary:
+        assert any('SECONDARY' in note for note in caught.value.__notes__)
+    assert not (tmp_path/'receipt.json').exists()
+
+
 def test_capture_drains_large_output_with_bound():
     result = capture([sys.executable, '-c', 'import sys; sys.stdout.write("x"*200000); sys.stderr.write("y"*200000)'], 5, limit=1024)
     assert result.returncode == 0

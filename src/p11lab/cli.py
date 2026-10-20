@@ -44,6 +44,12 @@ def main(argv=None) -> int:
         if name == "build":
             command.add_argument("--role", default="runtime", choices=("runtime", "native"))
             command.add_argument("--debug-output-dir", type=Path, help="export a separate matched binary debug companion")
+    tools = commands.add_parser("tools", help="acquire fixed test-tool inputs; no build or admission")
+    operations = tools.add_subparsers(dest="tool_operation", required=True)
+    tool_resolve = operations.add_parser("resolve", help="acquire the curated opaque consumer input roster")
+    tool_resolve.add_argument("toolset", choices=("consumer", "checker", "proxy"))
+    tool_resolve.add_argument("--target", required=True)
+    tool_resolve.add_argument("--output-dir", required=True, type=Path)
     install = commands.add_parser("install", help="install a verified local native candidate")
     install.add_argument("id")
     install.add_argument("--channel", required=True)
@@ -255,6 +261,10 @@ def main(argv=None) -> int:
                     record.update(configuration=execution['configuration'])
             print(json.dumps(record, default=str, indent=2, sort_keys=True))
             return result.exit_code
+        elif args.command == "tools":
+            from .tool_inputs import resolve_tool_inputs
+            result = resolve_tool_inputs(args.toolset, target=args.target, output_dir=args.output_dir)
+            print(json.dumps(result, indent=2, sort_keys=True))
         elif args.command in {"resolve", "build"}:
             spec = load_environment(args.id, args.channel)
             if args.command == "resolve":
@@ -280,7 +290,9 @@ def main(argv=None) -> int:
         else:
             environments = list_environments()
             if args.command == "validate":
+                from .tool_inputs import load_tool_input_lock
                 validate_tools(json.loads(package_data("tools.json").read_text(encoding="utf-8")))
+                load_tool_input_lock("consumer", target="debian13-amd64")
                 print(f"Validated {len(environments)} candidate environments; distribution remains evidence-gated.")
             elif args.json:
                 print(json.dumps(environments, indent=2, sort_keys=True))
