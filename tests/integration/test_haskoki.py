@@ -1,7 +1,7 @@
 """Haskoki anchor acceptance: real init/readiness/crypto/persistence/lanes.
 
-Durable regression for the Haskoki provider (Task 8, rolling channel only;
-release stays unavailable: upstream has no release tags). Image lanes are
+Durable regression for the Haskoki provider. Rolling evidence remains
+separate from the unvalidated v0.5.0.0 release candidate. Image lanes are
 env-gated; only caller-owned inputs and output artifacts are mounted, never
 a reference workspace:
 
@@ -17,7 +17,7 @@ a reference workspace:
 The crypto oracle is the packaged independent verifier plus host OpenSSL;
 its version is recorded with every verification.
 
-Haskoki specifics (upstream e442a38d, main): configuration provisioning via
+Rolling-only historical contract (upstream e442a38d): configuration provisioning via
 HASKOKI_CONFIG (no InitToken/InitPIN/SetPIN path); slot 0 always serves
 label haskoki-demo (any other requested label is refused); provisioned PINs
 are the upstream-fixed 1234 (user) / 5678 (SO) and anything else fails
@@ -27,6 +27,9 @@ beside the module, never the synthetic engine); trace is disabled; the
 SQLite store is single-writer, so health/readiness never opens the
 module (stock haskoki-ctl config check + lock-safe store inspect only).
 Token objects persist across processes; session objects stay process-local.
+Release v0.5.0.0 has durable native PIN management and kernel-flock ownership;
+its extra acceptance cases live in test_haskoki_release.py. Demo initial
+credentials remain explicit P11Lab adapter policy, not an upstream limitation.
 """
 
 import hashlib
@@ -50,7 +53,9 @@ STORE = '/var/lib/p11lab/haskoki/token.sqlite'
 TOKEN_LABEL = 'haskoki-demo'
 USER_PIN = '1234'
 SO_PIN = '5678'
-CHANNELS = ('rolling',)
+CHANNELS = tuple(os.environ.get('P11LAB_TEST_HASKOKI_CHANNELS', 'rolling,release').split(','))
+if not CHANNELS or len(set(CHANNELS)) != len(CHANNELS) or set(CHANNELS) - {'rolling', 'release'}:
+    raise ValueError('P11LAB_TEST_HASKOKI_CHANNELS must select release and/or rolling exactly once')
 
 
 IMAGES = json.loads(os.environ.get('P11LAB_TEST_HASKOKI_IMAGES', '{}'))
@@ -118,11 +123,11 @@ def test_rolling_locked():
     assert spec['channel_spec']['status'] == 'locked'
 
 
-def test_release_stays_unavailable():
-    spec = load_environment('haskoki', 'rolling')
-    release = spec['channels']['release']
-    assert release['status'] == 'unavailable'
-    assert 'release tag' in release['reason']
+def test_release_candidate_is_locked_but_not_qualified():
+    spec = load_environment('haskoki', 'release')
+    assert spec['channel_spec']['status'] == 'locked'
+    assert spec['lock']['features']['validation_status'] == 'pending-cold-build-and-runtime'
+    assert spec['distribution']['status'] == 'unreviewed'
 
 
 @pytest.mark.parametrize('channel', CHANNELS)
@@ -305,35 +310,45 @@ def test_concurrent_health_never_opens_module(channel, tmp_path):
         assert 'tokens: 1' in output, (index, output)
 
 
-@pytest.mark.parametrize('channel', CHANNELS)
-def test_live_lock_refuses_second_open(channel, tmp_path):
-    if channel not in IMAGES:
-        pytest.skip('P11LAB_TEST_HASKOKI_IMAGES lacks ' + channel)
-    image = IMAGES[channel]
-    state, secrets = tmp_path / 'state', tmp_path / 'secrets'
-    state.mkdir()
-    secrets.mkdir()
-    (secrets / 'pin').write_text(USER_PIN)
-    (secrets / 'so-pin').write_text(SO_PIN)
-    base = lifecycle_base(state, secrets)
-    controls = lifecycle_controls()
-    docker(*base, *controls, image, 'init')
-    # A live owner pid in the sidecar exercises the real single-writer
-    # refusal path. Upstream maps every store-open failure to a NULL open
-    # reported as CKR_GENERAL_ERROR (0x5); that native value is preserved,
-    # never normalized, and the detail string stays internal by design.
-    script = ('sleep 60 & holder=$!; printf "%s\\n" "$holder" > ' + STORE + '.lock; '
-              'if /usr/local/bin/haskoki-provision ' + MODULE + ' > /tmp/held.log 2>&1; then '
-              'echo SECOND-OPEN-ACCEPTED; else echo "refused rc=$?"; fi; '
-              'kill "$holder"; rm -f ' + STORE + '.lock; cat /tmp/held.log')
-    held = docker(*base, *controls, image, 'exec', '--', 'sh', '-c', script)
-    assert held.returncode == 0, held.stderr
-    assert 'SECOND-OPEN-ACCEPTED' not in held.stdout, held.stdout
-    assert 'refused rc=1' in held.stdout, held.stdout
-    assert 'C_Initialize failed (rv=0x5)' in held.stdout, held.stdout
-    health = docker(*base, image, 'health')
-    assert health.returncode == 0, health.stderr
-    assert 'tokens: 1' in health.stdout
+if 'rolling' in CHANNELS:
+    @pytest.mark.parametrize('channel', ('rolling',))
+    def test_rolling_live_pid_sidecar_refuses_second_open(channel, tmp_path):
+        if channel not in IMAGES:
+            pytest.skip('P11LAB_TEST_HASKOKI_IMAGES lacks ' + channel)
+        image = IMAGES[channel]
+        state, secrets = tmp_path / 'state', tmp_path / 'secrets'
+        state.mkdir()
+        secrets.mkdir()
+        (secrets / 'pin').write_text(USER_PIN)
+        (secrets / 'so-pin').write_text(SO_PIN)
+        base = lifecycle_base(state, secrets)
+        controls = lifecycle_controls()
+        docker(*base, *controls, image, 'init')
+        # A live owner pid in the sidecar exercises the real single-writer
+        # refusal path. Upstream maps every store-open failure to a NULL open
+        # reported as CKR_GENERAL_ERROR (0x5); that native value is preserved,
+        # never normalized, and the detail string stays internal by design.
+        script = ('sleep 60 & holder=$!; printf "%s\\n" "$holder" > ' + STORE + '.lock; '
+                  'if /usr/local/bin/haskoki-provision ' + MODULE + ' > /tmp/held.log 2>&1; then '
+                  'echo SECOND-OPEN-ACCEPTED; else echo "refused rc=$?"; fi; '
+                  'kill "$holder"; rm -f ' + STORE + '.lock; cat /tmp/held.log')
+        held = docker(*base, *controls, image, 'exec', '--', 'sh', '-c', script)
+        assert held.returncode == 0, held.stderr
+        assert 'SECOND-OPEN-ACCEPTED' not in held.stdout, held.stdout
+        assert 'refused rc=1' in held.stdout, held.stdout
+        assert 'C_Initialize failed (rv=0x5)' in held.stdout, held.stdout
+        health = docker(*base, image, 'health')
+        assert health.returncode == 0, health.stderr
+        assert 'tokens: 1' in health.stdout
+
+
+def assert_runtime_cleanup(result):
+    record = json.loads(Path(result.receipt_path).read_text())
+    assert not record['cleanup_errors']
+    assert not record['state']['owned_directory_retained']
+    for resource in record['owned_resources']:
+        assert docker(resource['kind'], 'inspect', resource['identity'], check=False).returncode != 0
+    return record
 
 
 def run_direct(channel, image, argv, inputs, output, caller, timeout=300):
@@ -343,7 +358,7 @@ def run_direct(channel, image, argv, inputs, output, caller, timeout=300):
     assert result.exit_code == 0, (result.lifecycle_errors, result.cleanup_errors)
     assert result.app_returncode == 0
     assert not result.lifecycle_errors and not result.cleanup_errors
-    receipt = json.loads(Path(result.receipt_path).read_text())
+    receipt = assert_runtime_cleanup(result)
     assert [stage['phase'] for stage in receipt['stages']] == ['init', 'ready', 'application', 'post-health']
     return result
 
@@ -494,12 +509,13 @@ def test_proxy_crypto_container(channel, tmp_path):
     result = run_application(spec)
     assert result.exit_code == 0, (result.lifecycle_errors, result.cleanup_errors)
     assert result.app_returncode == 0
+    assert_runtime_cleanup(result)
     assert (output / 'proxy-health.stdout.log').read_text().strip() == 'SERVING'
     oracle(output / 'crypto')
 
 
-def test_proxy_crypto_host(tmp_path):
-    channel = 'rolling'
+@pytest.mark.parametrize('channel', CHANNELS)
+def test_proxy_crypto_host(channel, tmp_path):
     if channel not in DAEMONS or channel not in CLIENTS:
         pytest.skip('proxy daemon and client bundle required')
     if shutil.which('cc') is None:
@@ -533,4 +549,5 @@ def test_proxy_crypto_host(tmp_path):
                    output, caller, 600)
     result = run_application(spec)
     assert result.exit_code == 0, (result.lifecycle_errors, result.cleanup_errors)
+    assert_runtime_cleanup(result)
     oracle(output / 'crypto')

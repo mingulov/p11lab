@@ -16,7 +16,7 @@ qualification only, never provider-wide certification.
 | craton | rolling | general-token | unreviewed |
 | cryptech | rolling | cryptech-fixed-credential-simulator | blocked |
 | freehsm | release + rolling | general-token | unreviewed |
-| haskoki | rolling | general-token | unreviewed |
+| haskoki | rolling + release candidate | general-token | unreviewed; release runtime evidence pending |
 | kmsp11-fakekms | release + rolling | kms-vendor-crypto | blocked |
 | kryoptic | release + rolling | general-token | unreviewed |
 | nethsm | release + rolling | nethsm-persistent-p256 | blocked |
@@ -35,6 +35,12 @@ qualification only, never provider-wide certification.
 | tpm2 | release + rolling | general-token | blocked |
 | wolfpkcs11 | release + rolling | general-token | unreviewed |
 | ykcs11 | release + rolling | general-token | blocked |
+
+Haskoki's newly locked v0.5.0.0 release is a separate unvalidated candidate.
+Prior rolling evidence does not qualify it; source-build closure, runtime
+acceptance and schema-safe readiness remain pending. See the
+[Haskoki release candidate](haskoki-release-candidate.md) for exact inputs,
+retained gates and the known upstream readiness gap.
 
 ## M6: Cryptech rolling simulator
 

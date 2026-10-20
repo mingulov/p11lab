@@ -17,7 +17,10 @@
   "state_mode": "persistent",
   "module_path": "/usr/local/lib/p11lab/libhaskoki.so",
   "runtime_env": [
-    {"name": "HASKOKI_CONFIG", "value": "/var/lib/p11lab/haskoki/haskoki.toml"}
+    {
+      "name": "HASKOKI_CONFIG",
+      "value": "/var/lib/p11lab/haskoki/haskoki.toml"
+    }
   ],
   "inputs": {
     "P11LAB_PIN_FILE": {
@@ -49,20 +52,20 @@
       "lock": "rolling.lock.json"
     },
     "release": {
-      "status": "unavailable",
-      "reason": "No upstream release tags in the 2026-10-02 source-resolution snapshot."
+      "status": "locked",
+      "lock": "release.lock.json"
     }
   },
   "application_profile": "general-token",
   "distribution": {
     "status": "unreviewed",
-    "reason": "Local rolling-only candidate. Lifecycle, credential, crypto, checker and proxy lanes qualified (21/21); whole-image licensing, source delivery admission and digest-bound source companion remain incomplete. No publication authorized."
+    "reason": "Local-only candidates, no publication authorized. Rolling evidence does not qualify release v0.5.0.0: release cold-build, dependency closure, runtime lanes and schema-safe readiness remain pending. Whole-image licensing, source delivery admission and digest-bound source companion are incomplete for both channels."
   },
   "constraints": [
-    "Linux amd64; libhaskoki.so plus 24 bundled GHC closure libraries and the OpenSSL legacy provider module at ossl-modules/legacy.so ship in-image beside the module ($ORIGIN resolution, no LD_LIBRARY_PATH), with libffi.so.8 vendored from a pinned snapshot .deb behind an ld.so.conf entry. Single token on slot 0; token-present index and native slot ID coincide at 0. The measured glibc floor of this source build is 2.38; the upstream prebuilt artifact's 2.43 floor does not apply.",
+    "Linux amd64 container runtime only. Rolling source-build observations were 24 bundled GHC closure libraries and GLIBC_2.38. Release v0.5.0.0 retains these strict build gates, but its actual closure and glibc floor are unmeasured; the upstream prebuilt artifact is not a substitute. The module-local OpenSSL legacy provider and pinned vendored libffi are required recipe inputs. Single token on slot 0; token-present index and native slot ID coincide at 0.",
     "The adapter always provisions HASKOKI_CONFIG at /var/lib/p11lab/haskoki/haskoki.toml (PIN-free, deterministic): profile real-crypto, sqlite storage at /var/lib/p11lab/haskoki/token.sqlite, engine openssl over OpenSSL 4.0.2 (libcrypto statically linked into the module, so no system libcrypto is used or required, plus the legacy provider module shipped at ossl-modules/legacy.so beside the module, which upstream loads at open), trace disabled. The stored config bytes are verified on every invocation; drift fails as incompatible.",
-    "Label policy: slot 0 always serves haskoki-demo; any other P11LAB_LABEL is refused explicitly. Provisioned PINs are the upstream-fixed user 1234 / SO 5678; anything else fails explicitly at initial provisioning (no InitToken/InitPIN/SetPIN path exists upstream). Re-init on complete state is validate-only.",
-    "Initialize only an empty writable /var/lib/p11lab volume; compatible init is non-destructive; partial or incompatible state fails. The SQLite store is single-writer: health/readiness never open the module (stock haskoki-ctl config check plus lock-safe SELECT-only store inspection); a second concurrent open fails with the preserved native error.",
+    "P11Lab initialization policy: label haskoki-demo, user PIN 1234 and SO PIN 5678 only; other initial values are refused. Release v0.5.0.0 supports durable native InitToken/InitPIN/SetPIN. Re-init on complete state is validate-only and must not restore changed PINs. Arbitrary initial PIN/label provisioning is not provided by this adapter.",
+    "Initialize only an empty writable /var/lib/p11lab volume; compatible init is non-destructive; partial or artifact-incompatible state fails. SQLite ownership is single-writer. Health uses stock haskoki-ctl config check and SELECT-only store inspect, never opens the writer module. Release schema3 runtime acceptance is pending: upstream store inspect counts tables but does not validate schema_version; schema-safe concurrent readiness needs explicit review, not silent migration/reset.",
     "PIN_FILE/SO_PIN_FILE are preferred; scalar alternatives are explicit disposable-test inputs. Conflicting scalar/file or absent/empty credentials fail initial provisioning.",
     "Ordinary application consumers do not require checker, Python, tracing or a workspace mount. Reset is an explicit removal/replacement of disposable state; no automatic reset or retry.",
     "Whole-image licensing, source companion delivery and digest-bound admission remain separate requirements."
