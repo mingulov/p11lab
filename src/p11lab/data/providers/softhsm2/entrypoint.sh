@@ -16,10 +16,32 @@ configure() {
     printf '%s\n' "directories.tokendir = $owned/tokens" 'objectstore.backend = file' 'log.level = ERROR' 'slots.removable = false' > "$control/config.$$"
     mv -f -- "$control/config.$$" "$SOFTHSM2_CONF"
 }
-expected_marker() {
+read_metadata() {
+    [ ! -L "$1" ] && [ -f "$1" ] && [ -r "$1" ] || p11lab_die "identity or completion marker must be a readable non-symlink regular file"
+    metadata_size=$(wc -c < "$1") || p11lab_die "cannot count identity or completion marker bytes"
+    # Keep every trailing LF; a failed read must not become successful output.
+    metadata=$(cat -- "$1" && printf '.') || p11lab_die "cannot read identity or completion marker"
+    metadata=${metadata%.}
+    # Shell variables cannot retain NUL. Count bytes, not locale-dependent
+    # characters, without changing the caller's label-validation locale.
+    retained_size=$(LC_ALL=C; printf '%s' "${#metadata}") || p11lab_die "cannot count retained metadata bytes"
+    [ "$retained_size" = "$metadata_size" ] || p11lab_die "identity or completion marker contains unsupported bytes"
+}
+validate_label() {
     case "$label" in ''|*[!a-zA-Z0-9\ ._-]*) p11lab_die "label must use printable ASCII letters, digits, spaces, dot, underscore or hyphen" ;; esac
     [ "${#label}" -le 32 ] || p11lab_die "label exceeds 32 bytes"
-    printf '%s\n' 'schema=1' 'provider=softhsm2' "artifact=$(cat /usr/share/p11lab/runtime-id)" "label=$label" 'backend=file'
+}
+validate_identity() {
+    read_metadata /usr/share/p11lab/runtime-id
+    [ "$metadata_size" = 65 ] || p11lab_die "invalid build-input identity"
+    case "$metadata" in *'
+') artifact=${metadata%'
+'} ;; *) p11lab_die "invalid build-input identity framing" ;; esac
+    case "$artifact" in *[!0123456789abcdef]*) p11lab_die "invalid build-input identity" ;; esac
+    [ "${#artifact}" -eq 64 ] || p11lab_die "invalid build-input identity"
+}
+expected_marker() {
+    printf '%s\n' 'schema=1' 'provider=softhsm2' "artifact=$artifact" "label=$label" 'backend=file'
 }
 init_signal() {
     if [ "$cleaning_up" -eq 1 ]; then
@@ -62,7 +84,10 @@ complete() {
     # Do not enter native enumeration on wholly lost contents: SoftHSM creates
     # auxiliary generation bookkeeping even when opening an invalid empty token.
     p11lab_check_find present "partial state: missing token contents" "$owned/tokens" -mindepth 1 -type f -print -quit
-    [ "$(cat "$owned/complete")" = "$(expected_marker)" ] || p11lab_die "incompatible non-secret initialization configuration"
+    read_metadata "$owned/complete"
+    expected=$(expected_marker && printf '.') || p11lab_die "cannot generate completion marker"
+    expected=${expected%.}
+    [ "$metadata" = "$expected" ] || p11lab_die "incompatible non-secret initialization configuration"
     p11lab_check_find empty "partial state: unknown files" "$state" -mindepth 1 -maxdepth 1 ! -name softhsm2 -print -quit
     p11lab_check_find empty "partial state: unknown owned files" "$owned" -mindepth 1 -maxdepth 1 ! -name tokens ! -name complete -print -quit
     if slots=$(softhsm2-util --module "$P11LAB_MODULE" --show-slots); then
@@ -96,8 +121,10 @@ case "${1-}" in
         [ "$#" -eq 1 ] || p11lab_die "init takes no arguments"
         p11lab_no_credential_conflict P11LAB_PIN P11LAB_PIN_FILE
         p11lab_no_credential_conflict P11LAB_SO_PIN P11LAB_SO_PIN_FILE
+        validate_identity
         p11lab_writable_directory "$state"
         configure
+        validate_label
         if [ -e "$owned/complete" ]; then complete; exit 0; fi
         p11lab_check_find empty "partial state: refusing to initialize nonempty volume" "$state" -mindepth 1 -maxdepth 1 -print -quit
         p11lab_secret P11LAB_PIN P11LAB_PIN_FILE
@@ -124,7 +151,9 @@ case "${1-}" in
         ;;
     health)
         [ "$#" -eq 1 ] || p11lab_die "health takes no arguments"
+        validate_identity
         configure
+        validate_label
         complete
         printf '%s\n' "$slots"
         ;;
@@ -133,7 +162,9 @@ case "${1-}" in
         [ "${1-}" = -- ] || p11lab_die "exec requires -- followed by argv"
         shift
         [ "$#" -gt 0 ] || p11lab_die "exec requires an application"
+        validate_identity
         configure
+        validate_label
         complete
         exec "$@"
         ;;

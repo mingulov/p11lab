@@ -68,6 +68,14 @@ label (`P11Lab` by default), and verifies initialization before reaching the
 application. Native slot IDs and consumer slot indices are different values.
 No module becomes remotely loadable by placing containers on a shared network.
 
+SoftHSM's packaged `runtime-id` must be a readable, non-symlink regular file
+containing exactly 64 lowercase hexadecimal bytes followed by one LF. This is
+the build-input key, not a Docker image ID or registry digest. Completion markers
+bind that key and the exact label bytes with fixed fields, order and a single
+final LF. Invalid identity files, changed marker bytes and metadata read failures
+reject before provider or application execution. A changed build key does not
+migrate or rewrite existing state; use a separate explicitly initialized store.
+
 Before SoftHSM initialization cleanup, handled HUP, INT and TERM stop the adapter
 with status 129, 130 and 143 respectively, without resuming marker publication.
 The shell may defer its trap until a foreground utility returns; signaling
