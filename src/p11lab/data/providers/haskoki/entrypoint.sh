@@ -118,7 +118,9 @@ case "${1-}" in
         mkdir -p -m 700 "$owned"
         cp -- "$expected" "$owned/.haskoki.toml.$$"
         mv -- "$owned/.haskoki.toml.$$" "$config"
-        if ! checked=$("$ctl" config check --config "$config" > "$control/init.$$" 2>&1); then
+        if "$ctl" config check --config "$config" > "$control/init.$$" 2>&1; then
+            :
+        else
             status=$?
             printf '%s\n' 'p11lab: native token initialization failed; partial state retained' >&2
             cat -- "$control/init.$$" >&2

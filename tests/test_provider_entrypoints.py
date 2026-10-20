@@ -102,6 +102,81 @@ def test_fresh_freehsm_init_preserves_success_diagnostics(tmp_path):
     assert not list(control.glob('init.*'))
 
 
+def haskoki_script(directory):
+    state, control = directory / 'state', directory / 'control'
+    state.mkdir()
+    control.mkdir()
+    runtime_id = directory / 'runtime-id'
+    runtime_id.write_text('test-artifact\n')
+    ctl = directory / 'haskoki-ctl'
+    ctl.write_text(
+        '#!/bin/sh\nset -eu\n'
+        'printf "%s\\n" "$1 $2" >> "$CALLS"\n'
+        'case "$1 $2" in\n'
+        '"config check") printf "native config stdout\\n"; '
+        'printf "native config diagnostic\\n" >&2; exit "$CONFIG_STATUS" ;;\n'
+        '"store inspect") printf "tokens: 1\\n" ;;\n'
+        '*) exit 99 ;;\n'
+        'esac\n')
+    ctl.chmod(0o755)
+    provision = directory / 'haskoki-provision'
+    provision.write_text(
+        '#!/bin/sh\nset -eu\n'
+        'printf "provision\\n" >> "$CALLS"\n'
+        'printf token > "$(dirname "$HASKOKI_CONFIG")/token.sqlite"\n')
+    provision.chmod(0o755)
+    text = package_data('providers/haskoki/entrypoint.sh').read_text()
+    text = text.replace('. /usr/share/p11lab/common.sh',
+                        package_data('runtime/common.sh').read_text())
+    for original, redirect in [('/var/lib/p11lab', state), ('/run/p11lab', control),
+                               ('/usr/share/p11lab/runtime-id', runtime_id),
+                               ('/usr/local/bin/haskoki-ctl', ctl),
+                               ('/usr/local/bin/haskoki-provision', provision)]:
+        text = text.replace(original, str(redirect))
+    script = directory / 'provider'
+    script.write_text(text)
+    return script, state, control
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+@pytest.mark.parametrize('status', [1, 37, 127])
+def test_haskoki_initial_config_failure_preserves_native_status(tmp_path, shell, status):
+    script, state, control = haskoki_script(tmp_path)
+    calls = tmp_path / 'native-calls'
+    result = subprocess.run([shell, str(script), 'init'], capture_output=True,
+                            text=True, timeout=30, env=os.environ | {
+                                'P11LAB_PIN': '1234', 'P11LAB_SO_PIN': '5678',
+                                'CALLS': str(calls), 'CONFIG_STATUS': str(status)})
+    assert result.returncode == status, result.stdout + result.stderr
+    assert 'native token initialization failed; partial state retained' in result.stderr
+    assert 'native config stdout' in result.stderr
+    assert 'native config diagnostic' in result.stderr
+    assert calls.read_text().splitlines() == ['config check']
+    assert (state / 'haskoki' / 'haskoki.toml').is_file()
+    assert not (state / 'haskoki' / 'token.sqlite').exists()
+    assert not (state / 'haskoki' / 'complete').exists()
+    assert not (state / '.init-lock').exists()
+    assert not list(control.glob('init.*'))
+    assert not list(control.glob('marker.*'))
+
+
+@pytest.mark.parametrize('shell', ['sh', 'bash'])
+def test_haskoki_successful_initial_config_reaches_provisioning(tmp_path, shell):
+    script, state, control = haskoki_script(tmp_path)
+    calls = tmp_path / 'native-calls'
+    result = subprocess.run([shell, str(script), 'init'], capture_output=True,
+                            text=True, timeout=30, env=os.environ | {
+                                'P11LAB_PIN': '1234', 'P11LAB_SO_PIN': '5678',
+                                'CALLS': str(calls), 'CONFIG_STATUS': '0'})
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert calls.read_text().splitlines() == ['config check', 'provision', 'store inspect']
+    assert (state / 'haskoki' / 'token.sqlite').is_file()
+    assert (state / 'haskoki' / 'complete').is_file()
+    assert not (state / '.init-lock').exists()
+    assert not list(control.glob('init.*'))
+    assert not list(control.glob('marker.*'))
+
+
 @pytest.mark.parametrize('data,accepted', [
     (b'1234', True), (b'1234\n', True), (b'1234\n\n', False),
     (b'12\n34', False), (b'1234\r\n', False), (b'1234\0', False),
