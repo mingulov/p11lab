@@ -382,7 +382,10 @@ def test_orchestration_mounts_endpoints_and_cleanup(monkeypatch, tmp_path):
     assert record['artifacts']['client']['sha256'] == CLIENT_BUNDLE.sha256
     assert record['proxy']['tls']['server']['sans'] == ['127.0.0.1', 'localhost', 'provider-daemon']
     assert [stage['phase'] for stage in record['stages']] == [
-        'proxy-build', 'init', 'daemon-start', 'proxy-health', 'application', 'post-health']
+        'proxy-build', 'init', 'daemon-start', 'proxy-health', 'application',
+        'daemon-stop', 'post-health']
+    assert record['stages'][-2] == {
+        'phase': 'daemon-stop', 'container_id': daemon['id'], 'stopped': True}
 
 
 def test_orchestration_refuses_foreign_derivative(monkeypatch, tmp_path):
