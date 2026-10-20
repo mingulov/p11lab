@@ -96,16 +96,16 @@ cleanup_init() {
 complete() {
     [ ! -L "$owned" ] && [ ! -L "$owned/complete" ] && [ ! -L "$owned/tokens" ] || p11lab_die "partial or unsafe state"
     [ -f "$owned/complete" ] && [ -d "$owned/tokens" ] || p11lab_die "partial state: missing completion marker or token directory"
-    [ -n "$(find "$owned/tokens" -mindepth 1 -maxdepth 1 -type d -print -quit)" ] || p11lab_die "partial state: missing initialized token"
+    p11lab_check_find present "partial state: missing initialized token" "$owned/tokens" -mindepth 1 -maxdepth 1 -type d -print -quit
     # Do not enter native enumeration on wholly lost contents: SoftHSM creates
     # auxiliary generation bookkeeping even when opening an invalid empty token.
-    [ -n "$(find "$owned/tokens" -mindepth 1 -type f -print -quit)" ] || p11lab_die "partial state: missing token contents"
+    p11lab_check_find present "partial state: missing token contents" "$owned/tokens" -mindepth 1 -type f -print -quit
     read_metadata "$owned/complete"
     expected=$(expected_marker && printf '.') || p11lab_die "cannot generate completion marker"
     expected=${expected%.}
     [ "$metadata" = "$expected" ] || p11lab_die "incompatible non-secret initialization configuration"
-    [ -z "$(find "$state" -mindepth 1 -maxdepth 1 ! -name softhsm2 -print -quit)" ] || p11lab_die "partial state: unknown files"
-    [ -z "$(find "$owned" -mindepth 1 -maxdepth 1 ! -name tokens ! -name complete -print -quit)" ] || p11lab_die "partial state: unknown owned files"
+    p11lab_check_find empty "partial state: unknown files" "$state" -mindepth 1 -maxdepth 1 ! -name softhsm2 -print -quit
+    p11lab_check_find empty "partial state: unknown owned files" "$owned" -mindepth 1 -maxdepth 1 ! -name tokens ! -name complete -print -quit
     if slots=$("$prefix/payload/bin/softhsm2-util" --module "$P11LAB_MODULE" --show-slots); then
         # This pinned stock utility reports C_GetTokenInfo flags and padded label.
         # Successful enumeration alone also includes the uninitialized free slot.
@@ -142,7 +142,7 @@ case "${1-}" in
         configure
         validate_label
         if [ -e "$owned/complete" ]; then complete; exit 0; fi
-        [ -z "$(find "$state" -mindepth 1 -maxdepth 1 -print -quit)" ] || p11lab_die "partial state: refusing to initialize nonempty volume"
+        p11lab_check_find empty "partial state: refusing to initialize nonempty volume" "$state" -mindepth 1 -maxdepth 1 -print -quit
         p11lab_secret P11LAB_PIN P11LAB_PIN_FILE
         user_credential=$credential
         p11lab_secret P11LAB_SO_PIN P11LAB_SO_PIN_FILE
