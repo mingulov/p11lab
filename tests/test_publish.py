@@ -14,6 +14,7 @@ import pytest
 
 from p11lab import publish
 from p11lab.catalog import load_environment
+from test_native_lifecycle import installed as native_receipt_installation
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -951,6 +952,13 @@ def test_action_run_native_round_trip_keeps_handoff_platform(tmp_path, monkeypat
     def fake_run(argv, *, env, cwd):
         if argv[1:3] == ["-m", "p11lab"]:
             calls["run"] = list(argv)
+            output = Path(argv[argv.index("--output-dir") + 1])
+            output.mkdir()
+            record = _action_receipt_record(mode="native")
+            record["artifacts"]["provider"] = {
+                "kind": "bundle", "reference": str((output.parent / "bundle/bundle.tar.gz").resolve()),
+                "sha256": bundle_digest, "platform": platform}
+            (output / "receipt.json").write_text(json.dumps(record))
             return 0
         target = Path(argv[argv.index("-o") + 1])
         if target.name == "handoff":
@@ -977,6 +985,9 @@ def test_action_run_native_round_trip_keeps_handoff_platform(tmp_path, monkeypat
     assert run[run.index("--installed-prefix") + 1].endswith("prefix")
     assert run[run.index("--platform") + 1] == platform
     assert run.count("--platform") == 1
+    outputs = dict(line.split("=", 1) for line in (tmp_path / "rundir/action-outputs.env").read_text().splitlines())
+    assert outputs["receipt-path"] == str(tmp_path / "rundir/run-output/receipt.json")
+    assert outputs["app-returncode"] == "0"
 
 
 def test_malformed_documents_fail_as_gate_messages(tmp_path):
@@ -1099,7 +1110,7 @@ def test_composite_run_step_passes_caller_inputs_literally(tmp_path):
     assert json.loads(got["--command"])[0] == "python"
 
 
-@pytest.mark.parametrize("second_code", [0, 37, None])
+@pytest.mark.parametrize("second_code", [0, 37, None, "missing-receipt"])
 def test_composite_repeated_runs_collect_only_their_own_receipts(tmp_path, second_code):
     """Exercise real run/collect shells and wrapper; stub only acquisition/run.
 
@@ -1149,10 +1160,17 @@ def test_composite_repeated_runs_collect_only_their_own_receipts(tmp_path, secon
         def fake_run(argv, *, env, cwd):
             if argv[1:4] == ["-m", "p11lab", "run"]:
                 assert "GITHUB_OUTPUT" not in env and "P11LAB_ACTION_INPUTS" not in env
+                if os.environ["TEST_APP_CODE"] == "missing-receipt":
+                    return 2
                 output = Path(argv[argv.index("--output-dir") + 1])
                 output.mkdir(exist_ok=False)
                 code = int(os.environ["TEST_APP_CODE"])
-                (output / "receipt.json").write_text(json.dumps({{"app_returncode": code}}))
+                record = {_action_receipt_record(mode="native")!r}
+                record.update(app_returncode=code, exit_code=code)
+                record["artifacts"]["provider"] = {{"kind": "bundle",
+                    "reference": str((output.parent / "bundle/bundle.tar.gz").resolve()),
+                    "sha256": hashlib.sha256(bundle).hexdigest(), "platform": "linux/amd64"}}
+                (output / "receipt.json").write_text(json.dumps(record))
                 (output / "private-token-state").write_text("not an artifact")
                 return code
             if os.environ["TEST_APP_CODE"] == "fetch-failure":
@@ -1196,8 +1214,12 @@ def test_composite_repeated_runs_collect_only_their_own_receipts(tmp_path, secon
         env.update(GITHUB_OUTPUT=str(run_output), TEST_APP_CODE=str(code) if code is not None else "fetch-failure")
         run = subprocess.run([bash, "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", run_body],
                              cwd=work, env=env, capture_output=True, text=True, timeout=60)
-        assert run.returncode == (1 if code is None else code), run.stderr
+        expected_code = 1 if code is None else 2 if code == "missing-receipt" else code
+        assert run.returncode == expected_code, run.stderr
         step_outputs = read_outputs(run_output)
+        if code == "missing-receipt":
+            assert step_outputs["exit-code"] == "2"
+            assert step_outputs["receipt-path"] == step_outputs["app-returncode"] == ""
         for var, bound in collect_bindings.items():
             match = re.fullmatch(r"\$\{\{ steps\.run\.outputs\['([a-z-]+)'\] \}\}", bound)
             assert match, bound
@@ -1211,11 +1233,15 @@ def test_composite_repeated_runs_collect_only_their_own_receipts(tmp_path, secon
         if code is None:
             assert outputs == {"exit-code": "1"}
             continue
-        assert outputs["exit-code"] == outputs["app-returncode"] == str(code)
         assert set(outputs) == {"exit-code", "app-returncode", "receipt-path", "handoff-sha256"}
+        if code == "missing-receipt":
+            assert outputs["exit-code"] == "2"
+            assert outputs["receipt-path"] == outputs["app-returncode"] == ""
+            continue
+        assert outputs["exit-code"] == outputs["app-returncode"] == str(code)
         receipt = Path(outputs["receipt-path"])
         assert receipt.relative_to(runner_temp).parts[-2:] == ("run-output", "receipt.json")
-        assert json.loads(receipt.read_text()) == {"app_returncode": code}
+        assert json.loads(receipt.read_text())["app_returncode"] == code
         # Uploading this exact output selects only the receipt, never its
         # sibling token state or the wrapper's ORAS auth/handoff/bundle tree.
         assert receipt.is_file() and (receipt.parent / "private-token-state").is_file()
@@ -1223,7 +1249,7 @@ def test_composite_repeated_runs_collect_only_their_own_receipts(tmp_path, secon
         assert "/private/pin" not in collect_output.read_text()
         receipts.append(receipt)
     assert len(set(receipts)) == len(receipts)
-    assert json.loads(receipts[0].read_text()) == {"app_returncode": 0}
+    assert json.loads(receipts[0].read_text())["app_returncode"] == 0
     assert not (work / "ALLOCATION-INJECTED").exists()
 
 
@@ -1369,3 +1395,348 @@ def test_action_receipt_artifact_example_selects_only_public_receipt():
     assert "id: provider" in example
     public_outputs = (ROOT / "action.yml").read_text().split("outputs:\n", 1)[1].split("\nruns:", 1)[0]
     assert "run-dir:" not in public_outputs
+
+
+@pytest.fixture
+def action_with_stubbed_acquisition(tmp_path, monkeypatch):
+    """Real wrapper with only remote acquisition and image inspection stubbed."""
+    from types import SimpleNamespace
+
+    module = _action_run_module()
+    registry = "127.0.0.1:5050/p11lab"
+    engine_id = "sha256:" + "aa" * 32
+    handoff = {
+        "schema_version": 1, "registry": registry,
+        "catalogue": {"environment": "softhsm2", "channel": "release", "runtime_role": "runtime"},
+        "source": {"manifest_sha256": "dd" * 32, "tag": "source",
+                   "reference": registry + "@sha256:" + "dd" * 32, "file_sha256": "ee" * 32},
+        "binary": {"kind": "image", "manifest_sha256": "cc" * 32, "tag": "binary",
+                   "reference": registry + "@sha256:" + "cc" * 32, "engine_id": engine_id},
+        "admission": {"status": "eligible", "blockers": []},
+        "readback": {}, "producer": {}, "exposure": {},
+    }
+    github_output = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+
+    def run(application, inputs=""):
+        def acquisition_or_application(argv, *, env, cwd):
+            if argv[1:4] == ["-m", "p11lab", "run"]:
+                return application(argv)
+            if argv[:2] == ["docker", "pull"]:
+                return 0
+            target = Path(argv[argv.index("-o") + 1])
+            (target / "handoff.json").write_text(json.dumps(handoff))
+            return 0
+
+        def inspect_image(argv, **kwargs):
+            assert argv[:3] == ["docker", "image", "inspect"]
+            return SimpleNamespace(returncode=0, stdout=engine_id + "\n", stderr="")
+
+        monkeypatch.setattr(module, "_run", acquisition_or_application)
+        monkeypatch.setattr(module.subprocess, "run", inspect_image)
+        run_dir = tmp_path / "run"
+        code = module.main([
+            "--environment", "softhsm2", "--channel", "release", "--mode", "direct",
+            "--registry", registry, "--handoff-digest", "sha256:" + "ff" * 32,
+            "--command", '["app"]', "--inputs", inputs, "--timeout", "300",
+            "--working-directory", str(tmp_path), "--oras", "oras", "--run-dir", str(run_dir)])
+        serialized = (run_dir / "action-outputs.env").read_text()
+        assert serialized == github_output.read_text()
+        outputs = dict(line.split("=", 1) for line in serialized.splitlines())
+        assert set(outputs) == {"exit-code", "app-returncode", "receipt-path", "handoff-sha256"}
+        return code, outputs, run_dir / "run-output" / "receipt.json"
+
+    return run
+
+
+def test_action_preflight_missing_pin_does_not_advertise_receipt(tmp_path, action_with_stubbed_acquisition, capsys):
+    from p11lab.cli import main as cli_main
+
+    code, outputs, receipt = action_with_stubbed_acquisition(
+        lambda argv: cli_main(argv[3:]), "P11LAB_PIN_FILE=" + str(tmp_path / "missing-pin"))
+    assert code == 2
+    assert outputs["exit-code"] == "2"
+    assert not receipt.exists()
+    assert outputs["receipt-path"] == outputs["app-returncode"] == ""
+    assert "Traceback" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("kind", [
+    "missing", "directory", "file-symlink", "parent-symlink", "malformed-json", "invalid-utf8",
+    "json-list", "json-null", "newline-returncode", "boolean-returncode", "object-returncode",
+    "file-reparse", "parent-reparse", "unreadable",
+])
+def test_action_does_not_export_unsafe_or_malformed_receipt(tmp_path, monkeypatch, action_with_stubbed_acquisition, capsys, kind):
+    def application(argv):
+        output = Path(argv[argv.index("--output-dir") + 1])
+        output.mkdir()
+        receipt = output / "receipt.json"
+        if kind == "missing":
+            pass
+        elif kind == "directory":
+            receipt.mkdir()
+            (receipt / "private-key").write_text("not evidence")
+        elif kind == "file-symlink":
+            private = tmp_path / "private.json"
+            private.write_text(json.dumps(_action_receipt_record(app_returncode=37, exit_code=37)
+                                          | {"private": "not evidence"}))
+            receipt.symlink_to(private)
+        elif kind == "parent-symlink":
+            private = tmp_path / "private-output"
+            private.mkdir()
+            (private / "receipt.json").write_text(json.dumps(
+                _action_receipt_record(app_returncode=37, exit_code=37) | {"private": "not evidence"}))
+            output.rmdir()
+            output.symlink_to(private, target_is_directory=True)
+        elif kind in {"file-reparse", "parent-reparse", "unreadable"}:
+            receipt.write_text(json.dumps(_action_receipt_record(app_returncode=37, exit_code=37)))
+            if kind == "unreadable":
+                original = Path.read_text
+
+                def read_text(path, *args, **kwargs):
+                    if path == receipt:
+                        raise PermissionError("fixture unreadable receipt")
+                    return original(path, *args, **kwargs)
+
+                monkeypatch.setattr(Path, "read_text", read_text)
+            else:
+                import stat
+                from types import SimpleNamespace
+                original = Path.lstat
+
+                def lstat(path, *args, **kwargs):
+                    info = original(path, *args, **kwargs)
+                    if path == (receipt if kind == "file-reparse" else output):
+                        return SimpleNamespace(st_mode=info.st_mode,
+                                               st_file_attributes=stat.FILE_ATTRIBUTE_REPARSE_POINT)
+                    return info
+
+                monkeypatch.setattr(Path, "lstat", lstat)
+        else:
+            contents = {
+                "malformed-json": b"not json", "invalid-utf8": b"\xff", "json-list": b"[]", "json-null": b"null",
+                "newline-returncode": b'{"app_returncode":"37\\nreceipt-path=/private/key"}',
+                "boolean-returncode": b'{"app_returncode":true}',
+                "object-returncode": b'{"app_returncode":{"private":"not evidence"}}',
+            }
+            if kind.endswith("-returncode"):
+                record = _action_receipt_record(app_returncode=37, exit_code=37)
+                record["app_returncode"] = json.loads(contents[kind])["app_returncode"]
+                receipt.write_text(json.dumps(record))
+            else:
+                receipt.write_bytes(contents[kind])
+        return 37
+
+    code, outputs, _ = action_with_stubbed_acquisition(application)
+    assert code == 37 and outputs["exit-code"] == "37"
+    assert outputs["receipt-path"] == outputs["app-returncode"] == ""
+    errors = capsys.readouterr().err
+    assert "Traceback" not in errors
+    if kind != "missing":
+        assert "receipt" in errors and "not evidence" not in errors
+
+
+@pytest.mark.parametrize("returncode", [None, 0, 37, -15])
+def test_action_exports_valid_regular_receipt(action_with_stubbed_acquisition, returncode):
+    def application(argv):
+        output = Path(argv[argv.index("--output-dir") + 1])
+        output.mkdir()
+        record = _action_receipt_record(app_returncode=returncode, exit_code=37)
+        (output / "receipt.json").write_text(json.dumps(record))
+        return 37
+
+    code, outputs, receipt = action_with_stubbed_acquisition(application)
+    assert code == 37 and outputs["exit-code"] == "37"
+    assert outputs["receipt-path"] == str(receipt)
+    assert outputs["app-returncode"] == ("" if returncode is None else str(returncode))
+
+
+def _action_receipt_record(*, mode="direct", app_returncode=0, exit_code=0):
+    """Complete mode-specific fixture following the existing lifecycle writers."""
+    engine_id = "sha256:" + "aa" * 32
+    record = {
+        "schema_version": 1, "attempt_id": "12" * 16,
+        "environment": "softhsm2", "channel": "release", "mode": mode,
+        "execution_location": "provider" if mode == "direct" else "host",
+        "artifacts": {"provider": {"kind": "docker-local", "reference": engine_id,
+                                  "sha256": "aa" * 32, "platform": "linux/amd64"},
+                      "consumer": None, "client": None},
+        "execution": {"argv_count": 1}, "state": {}, "stages": [],
+        "app_returncode": app_returncode, "app_completed": app_returncode is not None,
+        "timeout": False, "interrupted_signal": None,
+        "lifecycle_errors": [], "cleanup_errors": [], "exit_code": exit_code,
+    }
+    if mode == "direct":
+        record.update(run_id="34" * 16, inputs={}, owned_resources=[], uncertain_resources=[],
+                      image_observation={"Id": engine_id, "Descriptor": None, "platform": "linux/amd64"})
+    else:
+        record.update(installation={"prefix": "prefix", "manifest_sha256": "ab" * 32,
+                                    "receipt_path": "prefix/.p11lab-install.json", "receipt_sha256": "cd" * 32},
+                      runtime={})
+    return record
+
+
+@pytest.mark.parametrize("change", [
+    "empty", "app-only", "missing-outcomes", "missing-attempt", "missing-run", "wrong-schema",
+    "wrong-environment", "wrong-channel", "wrong-mode", "wrong-location", "wrong-exit",
+    "wrong-artifact", "wrong-image", "bad-attempt", "bad-completed", "bad-errors",
+    "duplicate-key", "nonfinite-json", "deep-json",
+])
+def test_action_rejects_partial_or_mismatched_receipt(action_with_stubbed_acquisition, change, capsys):
+    def application(argv):
+        record = _action_receipt_record(app_returncode=37, exit_code=37)
+        if change in {"duplicate-key", "nonfinite-json", "deep-json"}:
+            pass
+        elif change == "empty":
+            record = {}
+        elif change == "app-only":
+            record = {"app_returncode": 37}
+        elif change == "missing-outcomes":
+            del record["cleanup_errors"]
+        elif change == "missing-attempt":
+            del record["attempt_id"]
+        elif change == "missing-run":
+            del record["run_id"]
+        elif change == "wrong-artifact":
+            record["artifacts"]["provider"]["sha256"] = "ff" * 32
+        elif change == "wrong-image":
+            record["image_observation"]["Id"] = "sha256:" + "ff" * 32
+        else:
+            field, value = {
+                "wrong-schema": ("schema_version", True), "wrong-environment": ("environment", "haskoki"),
+                "wrong-channel": ("channel", "rolling"), "wrong-mode": ("mode", "native"),
+                "wrong-location": ("execution_location", "host"), "wrong-exit": ("exit_code", 0),
+                "bad-attempt": ("attempt_id", "other"), "bad-completed": ("app_completed", "yes"),
+                "bad-errors": ("lifecycle_errors", "none"),
+            }[change]
+            record[field] = value
+        output = Path(argv[argv.index("--output-dir") + 1])
+        output.mkdir()
+        serialized = json.dumps(record)
+        if change == "duplicate-key":
+            serialized = serialized.replace('"schema_version": 1', '"schema_version": 0, "schema_version": 1')
+        elif change == "nonfinite-json":
+            serialized = serialized[:-1] + ', "extra": NaN}'
+        elif change == "deep-json":
+            serialized = '[' * 10000 + '0' + ']' * 10000
+        (output / "receipt.json").write_text(serialized)
+        return 37
+
+    code, outputs, _ = action_with_stubbed_acquisition(application)
+    assert code == 37 and outputs["exit-code"] == "37"
+    assert outputs["receipt-path"] == outputs["app-returncode"] == ""
+    assert "receipt" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("collision", [False, True])
+def test_action_real_receipt_writer_boundary(tmp_path, monkeypatch, action_with_stubbed_acquisition, collision):
+    from p11lab.cli import main as cli_main
+    from p11lab import run as run_module
+    from p11lab.docker import CommandResult
+
+    class Engine:
+        def __init__(self):
+            self.commands = []
+
+        def image(self, artifact):
+            return {"Id": "sha256:" + "aa" * 32}
+
+        def volume(self, name, labels, state_directory):
+            return name
+
+        def create(self, image, argv, options, labels, name):
+            self.commands.append(argv)
+            return str(len(self.commands) - 1)
+
+        def execute(self, identity, timeout, interrupted):
+            if self.commands[int(identity)][0] == "exec":
+                if collision:
+                    receipt_directory = tmp_path / "run/run-output/receipt.json"
+                    receipt_directory.mkdir()
+                    (receipt_directory / "private-token-state").write_text("not a public receipt")
+                return CommandResult(37, "", "")
+            return CommandResult(0, "", "")
+
+        def remove(self, kind, identity, labels):
+            pass
+
+    monkeypatch.setattr(run_module, "Docker", Engine)
+    code, outputs, receipt = action_with_stubbed_acquisition(lambda argv: cli_main(argv[3:]))
+    assert code == (2 if collision else 37)
+    assert outputs["exit-code"] == str(code)
+    if collision:
+        assert receipt.is_dir() and (receipt / "private-token-state").is_file()
+        assert outputs["receipt-path"] == outputs["app-returncode"] == ""
+    else:
+        assert receipt.is_file()
+        assert outputs["receipt-path"] == str(receipt)
+        assert outputs["app-returncode"] == "37"
+
+
+@pytest.mark.parametrize("application_exit", [37, -15])
+def test_action_real_native_receipt_boundary(tmp_path, monkeypatch, native_receipt_installation, application_exit):
+    """Real install/CLI/lifecycle/writer; fixture adapter, no provider qualification."""
+    import subprocess
+    import sys
+    from types import SimpleNamespace
+    from p11lab.cli import main as cli_main
+
+    module = _action_run_module()
+    artifact = native_receipt_installation.artifact
+    bundle_bytes = Path(artifact.reference).read_bytes()
+    registry = "127.0.0.1:5050/p11lab"
+    handoff = {
+        "schema_version": 1, "registry": registry,
+        "catalogue": {"environment": "softhsm2", "channel": "release", "runtime_role": "native"},
+        "source": {"manifest_sha256": "dd" * 32, "tag": "source",
+                   "reference": registry + "@sha256:" + "dd" * 32, "file_sha256": "ee" * 32},
+        "binary": {"kind": "bundle", "manifest_sha256": "cc" * 32, "tag": "binary",
+                   "reference": registry + "@sha256:" + "cc" * 32,
+                   "file_sha256": artifact.sha256, "platform": artifact.platform},
+        "admission": {"status": "eligible", "blockers": []},
+        "readback": {}, "producer": {}, "exposure": {},
+    }
+
+    def acquisition_or_cli(argv, *, env, cwd):
+        if argv[1:4] == ["-m", "p11lab", "run"]:
+            # Keep the real CLI process boundary and process supervision:
+            # signal results are normalized by the producer, not the action.
+            driver = ("from p11lab import native; "
+                      "native.preflight_native = lambda *args: {'scope': 'unit fixture'}; "
+                      "from p11lab.cli import main; raise SystemExit(main())")
+            return real_subprocess_run([sys.executable, "-c", driver, *argv[3:]],
+                                       cwd=cwd, env=env | {"PYTHONPATH": str(ROOT / "src")}).returncode
+        target = Path(argv[argv.index("-o") + 1])
+        if target.name == "handoff":
+            (target / "handoff.json").write_text(json.dumps(handoff))
+        else:
+            (target / "bundle.tar.gz").write_bytes(bundle_bytes)
+        return 0
+
+    real_subprocess_run = subprocess.run
+
+    def install_or_subprocess(argv, **kwargs):
+        if argv[1:4] == ["-m", "p11lab", "install"]:
+            return SimpleNamespace(returncode=cli_main(argv[3:]), stdout="", stderr="")
+        return real_subprocess_run(argv, **kwargs)
+
+    monkeypatch.setattr(module, "_run", acquisition_or_cli)
+    monkeypatch.setattr(module.subprocess, "run", install_or_subprocess)
+    github_output = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+    run_dir = tmp_path / "action-run"
+    code = module.main([
+        "--environment", "softhsm2", "--channel", "release", "--mode", "native",
+        "--registry", registry, "--handoff-digest", "sha256:" + "ff" * 32,
+        "--command", json.dumps([sys.executable, "-c", "raise SystemExit(37)" if application_exit == 37
+                                  else "import os, signal; os.kill(os.getpid(), signal.SIGTERM)"]),
+        "--timeout", "30", "--working-directory", str(tmp_path), "--oras", "oras", "--run-dir", str(run_dir)])
+    expected_code = 37 if application_exit == 37 else 143
+    assert code == expected_code
+    serialized = (run_dir / "action-outputs.env").read_text()
+    assert serialized == github_output.read_text()
+    outputs = dict(line.split("=", 1) for line in serialized.splitlines())
+    assert outputs["exit-code"] == outputs["app-returncode"] == str(expected_code)
+    assert outputs["receipt-path"] == str(run_dir / "run-output/receipt.json")
+    receipt = json.loads(Path(outputs["receipt-path"]).read_text())
+    assert receipt["mode"] == "native" and "run_id" not in receipt

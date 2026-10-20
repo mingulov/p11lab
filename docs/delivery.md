@@ -124,6 +124,10 @@ glob, or `RUNNER_TEMP`: these broader paths may include token state,
 credentials, provider configuration, and downloaded bundles. Give each
 invocation's receipt artifact a distinct name. Failures before application
 execution may have no receipt; collection never falls back to a prior run.
+Missing, non-regular, malformed, or invocation-mismatched receipts leave
+`receipt-path` and `app-returncode` empty without changing `exit-code`.
+Receipt shape and invocation checks are not provider qualification or
+proof of authenticity against caller-controlled host processes.
 
 Direct mode needs Linux runners with Docker; native mode needs the
 bundle's host floor instead (Debian 13 amd64, or the Windows floor for
